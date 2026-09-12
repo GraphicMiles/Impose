@@ -1667,3 +1667,7 @@ details.snap pre { margin: 8px 0 2px; max-height: 180px; overflow: auto; font-si
 #extSendBtn.armed { background: var(--warn); border-color: transparent; color: #141414; }
 
 #extDraftBtn { margin-bottom: 12px; }
+
+.paste-mode { border-top: 1px solid var(--border-soft); margin-top: 14px; padding-top: 12px; }
+.paste-title { font-size: 14px; margin: 0 0 8px; }
+#extPasteDraft, #extPasteCopy { margin-bottom: 12px; }

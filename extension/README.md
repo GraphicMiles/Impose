@@ -16,6 +16,14 @@ your own browser.
 To update after a Nova release: return to `chrome://extensions` and
 press the reload icon on Nova Agent Bridge.
 
+## Mobile: use paste mode
+
+Chrome on Android cannot run extensions, and the old workaround
+browsers are discontinued. On your phone, open Agent actions in Nova
+and scroll to paste mode: copy the conversation from your X app,
+paste it in, draft, and copy the reply back. No install. The
+extension stays the desktop path for true one-tap sending.
+
 ## How a send works
 
 1. Open x.com in a tab and log in there.

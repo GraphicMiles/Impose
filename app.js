@@ -4493,7 +4493,7 @@
   }
 
   function setExtBusy(busy) {
-    ["extTabsBtn", "extReadBtn", "extThreadsBtn", "extProbeBtn", "extDraftBtn", "extSendBtn"].forEach(function (id) {
+    ["extTabsBtn", "extReadBtn", "extThreadsBtn", "extProbeBtn", "extDraftBtn", "extSendBtn", "extPasteDraft"].forEach(function (id) {
       var b = $(id);
       if (b) b.disabled = busy;
     });
@@ -4607,20 +4607,42 @@
     });
   }
 
-  function extDraft() {
+  function draftReply(convo, instr) {
     var t = getTarget();
-    if (!t) { toast("Add a provider first: drafting needs a model."); return; }
-    if (!ext.snapshot) { toast("Read the page first so Nova can see the conversation."); return; }
-    var instr = $("extInstr").value.trim() || "Reply helpfully and briefly.";
-    setExtBusy(true);
-    extLog("draft", instr, true);
-    completeOnce(t.provider, t.model, [{ role: "user", content:
+    if (!t) { toast("Add a provider first: drafting needs a model."); return null; }
+    return completeOnce(t.provider, t.model, [{ role: "user", content:
       "You are helping reply to a DM conversation on X. Read the conversation, follow the instruction, " +
       "and output ONLY the reply text: no quotes, no commentary, no placeholders.\n\nConversation:\n" +
-      ext.snapshot.slice(0, 3500) + "\n\nInstruction: " + instr }]).then(function (text) {
+      String(convo).slice(0, 3500) + "\n\nInstruction: " + (instr || "Reply helpfully and briefly.") }]);
+  }
+
+  function extDraft() {
+    if (!ext.snapshot) { toast("Read the page first so Nova can see the conversation."); return; }
+    var instr = $("extInstr").value.trim();
+    var p = draftReply(ext.snapshot, instr);
+    if (!p) return;
+    setExtBusy(true);
+    extLog("draft", instr || "Reply helpfully and briefly.", true);
+    p.then(function (text) {
       setExtBusy(false);
       $("extReply").value = String(text || "").trim();
       if (!$("extReply").value) toast.error("The draft came back empty. Try again.");
+    }, function (err) {
+      setExtBusy(false);
+      toast.error("Draft failed: " + String((err && err.message) || err));
+    });
+  }
+
+  function pasteDraft() {
+    var convo = $("extPaste").value.trim();
+    if (!convo) { toast("Paste the conversation first."); return; }
+    var p = draftReply(convo, $("extPasteInstr").value.trim());
+    if (!p) return;
+    setExtBusy(true);
+    p.then(function (text) {
+      setExtBusy(false);
+      $("extPasteOut").value = String(text || "").trim();
+      if (!$("extPasteOut").value) toast.error("The draft came back empty. Try again.");
     }, function (err) {
       setExtBusy(false);
       toast.error("Draft failed: " + String((err && err.message) || err));
@@ -4692,6 +4714,12 @@
   $("extThreadsBtn").addEventListener("click", extThreads);
   $("extProbeBtn").addEventListener("click", extProbe);
   $("extDraftBtn").addEventListener("click", extDraft);
+  $("extPasteDraft").addEventListener("click", pasteDraft);
+  $("extPasteCopy").addEventListener("click", function () {
+    var v = $("extPasteOut").value.trim();
+    if (!v) { toast("Nothing to copy yet."); return; }
+    copyText(v, "Draft copied. Paste it into your X app.");
+  });
   $("extSendBtn").addEventListener("click", extSendReply);
   renderExtLog();
   extPing(true);
