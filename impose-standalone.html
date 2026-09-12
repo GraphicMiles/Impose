@@ -3874,8 +3874,57 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   var titling = {};
   var stream = null; // canned: { timer, thinkTimer, ... } live: { live, controller, text, ... }
 
+  var quotaTrimming = false;
+
+  function payloadJson() {
+    return JSON.stringify({ chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, settings: state.settings });
+  }
+
+  /* Quota rescue: photos are the only heavy part of the store, so drop them
+     oldest first until the payload fits again, then tell the user exactly
+     what happened. Never silently: a silent failed save is how people lose
+     a whole history. */
+  function trimOldestImages() {
+    var LIMIT = 3 * 1024 * 1024;
+    var order = state.chats.slice().sort(function (a, b) { return (a.updatedAt || 0) - (b.updatedAt || 0); });
+    var removed = 0;
+    for (var i = 0; i < order.length; i++) {
+      var ms = order[i].messages || [];
+      for (var j = 0; j < ms.length; j++) {
+        if (ms[j] && ms[j].images && ms[j].images.length) {
+          removed += ms[j].images.length;
+          delete ms[j].images;
+          if (payloadJson().length < LIMIT) return removed;
+        }
+      }
+    }
+    return removed;
+  }
+
   function save() {
-    store.write(JSON.stringify({ chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, settings: state.settings }));
+    try {
+      store.write(payloadJson());
+      return;
+    }
+    catch (e) {
+      var quota = e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014);
+      if (!quota) return; /* sandboxed iframe: keep everything in memory */
+      if (quotaTrimming) return;
+      quotaTrimming = true;
+      try {
+        var removed = trimOldestImages();
+        store.write(payloadJson());
+        toast(removed
+          ? "Browser storage was full. " + removed + " older image" + (removed === 1 ? " was" : "s were") + " removed to make space."
+          : "Browser storage is full. Export your chats, then delete a few old ones.");
+        dnote("storage", "Quota hit; removed " + removed + " images to fit");
+      }
+      catch (e2) {
+        toast("Browser storage is full. Export your chats, then delete a few old ones.");
+        dfail("storage", "Save failed even after trimming: " + String((e2 && e2.message) || e2));
+      }
+      quotaTrimming = false;
+    }
   }
 
   function getChat(id) {
@@ -3934,13 +3983,21 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function isPrivateHost(h) {
-    h = String(h || "").toLowerCase();
+    h = String(h || "").toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
     if (h === "localhost" || h.slice(-10) === ".localhost" || h.slice(-6) === ".local") return true;
-    if (h === "127.0.0.1" || h === "::1" || h === "[::1]") return true;
+    if (h.indexOf("::ffff:") === 0) h = h.slice(7); /* IPv4-mapped IPv6 */
+    if (h === "::1" || h === "::") return true;
+    if (/^f[cd][0-9a-f]{2}:/.test(h)) return true; /* IPv6 unique local fc00::/7 */
+    if (/^fe[89ab][0-9a-f]:/.test(h)) return true; /* IPv6 link local fe80::/10 */
     var m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
     if (!m) return false;
     var a = +m[1], b = +m[2];
-    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+    /* loopback, this host, RFC1918, carrier NAT range aside: these are all
+       "inside the building", which is the only place plain http is allowed */
+    return a === 127 || a === 10 || a === 0 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254);
   }
 
   /* null when fine, otherwise the sentence to show. Plain http is allowed on
@@ -4040,6 +4097,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   function withTimeout(ms) {
     if (window.AbortSignal && AbortSignal.timeout) return AbortSignal.timeout(ms);
+    /* Older browsers: build the same thing by hand instead of returning
+       undefined, which meant "no timeout at all" and an editor stuck busy. */
+    if (window.AbortController) {
+      var c = new AbortController();
+      setTimeout(function () { try { c.abort(); } catch (e) { /* noop */ } }, ms);
+      return c.signal;
+    }
     return undefined;
   }
 
@@ -4056,7 +4120,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var t = String(id).toLowerCase();
     var s = 0;
     if (/embed|whisper|tts|dall|image|moderation|guard|transcri|realtime|audio|vision/.test(t)) s -= 3;
-    if (/gpt|Muse|gemini|llama|mixtral|mistral|grok|deepseek|qwen|sonnet|opus|haiku|chat|instruct|turbo/.test(t)) s += 2;
+    if (/gpt|gemini|llama|mixtral|mistral|grok|deepseek|qwen|sonnet|opus|haiku|chat|instruct|turbo/.test(t)) s += 2;
     return s;
   }
 
@@ -4089,9 +4153,43 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return "The relay refused this request (" + code + ")." + tail;
   }
 
+  /* Is the relay's GPU gateway answering? /health is open by design, so no
+     key is needed to poll it. */
+  function relayGatewayUp(cfg, signal) {
+    var opts = { cache: "no-store" };
+    if (signal) opts.signal = signal;
+    else opts.signal = withTimeout(8000);
+    return fetch(stripSlash(cfg.url) + "/health", opts).then(function (r) {
+      if (!r.ok) return false;
+      return r.json().then(function (d) { return !!(d && d.gateway_up === true); }, function () { return false; });
+    }, function () { return false; });
+  }
+
+  /* A 503 "waking up" answer means the relay already started the box. Poll
+     until the gateway answers (about 5 minutes max) instead of leaving the
+     person to hammer the retry button themselves. */
+  function waitRelayWake(cfg, signal) {
+    var STEPS = 30, STEP_MS = 10000;
+    function step(i) {
+      if (signal && signal.aborted) {
+        var err = new Error("stopped");
+        err.name = "AbortError";
+        return Promise.reject(err);
+      }
+      return relayGatewayUp(cfg, signal).then(function (up) {
+        if (up) return true;
+        if (i >= STEPS) return false;
+        return new Promise(function (res) { setTimeout(res, STEP_MS); }).then(function () {
+          return step(i + 1);
+        });
+      });
+    }
+    return step(0);
+  }
+
   /* One request sent server to server through the relay, for providers that
      block browsers. Replies arrive whole: no streaming on this path. */
-  function relayFetchReq(req, method, bodyObj, signal) {
+  function relayFetchReq(req, method, bodyObj, signal, depth) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
     if (!cfg.key) return Promise.reject(new Error("Add the relay key in the provider editor under Advanced, Relay."));
@@ -4138,6 +4236,16 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       dnote("net", method + " " + sanitizeUrl(req.url) + " via relay -> " + env.status + " (" + ms() + "ms)" + failTail);
       if (bodyText.charAt(0) === "<" && /cloudflare/i.test(bodyText)) {
         throw new Error("A firewall in front of the provider blocked this request (" + env.status + "). The provider may block your region or servers.");
+      }
+      /* The box was asleep and is starting. Wait for it, then send this same
+         request once more. depth keeps a wake loop from ever going infinite. */
+      if (env.status === 503 && /waking/i.test(bodyText) && !depth) {
+        dnote("relay", "Model is waking; waiting for the gateway");
+        return waitRelayWake(cfg, signal).then(function (up) {
+          if (!up) throw new Error("The model is still waking up. It usually takes 1 to 3 minutes. Try again in a moment.");
+          dnote("relay", "Gateway is up; sending again");
+          return relayFetchReq(req, method, bodyObj, signal, 1);
+        });
       }
       return {
         ok: env.status >= 200 && env.status < 300,
@@ -4275,8 +4383,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       req = buildRequest(like, "/models/" + encodeURIComponent(model) + ":generateContent");
       body = { contents: [{ parts: [{ text: "Hi" }] }] };
     } else {
+      /* No max_tokens here: o-series and gpt-5-class models reject it in
+         favor of max_completion_tokens, and the probe only asks "does this
+         model answer". Chat never sends the field either. */
       req = buildRequest(like, "/chat/completions");
-      body = { model: model, max_tokens: 1, messages: [{ role: "user", content: "Hi" }], stream: false };
+      body = { model: model, messages: [{ role: "user", content: "Hi" }], stream: false };
     }
     req.headers["Content-Type"] = "application/json";
     if (like && like.useRelay) {
@@ -4304,16 +4415,22 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function readSSE(res, onData) {
+    function handleLine(line) {
+      line = line.trim();
+      if (line.indexOf("data:") !== 0) return false;
+      var data = line.slice(5).trim();
+      if (data === "[DONE]") return true;
+      if (!data) return false;
+      var parsed = null;
+      try { parsed = JSON.parse(data); }
+      catch (e) { return false; /* partial line */ }
+      onData(parsed); /* an error thrown here fails the stream on purpose */
+      return false;
+    }
     if (!res.body || !res.body.getReader) {
       return res.text().then(function (text) {
         text.split("\n").forEach(function (line) {
-          line = line.trim();
-          if (line.indexOf("data:") === 0) {
-            var data = line.slice(5).trim();
-            if (data && data !== "[DONE]") {
-              try { onData(JSON.parse(data)); } catch (e) { /* partial line */ }
-            }
-          }
+          handleLine(line);
         });
       });
     }
@@ -4322,19 +4439,18 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var buf = "";
     function pump() {
       return reader.read().then(function (part) {
-        if (part.done) return;
+        if (part.done) {
+          /* Some providers close right after the last chunk with no trailing
+             newline. Flush what is left instead of dropping it. */
+          if (buf.trim()) handleLine(buf);
+          return;
+        }
         buf += decoder.decode(part.value, { stream: true });
         var idx;
         while ((idx = buf.indexOf("\n")) >= 0) {
-          var line = buf.slice(0, idx).trim();
+          var line = buf.slice(0, idx);
           buf = buf.slice(idx + 1);
-          if (line.indexOf("data:") === 0) {
-            var data = line.slice(5).trim();
-            if (data === "[DONE]") return;
-            if (data) {
-              try { onData(JSON.parse(data)); } catch (e) { /* partial line */ }
-            }
-          }
+          if (handleLine(line)) return; /* [DONE] */
         }
         return pump();
       });
@@ -4398,6 +4514,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       .then(function (res) {
         return throwIfHttpError(provider, model, res).then(function () {
           return readSSE(res, function (d) {
+            /* The relay appends this event when the upstream died
+               mid-generation, so a cut-off answer is never mistaken for a
+               complete one. */
+            if (d && d.error && d.error.type === "impose_truncated_stream") {
+              throw new Error("The reply stream ended early, so part of the answer may be missing.");
+            }
             var choice = d.choices && d.choices[0];
             var delta = choice && (choice.delta || choice.message);
             if (delta && delta.content) onDelta(delta.content);
@@ -4832,14 +4954,53 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   /* ---------- modals ---------- */
 
+  /* Modals keep focus inside themselves while open and hand it back to
+     whatever opened them on close. A stack, because the provider editor
+     opens on top of settings. */
+  var modalStack = [];
+
+  function focusablesIn(el) {
+    return Array.prototype.filter.call(
+      el.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"),
+      function (n) { return !n.disabled && (n.offsetWidth || n.offsetHeight || n === document.activeElement); });
+  }
+
+  function trapTab(e, el) {
+    if (e.key !== "Tab") return;
+    var f = focusablesIn(el);
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
   function openModal(el) {
+    if (!el.getAttribute("role")) el.setAttribute("role", "dialog");
+    el.setAttribute("aria-modal", "true");
     el.hidden = false;
     void el.offsetWidth;
     el.classList.add("open");
+    if (!el.__imposeTrap) {
+      el.__imposeTrap = function (e) { trapTab(e, el); };
+      el.addEventListener("keydown", el.__imposeTrap);
+    }
+    modalStack.push({ el: el, prev: document.activeElement });
+    var f = focusablesIn(el);
+    if (f.length) f[0].focus();
   }
 
   function closeModal(el) {
     el.classList.remove("open");
+    for (var i = modalStack.length - 1; i >= 0; i--) {
+      if (modalStack[i].el === el) {
+        var prev = modalStack[i].prev;
+        modalStack.splice(i, 1);
+        if (prev && prev.focus && document.body.contains(prev)) {
+          try { prev.focus(); } catch (e) { /* element went away */ }
+        }
+        break;
+      }
+    }
     var delay = (el.id === "searchModal" || el.id === "palette" || REDUCED) ? 0 : 220;
     setTimeout(function () {
       if (!el.classList.contains("open")) el.hidden = true;
@@ -5167,12 +5328,28 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       "</div>";
   }
 
+  /* Only real, self contained image data URLs make it into the DOM or the
+     storage. Anything else (a crafted href, a script URL from an imported
+     backup) is dropped before it can become markup. */
+  var IMAGE_URL_RE = /^data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+
+  function safeImageUrls(list) {
+    if (!list || !list.length) return [];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var u = String(list[i] || "");
+      if (u.length <= 14 * 1024 * 1024 && IMAGE_URL_RE.test(u)) out.push(u);
+    }
+    return out;
+  }
+
   function userRowHtml(msg) {
     var text = typeof msg === "string" ? msg : (msg.content || "");
     var imgs = "";
-    if (msg && msg.images && msg.images.length) {
-      imgs = '<div class="bubble-imgs">' + msg.images.map(function (u) {
-        return '<a href="' + u + '" target="_blank" rel="noreferrer noopener"><img src="' + u + '" alt="Attached image"></a>';
+    var pics = msg && msg.images ? safeImageUrls(msg.images) : [];
+    if (pics.length) {
+      imgs = '<div class="bubble-imgs">' + pics.map(function (u) {
+        return '<a href="' + escapeHtml(u) + '" target="_blank" rel="noreferrer noopener"><img src="' + escapeHtml(u) + '" alt="Attached image"></a>';
       }).join("") + "</div>";
     }
     return imgs + '<div class="bubble">' + escapeHtml(text).replace(/\n/g, "<br>") + "</div>" +
@@ -5468,7 +5645,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       clearTimeout(s.thinkTimer);
       clearInterval(s.timer);
       if (s.row && s.row.isConnected && s.chatId === activeId) {
-        finalizeStreamRow(s, true);
+        finalizeStreamRow(s);
       }
     }
   }
@@ -5802,7 +5979,14 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var want = String(current || "").trim().replace(/\s+/g, " ");
     if (want && lines.length) {
       var tail = lines[lines.length - 1];
-      if (tail === "user: " + want || tail.indexOf("user: " + want.slice(0, 120)) === 0) lines.pop();
+      var tailText = tail.indexOf("user: ") === 0 ? tail.slice(6) : null;
+      /* The tail was cut at 300 chars with an ellipsis, so compare on the
+         prefix, or the message just sent shows up twice in the context. */
+      if (tailText != null &&
+          (tailText === want ||
+           (tailText.charAt(tailText.length - 1) === "\u2026" && want.indexOf(tailText.slice(0, -1)) === 0))) {
+        lines.pop();
+      }
     }
     return lines.slice(-6).join("\n");
   }
@@ -6285,13 +6469,16 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (!msg.sources || !msg.sources.length) return html;
     var parts = String(html).split(/(<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>)/g);
     for (var i = 0; i < parts.length; i += 2) {
-      parts[i] = parts[i].replace(/\[(\d{1,2})\]/g, function (m, d) {
+      /* Standalone [n] only: preceded by start, space, or an open bracket,
+         and not glued to a word or a call like arr[1] or footnote defs
+         like "[1]:". Everything else stays plain text. */
+      parts[i] = parts[i].replace(/(^|[\s(>\n])\[(\d{1,2})\](?![\w(:])/g, function (m, pre, d) {
         var n = +d;
         if (n < 1 || n > msg.sources.length) return m;
         var src = msg.sources[n - 1] || {};
         var host = hostOf(src.url || "");
         if (!host) return m;
-        return '<button type="button" class="cite-chip" data-cite="' + n + '" title="' + escapeHtml(host) + '">' +
+        return pre + '<button type="button" class="cite-chip" data-cite="' + n + '" title="' + escapeHtml(host) + '">' +
           '<img class="fav cite-fav" src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=64" alt="" loading="lazy">' +
           escapeHtml(host) + "</button>";
       });
@@ -6690,7 +6877,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   });
   $("paletteBtn").addEventListener("click", openPalette);
   document.addEventListener("keydown", function (e) {
-    if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+    /* Palette is Ctrl/Cmd + Shift + P. Ctrl/Cmd + K belongs to chat search
+       (one handler further down); two launchers on one key was a fight. */
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "p" || e.key === "P")) {
       e.preventDefault();
       if (paletteEl.hidden) openPalette();
       else closePalette();
@@ -7335,7 +7524,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         r.onload = function () {
           var text = String(r.result || "");
           if (/\u0000/.test(text)) resolve({ name: f.name, error: "not a text file" });
-          else resolve({ name: f.name, text: text.slice(0, 100 * 1024) });
+          else resolve({ name: f.name, text: text.slice(0, 100 * 1024), truncated: text.length >= 100 * 1024 && f.size > text.length });
         };
         r.onerror = function () { resolve({ name: f.name, error: "unreadable" }); };
         r.readAsText(f);
@@ -7353,7 +7542,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       renderAttachPreview();
       if (ok.length) {
         var block = ok.map(function (o) {
-          return "File: " + o.name + "\n```\n" + o.text.trim() + "\n```";
+          var head = "File: " + o.name + (o.truncated ? " (first 100KB)" : "");
+          return head + "\n```\n" + o.text.trim() + "\n```";
         }).join("\n\n");
         input.value = (input.value ? input.value.replace(/\s+$/, "") + "\n\n" : "") + block;
         autogrow();
@@ -7556,15 +7746,52 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return "";
   }
 
+  /* Search every message, newest first, not just the title and the last
+     thing the user said. Returns the chat plus where the hit lives, so the
+     result can show real context and the app can jump to the message. */
+  function chatMatch(c, q) {
+    var msgs = c.messages || [];
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      var text = typeof (msgs[i] && msgs[i].content) === "string" ? msgs[i].content : "";
+      if (!text) continue;
+      var at = text.toLowerCase().indexOf(q);
+      if (at === -1) continue;
+      var start = Math.max(0, at - 40);
+      var end = Math.min(text.length, at + q.length + 60);
+      var snip = text.slice(start, end).replace(/\s+/g, " ").trim();
+      return { c: c, mi: i, snippet: (start > 0 ? "\u2026" : "") + snip + (end < text.length ? "\u2026" : "") };
+    }
+    if (c.title.toLowerCase().indexOf(q) > -1) return { c: c, mi: -1, snippet: snippetFor(c) };
+    return null;
+  }
+
   function runSearch(q) {
     q = q.trim().toLowerCase();
     var sorted = state.chats.slice().sort(function (a, b) { return b.updatedAt - a.updatedAt; });
-    searchMatches = sorted.filter(function (c) {
-      if (!q) return true;
-      return c.title.toLowerCase().indexOf(q) > -1 || snippetFor(c).toLowerCase().indexOf(q) > -1;
-    }).slice(0, 12);
+    if (!q) {
+      searchMatches = sorted.slice(0, 12).map(function (c) { return { c: c, mi: -1, snippet: snippetFor(c) }; });
+    } else {
+      searchMatches = [];
+      for (var i = 0; i < sorted.length && searchMatches.length < 12; i++) {
+        var m = chatMatch(sorted[i], q);
+        if (m) searchMatches.push(m);
+      }
+    }
     searchHot = 0;
     renderSearchResults();
+  }
+
+  function openSearchMatch(match) {
+    closeModal(searchModal);
+    openChat(match.c.id);
+    if (match.mi == null || match.mi < 0) return;
+    setTimeout(function () {
+      var row = messagesEl.querySelector('.msg[data-i="' + match.mi + '"]');
+      if (!row) return;
+      if (row.scrollIntoView) row.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" });
+      row.classList.add("flash");
+      setTimeout(function () { row.classList.remove("flash"); }, 1400);
+    }, 80);
   }
 
   function renderSearchResults() {
@@ -7576,7 +7803,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       searchResults.appendChild(p);
       return;
     }
-    searchMatches.forEach(function (c, i) {
+    searchMatches.forEach(function (m, i) {
       var row = document.createElement("button");
       row.type = "button";
       row.className = "search-row" + (i === searchHot ? " hot" : "");
@@ -7587,15 +7814,14 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       var wrap = document.createElement("span");
       wrap.className = "search-row-text";
       var t = document.createElement("strong");
-      t.textContent = c.title;
+      t.textContent = m.c.title;
       var s = document.createElement("em");
-      s.textContent = snippetFor(c).replace(/\s+/g, " ").slice(0, 90);
+      s.textContent = (m.snippet || "").replace(/\s+/g, " ").slice(0, 90);
       wrap.appendChild(t);
       wrap.appendChild(s);
       row.appendChild(wrap);
       row.addEventListener("click", function () {
-        closeModal(searchModal);
-        openChat(c.id);
+        openSearchMatch(m);
       });
       row.addEventListener("mousemove", function () {
         if (searchHot !== i) {
@@ -7624,11 +7850,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       var hot = searchResults.querySelectorAll(".search-row")[searchHot];
       if (hot && hot.scrollIntoView) hot.scrollIntoView({ block: "nearest" });
     } else if (e.key === "Enter") {
-      var c = searchMatches[searchHot];
-      if (c) {
-        closeModal(searchModal);
-        openChat(c.id);
-      }
+      var m = searchMatches[searchHot];
+      if (m) openSearchMatch(m);
     }
   });
 
@@ -8107,11 +8330,22 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         var have = {};
         state.chats.forEach(function (c) { have[c.id] = true; });
         var added = 0;
+        var droppedImages = 0;
         data.chats.forEach(function (c) {
           if (!c || !c.id || have[c.id] || !Array.isArray(c.messages)) return;
           have[c.id] = true;
           if (!Array.isArray(c.excluded)) c.excluded = [];
+          c.excluded = c.excluded.map(function (d) { return String(d || "").slice(0, 120); });
+          c.title = String(c.title || "Imported chat").slice(0, 80);
           c.messages.forEach(function (m) {
+            if (!m) return;
+            if (typeof m.content !== "string") m.content = "";
+            if (m.images && m.images.length) {
+              var before = m.images.length;
+              m.images = safeImageUrls(m.images);
+              droppedImages += before - m.images.length;
+              if (!m.images.length) delete m.images;
+            }
             if (m && !m.variants && typeof m.content === "string") { m.variants = [m.content]; m.vi = 0; }
           });
           state.chats.push(c);
@@ -8131,7 +8365,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         save();
         renderList();
         toast.success(added === 1 ? "Imported 1 chat." : "Imported " + added + " chats.");
-        dnote("app", "Imported " + added + " chats");
+        if (droppedImages) toast.warn(droppedImages + " attached image" + (droppedImages === 1 ? "" : "s") + " skipped: not valid image data.");
+        dnote("app", "Imported " + added + " chats, skipped " + droppedImages + " bad images");
       } catch (e) {
         toast.error("That file is not a Impose backup.");
       }

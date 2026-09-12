@@ -4,7 +4,10 @@ services:
   - type: web
     name: impose-web
     env: static
-    buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js anime.min.js og-image.jpg dist/ && cp agent/*.js agent/*.css dist/agent/
+    # sw.js, the manifest, the icons and _headers ship too: without them the
+    # service worker never registers, the app is not installable, and the
+    # CSP never applies. Keep this list in sync with new root files.
+    buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js anime.min.js og-image.jpg manifest.json sw.js _headers dist/ && cp icon-*.png dist/ && cp agent/*.js agent/*.css dist/agent/
     staticPublishPath: ./dist
   - type: web
     name: impose-relay
@@ -21,7 +24,10 @@ services:
       - key: LLM_GATEWAY_KEY
         sync: false                  # the box CONTROL_KEY
       - key: ALLOWED_ORIGINS
-        value: "*"
+        # Locked to the site origin. "*" let any page on the internet send
+        # your relay key's requests from anyone's browser. Add your own
+        # domains here (comma separated) if you host the UI elsewhere.
+        value: "https://impose-web.onrender.com"
       - key: WAKE_STUDIO
         value: "0"                   # set "1" to let the relay start/stop the Studio
       - key: WAKE_ON_CHAT

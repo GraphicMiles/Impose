@@ -24,6 +24,7 @@ with everything inlined, so it works from disk with no server.
 - `app.js` state, providers, streaming, markdown renderer, search
 - `lucide.min.js` icon library, vendored so the app works offline
 - `impose-standalone.html` portable single file build
+- `_headers` CSP and security headers for the Render static deploy
 - `build_inline.py` rebuilds the single file build
 
 Rebuild with:
@@ -99,7 +100,8 @@ Notes:
 
 ## Shortcuts
 
-- Cmd/Ctrl + K toggles search
+- Cmd/Ctrl + K toggles chat search
+- Cmd/Ctrl + Shift + P opens the command palette
 - Ctrl + Shift + O starts a new chat
 - Esc closes menus and dialogs
 - Enter sends, Shift + Enter adds a line (this is a setting)

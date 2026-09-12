@@ -35,7 +35,9 @@ Config (env, or a .env file next to this script):
     SEARCH_PROVIDERS default duckduckgo,wikipedia (try order)
     TAVILY_API_KEY / BRAVE_API_KEY / SERPER_API_KEY (optional search keys)
 """
+import atexit
 import hmac
+import json
 import os
 import subprocess
 import sys
@@ -88,6 +90,23 @@ app.add_middleware(
 )
 STARTED_AT = time.time()
 LLM_PROC = None
+
+
+def _reap_llm() -> None:
+    """Do not leave llama-server holding the GPU after the gateway exits."""
+    global LLM_PROC
+    if LLM_PROC is not None and LLM_PROC.poll() is None:
+        try:
+            LLM_PROC.terminate()
+            try:
+                LLM_PROC.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                LLM_PROC.kill()
+        except Exception:
+            pass
+
+
+atexit.register(_reap_llm)
 
 # --------------------------------------------------------------------------- #
 # auth
@@ -151,12 +170,19 @@ def spawn_llm() -> bool:
             stdout=log, stderr=log, start_new_session=True)
     except FileNotFoundError:
         # llama-server not on PATH, try the studio build path
+        found = False
         for cand in (BASE_DIR / "llama-server", Path.home() / "llama.cpp/build/bin/llama-server"):
             if cand.exists():
                 cmd[0] = str(cand)
                 LLM_PROC = subprocess.Popen(
                     cmd, stdout=log, stderr=log, start_new_session=True)
+                found = True
                 break
+        if not found:
+            log.close()  # nobody will ever write through this handle
+    except Exception:
+        log.close()
+        raise
     # give it a few seconds to bind
     for _ in range(60):
         if llm_reachable():
@@ -190,7 +216,13 @@ def models(request: Request):
 @app.post("/v1/chat/completions")
 async def chat(request: Request):
     _authed(request)
-    body = await request.json()
+    raw = await request.body()
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="request body too large (max 10MB)")
+    try:
+        body = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
     if not llm_reachable() and not spawn_llm():
         raise HTTPException(status_code=503, detail="upstream LLM is down")
     req = httpx.Request("POST", f"{LLM_BASE_URL}/v1/chat/completions",
