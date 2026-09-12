@@ -319,6 +319,21 @@ try {
             <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Nova" spellcheck="false"></textarea>
             <p class="fhelp">One per line, written as Name: value.</p>
           </div>
+          <p class="flabel gap">Relay</p>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Send through my relay</strong><span>For providers that block browsers. Replies arrive whole, not streamed.</span></div>
+            <button class="toggle" id="pfRelayToggle" role="switch" aria-checked="false" aria-label="Send through my relay"><span class="knob"></span></button>
+          </div>
+          <div id="pfRelayFields" hidden>
+            <div class="field">
+              <label class="flabel" for="pfRelayUrl">Relay address</label>
+              <input type="text" class="text-input mono" id="pfRelayUrl" placeholder="https://impose-relay.onrender.com" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field">
+              <label class="flabel" for="pfRelayKey">Relay key</label>
+              <input type="password" class="text-input mono" id="pfRelayKey" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
         </div>
         <p class="status-line" id="pfStatus" aria-live="polite"></p>
         <div class="editor-foot">
