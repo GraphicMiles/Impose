@@ -15,6 +15,7 @@ os.environ.setdefault("CONTROL_KEY", "test123")
 
 from relay.images import (  # noqa: E402
     parse_bing_images, parse_ddg_images, parse_openverse, engine_images,
+    _relevant_images,
 )
 import relay.images as images_mod  # noqa: E402
 
@@ -67,6 +68,20 @@ def main():
     ov = parse_openverse(OPENVERSE_JSON)
     check("openverse row", len(ov) == 1 and ov[0]["source"] == "wikimedia", ov)
     check("openverse thumb", ov[0]["thumb"].startswith("https://api.openverse.org/"))
+
+    # the wrong-photos bug: "mark rober" must not match checkmarks or whisky
+    junk = [
+        {"title": "Green check mark icon", "image": "https://x.io/1.png", "thumb": "", "page": "", "source": "icons.test"},
+        {"title": "Checkmark circle logo - Freepik", "image": "https://x.io/2.png", "thumb": "", "page": "", "source": "freepik.test"},
+        {"title": "Maker's Mark Kentucky Whisky", "image": "https://x.io/3.png", "thumb": "", "page": "https://makersmark.test/bottle", "source": "makersmark.test"},
+        {"title": "Mark Rober - YouTube", "image": "https://x.io/4.png", "thumb": "", "page": "https://youtube.test/markrober", "source": "youtube.test"},
+        {"title": "Mark Rober's CrunchLabs", "image": "https://x.io/5.png", "thumb": "", "page": "", "source": "crunchlabs.test"},
+    ]
+    kept = _relevant_images(junk, "mark rober")
+    check("relevance drops checkmarks and whisky", len(kept) == 2
+          and kept[0]["image"] == "https://x.io/4.png", [k["title"] for k in kept])
+    check("relevance passes plain queries", len(_relevant_images(junk, "a")) == 5)
+    check("relevance keeps multiword matches", len(_relevant_images(junk, "mark rober youtube")) == 1)
 
     # live engine run: informational only, sandbox IPs are often challenged
     async def live():

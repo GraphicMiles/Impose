@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from relay.search import AttemptFail, UA
+from relay.search import AttemptFail, UA, _significant
 
 OPENVERSE = "https://api.openverse.org/v1/images/"
 
@@ -109,6 +109,9 @@ async def _bing_images(client, query, limit):
     results = parse_bing_images(r.text)
     if not results:
         raise AttemptFail("no results parsed")
+    results = _relevant_images(results, query)
+    if not results:
+        raise AttemptFail("irrelevant")
     return results[:limit]
 
 
@@ -144,6 +147,9 @@ async def _ddg_images(client, query, limit):
     results = parse_ddg_images(data)
     if not results:
         raise AttemptFail("no results parsed")
+    results = _relevant_images(results, query)
+    if not results:
+        raise AttemptFail("irrelevant")
     return results[:limit]
 
 
@@ -163,7 +169,28 @@ async def _openverse(client, query, limit):
         raise AttemptFail("bad json")
     if not results:
         raise AttemptFail("no results parsed")
+    results = _relevant_images(results, query)
+    if not results:
+        raise AttemptFail("irrelevant")
     return results[:limit]
+
+
+def _relevant_images(results, query):
+    """Keep only results that carry every significant query token on a word
+    boundary. AND instead of OR on purpose: an image query is a subject
+    ("mark rober"), and 'check mark icon' or a whisky bottle share the token
+    'mark' without being the subject. Word boundaries keep 'checkmark' from
+    matching 'mark'. Queries without significant tokens pass untouched."""
+    toks = _significant(query)
+    if not toks:
+        return results
+    keep = []
+    for r in results:
+        blob = " ".join([r.get("title", ""), r.get("source", ""),
+                         r.get("page", "")]).lower()
+        if all(re.search(r"\b" + re.escape(t) + r"\b", blob) for t in toks):
+            keep.append(r)
+    return keep
 
 
 class ImagesFailed(Exception):

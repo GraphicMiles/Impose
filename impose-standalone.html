@@ -5344,7 +5344,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       return Promise.resolve();
     }
     var parts = text.match(/\S+\s+|\S+$/g) || [text];
-    var frames = Math.max(12, Math.min(90, Math.round(parts.length / 2)));
+    /* Pace by length: short lines snap in, long answers unfold for about
+       two seconds -- enough to read as a stream, never as a wall. */
+    var total = Math.min(2400, Math.max(550, text.length * 2.4));
+    /* one rAF step per frame at ~60fps */
+    var frames = Math.max(12, Math.round(total / 17));
     var perFrame = Math.ceil(parts.length / frames);
     return new Promise(function (resolve, reject) {
       var i = 0;
@@ -6596,7 +6600,15 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   function settleBodyIn(body) {
     if (!body || !body.isConnected) return;
-    play({ targets: body, opacity: [0.5, 1], translateY: [5, 0], duration: 280, ease: EZ("outCubic") });
+    play({ targets: body, opacity: [0.4, 1], translateY: [6, 0], duration: 340, ease: EZ("outCubic") });
+    /* The blur bridges the reveal into the settle so it reads as one
+       continuous focus pull. WAAPI keeps it off the main thread. */
+    if (!REDUCED && body.animate) {
+      try {
+        body.animate([{ filter: "blur(5px)" }, { filter: "blur(0px)" }],
+          { duration: 320, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+      } catch (e) { /* older engines just get the fade */ }
+    }
   }
 
   function countUpStats(row, msg) {
@@ -7942,7 +7954,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       imgbox.setAttribute("aria-label", "Image preview");
       document.body.appendChild(imgbox);
       imgbox.addEventListener("click", function (e) {
-        if (e.target === imgbox || e.target.classList.contains("imgbox-x")) closeImgbox();
+        /* Taps land on the icon inside the button, so match the button
+           through the tree, and treat any tap outside the figure as close. */
+        if (e.target === imgbox || e.target.closest(".imgbox-x") ||
+            !e.target.closest(".imgbox-fig")) closeImgbox();
       });
     }
     var full = tile.getAttribute("data-full") || "";
