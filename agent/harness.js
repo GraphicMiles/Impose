@@ -73,12 +73,16 @@
        deps: query, search(q, limit), complete(system, user, onDelta),
        emit(event), onDelta(chunk), rewrite(text) (optional, a promise of a
        search query; empty or rejected falls back to the raw words),
-       signal (optional AbortSignal), excluded (optional array of domains). */
+       signal (optional AbortSignal), excluded (optional array of domains),
+       context (optional string of recent turns, used to resolve follow-ups). */
     function runAgent(deps) {
       var tool;
       try { tool = resolve("search"); }
       catch (e) { return Promise.reject(e); }
       var question = deps.query;
+      var ctxBlock = deps.context && String(deps.context).trim()
+        ? "Conversation so far:\n" + String(deps.context).trim() + "\n\n" : "";
+      function withContext(q) { return ctxBlock + "Question: " + q; }
       function abortErr() {
         var err = new Error("stopped");
         err.name = "AbortError";
@@ -87,7 +91,7 @@
       function plan() {
         if (typeof deps.rewrite !== "function") return Promise.resolve(question);
         deps.emit({ t: "status", text: "Planning the search" });
-        return Promise.resolve().then(function () { return deps.rewrite(question); }).then(function (q) {
+        return Promise.resolve().then(function () { return deps.rewrite(question, deps.context || ""); }).then(function (q) {
           q = q == null ? "" : String(q).trim();
           if (!q || q.length > 500) return question;
           return q;
@@ -106,8 +110,8 @@
             deps.emit({ t: "settle", text: "Searched the web" });
             var bare = "You are Nova, a helpful assistant. The web search found nothing for this question. " +
               "Say so in one short line, then answer from your own knowledge anyway. " +
-              "Never refuse a question you can answer, and never ask the user to provide evidence.";
-            return deps.complete(bare, question, deps.onDelta, deps.onThink).then(function () {
+              "Never refuse a question you can answer, and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
+            return deps.complete(bare, withContext(question), deps.onDelta, deps.onThink).then(function () {
               return { sources: [], provider: out.provider || "" };
             });
           }
@@ -123,8 +127,8 @@
           var system = "You are Nova, a helpful assistant. Use the evidence below when it answers the question, " +
             "and cite sources by number like [1]. If the evidence is off topic or too thin, say the search missed " +
             "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
-            "and never ask the user to provide evidence.";
-          return deps.complete(system, question + "\n\nEvidence:\n" + lines, deps.onDelta, deps.onThink).then(function () {
+            "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
+          return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + lines, deps.onDelta, deps.onThink).then(function () {
             return { sources: results, provider: out.provider };
           });
         });
