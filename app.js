@@ -458,7 +458,7 @@
   }
 
   function defaultSettings() {
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "" };
+    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "", searchMode: false };
   }
 
   function loadState() {
@@ -1699,6 +1699,127 @@
     });
   }
 
+  function syncSearchBtn() {
+    var on = !!state.settings.searchMode;
+    $("searchBtn").setAttribute("aria-pressed", on ? "true" : "false");
+    $("searchBtn").title = on ? "Deep search is on" : "Deep search the web";
+  }
+
+  function fetchSearchViaRelay(query, limit, signal) {
+    var cfg = relayCfg();
+    if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
+    if (!cfg.key) return Promise.reject(new Error("Add the relay key in the provider editor under Advanced, Relay."));
+    var url = stripSlash(cfg.url) + "/v1/search";
+    var t0 = (window.performance && performance.now()) || Date.now();
+    var opts = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      body: JSON.stringify({ query: query, limit: limit || 8 })
+    };
+    if (signal) opts.signal = signal;
+    return fetch(url, opts).then(function (res) {
+      var now = (window.performance && performance.now()) || Date.now();
+      dnote("net", "POST " + sanitizeUrl(url) + " -> " + res.status + " (" + Math.round(now - t0) + "ms)");
+      if (res.status === 401) throw new Error("That relay key was rejected. Check it on the relay dashboard.");
+      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+        throw new Error("The search came back unreadable.");
+      });
+    }).then(function (env) {
+      if (env.status !== 200) throw new Error((env.data && env.data.detail) || ("Search failed (" + env.status + ")."));
+      return { results: env.data.results || [], provider: env.data.provider || "" };
+    }, function (err) {
+      if (err && err.name === "AbortError") throw err;
+      if (err && err.name === "TypeError") throw new Error("Could not reach the relay. Check the relay address.");
+      throw err;
+    });
+  }
+
+  function streamResearched(chat, provider, model, userText) {
+    var idx = chat.messages.length;
+    chat.messages.push({ role: "assistant", content: "", ts: Date.now() });
+    var row = document.createElement("div");
+    row.className = "msg assistant";
+    row.dataset.i = idx;
+    row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span></span></div>';
+    messagesEl.appendChild(row);
+    var trace = window.NovaTrace.mountTrace(row, { active: "Thinking" });
+    refreshIcons();
+    setStreamingUI(true);
+    if (isNearBottom()) scrollBottom();
+
+    var s = {
+      live: true,
+      chatId: chat.id,
+      index: idx,
+      row: row,
+      body: row.querySelector(".msg-body"),
+      text: "",
+      dirty: false,
+      raf: 0,
+      controller: ("AbortController" in window) ? new AbortController() : null,
+      stopped: false,
+      done: false
+    };
+    stream = s;
+
+    function renderFrame() {
+      s.raf = 0;
+      if (stream !== s || !s.dirty) return;
+      s.dirty = false;
+      var stick = isNearBottom();
+      if (s.body.isConnected) {
+        s.body.innerHTML = renderMarkdown(s.text) + '<span class="cursor"></span>';
+      }
+      if (stick) scrollBottom();
+    }
+
+    var shown = 0;
+    function emit(ev) {
+      if (!row.isConnected) return;
+      if (ev.t === "status") trace.setStatus(ev.text);
+      else if (ev.t === "query") trace.addRow({ kind: "query", primary: ev.q, mono: true });
+      else if (ev.t === "source") {
+        if (shown < 5) trace.addRow({ primary: ev.title, secondary: ev.sub, href: ev.href });
+        shown++;
+      }
+      else if (ev.t === "more") trace.setMore(ev.n);
+      else if (ev.t === "settle") {
+        trace.settle(ev.text);
+        if (s.body.isConnected) s.body.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+      }
+      refreshIcons();
+      if (isNearBottom()) scrollBottom();
+    }
+
+    var signal = s.controller ? s.controller.signal : undefined;
+    window.NovaHarness.harness.runAgent({
+      query: userText,
+      signal: signal,
+      emit: emit,
+      search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
+      onDelta: function (chunk) {
+        if (stream !== s) return;
+        s.text += chunk;
+        s.dirty = true;
+        if (!s.raf) s.raf = requestAnimationFrame(renderFrame);
+      },
+      complete: function (system, user, onDelta) {
+        /* One user message on purpose: the Anthropic shape rejects a system
+           role inside messages, and a single user message is valid on all
+           three provider shapes. */
+        return streamChat(provider, model, [{ role: "user", content: system + "\n\n" + user }], signal, onDelta);
+      }
+    }).then(function () {
+      finishLive(s, false, null);
+    }, function (err) {
+      if (err && err.name !== "AbortError") {
+        if (s.body.isConnected) trace.settle("Search failed");
+        if (!s.text) s.text = err.message;
+      }
+      finishLive(s, true, err);
+    });
+  }
+
   function send(text) {
     text = (text || "").trim();
     clearTraceDemo();
@@ -1750,7 +1871,12 @@
       chat.providerId = t.provider.id;
       save();
       dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
-      streamLive(chat, t.provider, t.model, historyFor(chat.messages), null);
+      if (state.settings.searchMode && window.NovaHarness) {
+        dnote("chat", "Research via " + providerDisplay(t.provider));
+        streamResearched(chat, t.provider, t.model, text);
+      } else {
+        streamLive(chat, t.provider, t.model, historyFor(chat.messages), null);
+      }
     } else {
       dnote("chat", "Chat via demo replies");
       streamAssistant(chat, generateReply(text));
@@ -2250,6 +2376,13 @@
 
   wireToggle("tglEnter", "enterToSend");
   wireToggle("tglChips", "showChips", applyChipsVisibility);
+
+  $("searchBtn").addEventListener("click", function () {
+    state.settings.searchMode = !state.settings.searchMode;
+    save();
+    syncSearchBtn();
+    toast(state.settings.searchMode ? "Deep search on. Answers will cite the web." : "Deep search off.");
+  });
 
   $("settingsClose").addEventListener("click", function () { closeModal(settingsModal); });
   settingsModal.addEventListener("pointerdown", function (e) {
@@ -2851,6 +2984,7 @@
     syncSend();
     refreshIcons();
     dnote("app", "Ready. " + state.providers.length + " providers, " + state.chats.length + " chats, " + state.settings.theme + " theme.");
+    syncSearchBtn();
     if (/[?&]demo=trace\b/.test(window.location.search)) playTraceDemo();
   }
 

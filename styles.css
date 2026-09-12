@@ -1280,3 +1280,9 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .pick-row strong { font-size: 12.5px; font-weight: 500; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pick-row em { font-style: normal; font-size: 11.5px; color: var(--text-3); }
 .pick-row em:empty { display: none; }
+
+/* Deep search composer toggle: pressed state. */
+.icon-btn[aria-pressed="true"] {
+  background: var(--seg-active);
+  color: var(--text);
+}

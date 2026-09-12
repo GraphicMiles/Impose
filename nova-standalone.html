@@ -1291,6 +1291,12 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .pick-row em { font-style: normal; font-size: 11.5px; color: var(--text-3); }
 .pick-row em:empty { display: none; }
 
+/* Deep search composer toggle: pressed state. */
+.icon-btn[aria-pressed="true"] {
+  background: var(--seg-active);
+  color: var(--text);
+}
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -1840,6 +1846,9 @@ try {
     <div class="composer-row">
       <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files" aria-haspopup="menu">
         <i data-lucide="plus"></i>
+      </button>
+      <button class="icon-btn" id="searchBtn" title="Deep search the web" aria-label="Deep search the web" aria-pressed="false">
+        <i data-lucide="search"></i>
       </button>
       <div class="composer-spacer"></div>
       <button class="icon-btn" id="micBtn" title="Voice input" aria-label="Voice input">
@@ -2452,6 +2461,143 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
 </script>
 <script>
+/* Nova agent harness: a tiny plugin registry plus the one tool that exists
+   today (websearch). A second tool later is one registerTool call and
+   nothing else. Nothing here touches the DOM; the app injects search,
+   complete, and emit. Loads in the browser as window.NovaHarness and
+   under node via require. */
+(function () {
+  "use strict";
+
+  function getRoot() {
+    if (typeof globalThis !== "undefined") return globalThis;
+    return typeof window !== "undefined" ? window : {};
+  }
+
+  function domainOf(url) {
+    try { return new URL(String(url)).hostname.replace(/^www\./, ""); }
+    catch (e) { return ""; }
+  }
+
+  /* Second attempt helper: strip question framing so a failed query gets
+     one simpler retry before the run admits defeat. */
+  function simplifyQuery(q) {
+    var s = String(q || "").replace(/[?.,!;:()[\]"]+/g, " ").replace(/\s+/g, " ").trim();
+    s = s.replace(/^(who|what|whats|when|where|why|how|is|are|was|were|do|does|did|can|could|should|would|will|the|a|an)\b\s*/i, "");
+    return s.trim();
+  }
+
+  var websearchTool = {
+    id: "web.search",
+    version: "1.0",
+    description: "Searches the web and returns ranked results with sources.",
+    capabilities: ["search"],
+    inputSchema: { query: "string, 1 to 500 chars", limit: "int, 1 to 20" },
+    run: function (args, ctx) {
+      var query = args && typeof args.query === "string" ? args.query.trim() : "";
+      if (!query) return Promise.reject(new Error("Search needs a query."));
+      if (query.length > 500) return Promise.reject(new Error("Search query is too long."));
+      var limit = args && args.limit ? Math.max(1, Math.min(20, parseInt(args.limit, 10) || 8)) : 8;
+      ctx.emit({ t: "query", q: query });
+      return ctx.search(query, limit).then(function (out) {
+        var results = (out && out.results) || [];
+        if (results.length > 0) {
+          return { results: results, provider: out.provider || "", query: query, retried: false };
+        }
+        var simpler = simplifyQuery(query);
+        if (!simpler || simpler === query) {
+          return { results: [], provider: out.provider || "", query: query, retried: false };
+        }
+        ctx.emit({ t: "query", q: simpler });
+        return ctx.search(simpler, limit).then(function (out2) {
+          return {
+            results: (out2 && out2.results) || [],
+            provider: (out2 && out2.provider) || "",
+            query: simpler,
+            retried: true
+          };
+        });
+      });
+    }
+  };
+
+  function createHarness() {
+    var tools = [];
+
+    function resolve(capability) {
+      for (var i = 0; i < tools.length; i++) {
+        if (tools[i].capabilities.indexOf(capability) !== -1) return tools[i];
+      }
+      throw new Error("No tool registered for capability: " + capability);
+    }
+
+    /* One researched answer: search, then complete with the evidence.
+       deps: query, search(q, limit), complete(system, user, onDelta),
+       emit(event), onDelta(chunk), signal (optional AbortSignal). */
+    function runAgent(deps) {
+      var tool;
+      try { tool = resolve("search"); }
+      catch (e) { return Promise.reject(e); }
+      deps.emit({ t: "status", text: "Searching the web" });
+      return tool.run({ query: deps.query, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
+        if (deps.signal && deps.signal.aborted) {
+          var stopped = new Error("stopped");
+          stopped.name = "AbortError";
+          throw stopped;
+        }
+        if (!out.results || out.results.length === 0) {
+          throw new Error("The search came back empty. Try fewer or different words.");
+        }
+        out.results.forEach(function (r) {
+          deps.emit({ t: "source", title: r.title || r.url, sub: domainOf(r.url), href: r.url });
+        });
+        if (out.results.length > 5) deps.emit({ t: "more", n: out.results.length - 5 });
+        deps.emit({ t: "settle", text: "Searched the web" });
+        var lines = out.results.map(function (r, i) {
+          return "[" + (i + 1) + "] " + (r.title || r.url) + "\n" + r.url + "\n" + (r.snippet || "");
+        }).join("\n\n");
+        var system = "You are Nova, a helpful assistant. Answer ONLY from the evidence below. " +
+          "Cite sources by number like [1]. If the evidence is thin, say so plainly.";
+        return deps.complete(system, deps.query + "\n\nEvidence:\n" + lines, deps.onDelta).then(function () {
+          return { sources: out.results, provider: out.provider };
+        });
+      });
+    }
+
+    return {
+      registerTool: function (tool) {
+        if (!tool || typeof tool.id !== "string" || !tool.id) throw new Error("Tool needs a string id.");
+        if (Object.prototype.toString.call(tool.capabilities) !== "[object Array]" || tool.capabilities.length === 0) {
+          throw new Error("Tool needs a non-empty capabilities array.");
+        }
+        if (typeof tool.run !== "function") throw new Error("Tool needs a run function.");
+        for (var i = 0; i < tools.length; i++) {
+          if (tools[i].id === tool.id) throw new Error("Tool already registered: " + tool.id);
+        }
+        tools.push(tool);
+        return tool;
+      },
+      resolve: resolve,
+      tools: function () { return tools.slice(); },
+      runAgent: runAgent
+    };
+  }
+
+  var api = {
+    createHarness: createHarness,
+    simplifyQuery: simplifyQuery,
+    domainOf: domainOf,
+    websearchTool: websearchTool,
+    harness: createHarness()
+  };
+  api.harness.registerTool(websearchTool);
+
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else getRoot().NovaHarness = api;
+})();
+
+</script>
+<script>
 /* Nova chat client. Bring your own key: providers speak OpenAI style,
    Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
@@ -2912,7 +3058,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function defaultSettings() {
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "" };
+    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "", searchMode: false };
   }
 
   function loadState() {
@@ -4153,6 +4299,127 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
   }
 
+  function syncSearchBtn() {
+    var on = !!state.settings.searchMode;
+    $("searchBtn").setAttribute("aria-pressed", on ? "true" : "false");
+    $("searchBtn").title = on ? "Deep search is on" : "Deep search the web";
+  }
+
+  function fetchSearchViaRelay(query, limit, signal) {
+    var cfg = relayCfg();
+    if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
+    if (!cfg.key) return Promise.reject(new Error("Add the relay key in the provider editor under Advanced, Relay."));
+    var url = stripSlash(cfg.url) + "/v1/search";
+    var t0 = (window.performance && performance.now()) || Date.now();
+    var opts = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      body: JSON.stringify({ query: query, limit: limit || 8 })
+    };
+    if (signal) opts.signal = signal;
+    return fetch(url, opts).then(function (res) {
+      var now = (window.performance && performance.now()) || Date.now();
+      dnote("net", "POST " + sanitizeUrl(url) + " -> " + res.status + " (" + Math.round(now - t0) + "ms)");
+      if (res.status === 401) throw new Error("That relay key was rejected. Check it on the relay dashboard.");
+      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+        throw new Error("The search came back unreadable.");
+      });
+    }).then(function (env) {
+      if (env.status !== 200) throw new Error((env.data && env.data.detail) || ("Search failed (" + env.status + ")."));
+      return { results: env.data.results || [], provider: env.data.provider || "" };
+    }, function (err) {
+      if (err && err.name === "AbortError") throw err;
+      if (err && err.name === "TypeError") throw new Error("Could not reach the relay. Check the relay address.");
+      throw err;
+    });
+  }
+
+  function streamResearched(chat, provider, model, userText) {
+    var idx = chat.messages.length;
+    chat.messages.push({ role: "assistant", content: "", ts: Date.now() });
+    var row = document.createElement("div");
+    row.className = "msg assistant";
+    row.dataset.i = idx;
+    row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span></span></div>';
+    messagesEl.appendChild(row);
+    var trace = window.NovaTrace.mountTrace(row, { active: "Thinking" });
+    refreshIcons();
+    setStreamingUI(true);
+    if (isNearBottom()) scrollBottom();
+
+    var s = {
+      live: true,
+      chatId: chat.id,
+      index: idx,
+      row: row,
+      body: row.querySelector(".msg-body"),
+      text: "",
+      dirty: false,
+      raf: 0,
+      controller: ("AbortController" in window) ? new AbortController() : null,
+      stopped: false,
+      done: false
+    };
+    stream = s;
+
+    function renderFrame() {
+      s.raf = 0;
+      if (stream !== s || !s.dirty) return;
+      s.dirty = false;
+      var stick = isNearBottom();
+      if (s.body.isConnected) {
+        s.body.innerHTML = renderMarkdown(s.text) + '<span class="cursor"></span>';
+      }
+      if (stick) scrollBottom();
+    }
+
+    var shown = 0;
+    function emit(ev) {
+      if (!row.isConnected) return;
+      if (ev.t === "status") trace.setStatus(ev.text);
+      else if (ev.t === "query") trace.addRow({ kind: "query", primary: ev.q, mono: true });
+      else if (ev.t === "source") {
+        if (shown < 5) trace.addRow({ primary: ev.title, secondary: ev.sub, href: ev.href });
+        shown++;
+      }
+      else if (ev.t === "more") trace.setMore(ev.n);
+      else if (ev.t === "settle") {
+        trace.settle(ev.text);
+        if (s.body.isConnected) s.body.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+      }
+      refreshIcons();
+      if (isNearBottom()) scrollBottom();
+    }
+
+    var signal = s.controller ? s.controller.signal : undefined;
+    window.NovaHarness.harness.runAgent({
+      query: userText,
+      signal: signal,
+      emit: emit,
+      search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
+      onDelta: function (chunk) {
+        if (stream !== s) return;
+        s.text += chunk;
+        s.dirty = true;
+        if (!s.raf) s.raf = requestAnimationFrame(renderFrame);
+      },
+      complete: function (system, user, onDelta) {
+        /* One user message on purpose: the Anthropic shape rejects a system
+           role inside messages, and a single user message is valid on all
+           three provider shapes. */
+        return streamChat(provider, model, [{ role: "user", content: system + "\n\n" + user }], signal, onDelta);
+      }
+    }).then(function () {
+      finishLive(s, false, null);
+    }, function (err) {
+      if (err && err.name !== "AbortError") {
+        if (s.body.isConnected) trace.settle("Search failed");
+        if (!s.text) s.text = err.message;
+      }
+      finishLive(s, true, err);
+    });
+  }
+
   function send(text) {
     text = (text || "").trim();
     clearTraceDemo();
@@ -4204,7 +4471,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       chat.providerId = t.provider.id;
       save();
       dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
-      streamLive(chat, t.provider, t.model, historyFor(chat.messages), null);
+      if (state.settings.searchMode && window.NovaHarness) {
+        dnote("chat", "Research via " + providerDisplay(t.provider));
+        streamResearched(chat, t.provider, t.model, text);
+      } else {
+        streamLive(chat, t.provider, t.model, historyFor(chat.messages), null);
+      }
     } else {
       dnote("chat", "Chat via demo replies");
       streamAssistant(chat, generateReply(text));
@@ -4704,6 +4976,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   wireToggle("tglEnter", "enterToSend");
   wireToggle("tglChips", "showChips", applyChipsVisibility);
+
+  $("searchBtn").addEventListener("click", function () {
+    state.settings.searchMode = !state.settings.searchMode;
+    save();
+    syncSearchBtn();
+    toast(state.settings.searchMode ? "Deep search on. Answers will cite the web." : "Deep search off.");
+  });
 
   $("settingsClose").addEventListener("click", function () { closeModal(settingsModal); });
   settingsModal.addEventListener("pointerdown", function (e) {
@@ -5305,6 +5584,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     syncSend();
     refreshIcons();
     dnote("app", "Ready. " + state.providers.length + " providers, " + state.chats.length + " chats, " + state.settings.theme + " theme.");
+    syncSearchBtn();
     if (/[?&]demo=trace\b/.test(window.location.search)) playTraceDemo();
   }
 

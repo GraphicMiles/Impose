@@ -1,5 +1,9 @@
 # Niche Autonomous Agent Harness: Web Search First
 
+> Course correction (2026-09-12): the user scrapped the multi-phase plan.
+> Build a small harness with a plugin point plus websearch done well.
+> This file stays as background; the live design is agent/harness.js.
+
 Source: user brief, 2026-09-12. This file is the working spec. The brief is
 preserved here in condensed but faithful form so later phases do not lose it.
 

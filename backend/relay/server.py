@@ -41,6 +41,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
+from relay.search import SearchFailed, engine_search
 
 BASE_DIR = Path(os.environ.get("CP_DIR", str(Path(__file__).resolve().parent)))
 ENV_FILE = BASE_DIR / ".env"
@@ -313,23 +314,46 @@ async def chat(request: Request):
 
 @app.api_route("/v1/search", methods=["GET", "POST"])
 async def search_proxy(request: Request):
+    """Keyless web search for the agent (SearXNG, Bing HTML, DDG HTML)."""
     _authed(request)
-    if not gateway_reachable():
-        _need_wake()
-    touch_activity()
-    url = f"{GATEWAY_URL}/v1/search"
-    if request.url.query:
-        url += "?" + request.url.query
-    body = await request.body() if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            data = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="body must be JSON")
+        query = str(data.get("query", ""))
+        limit = data.get("limit", 8)
+        domains = data.get("domains")
+        freshness = data.get("freshness")
+        language = data.get("language", "en")
+        region = data.get("region")
+    else:
+        q = request.query_params
+        query = str(q.get("query", "") or q.get("q", ""))
+        limit = q.get("limit", 8)
+        raw_domains = q.get("domains")
+        domains = raw_domains.split(",") if raw_domains else None
+        freshness = q.get("freshness")
+        language = q.get("language", "en")
+        region = q.get("region")
+    query = query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    if len(query) > 500:
+        raise HTTPException(status_code=400, detail="query is too long (max 500 chars)")
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.request(request.method, url,
-                                     headers=_gateway_headers(), content=body)
+        limit = max(1, min(20, int(limit)))
     except Exception:
-        raise HTTPException(status_code=502, detail="upstream LLM is down")
-    return Response(content=r.content,
-                    media_type=r.headers.get("content-type", "application/json"),
-                    status_code=r.status_code)
+        raise HTTPException(status_code=400, detail="limit must be 1..20")
+    if domains is not None and not isinstance(domains, list):
+        raise HTTPException(status_code=400, detail="domains must be a list")
+    try:
+        return await engine_search(query, limit=limit, domains=domains,
+                                   freshness=freshness,
+                                   language=str(language or "en"),
+                                   region=region)
+    except SearchFailed as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 # --------------------------------------------------------------------------- #
