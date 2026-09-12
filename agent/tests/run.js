@@ -136,20 +136,25 @@ test("runAgent full flow emits the pipeline", function () {
   });
 });
 
-test("runAgent refuses empty results without completing", function () {
+test("runAgent answers from knowledge when results are empty", function () {
   var s = searchStub([{ results: [] }]);
-  var completed = false;
+  var completed = null;
+  var emits = [];
   return H.harness.runAgent({
     query: "phones",
     search: s.fn,
-    emit: function () {},
+    emit: function (e) { emits.push(e.t); },
     onDelta: function () {},
-    complete: function () { completed = true; return Promise.resolve(); }
-  }).then(function () {
-    throw new Error("should have rejected");
-  }, function (e) {
-    ok(/empty/.test(e.message), "honest error");
-    eq(completed, false, "never completes");
+    complete: function (system, user) {
+      completed = { system: system, user: user };
+      return Promise.resolve();
+    }
+  }).then(function (out) {
+    ok(completed, "completes");
+    ok(completed.system.indexOf("found nothing") !== -1, "says so");
+    eq(completed.user, "phones", "question passed through");
+    eq(emits.join(","), "status,query,settle", "pipeline shown");
+    eq(out.sources.length, 0, "no sources");
   });
 });
 
