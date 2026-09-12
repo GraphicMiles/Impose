@@ -102,6 +102,9 @@ try {
         </button>
       </div>
       <div class="top-right">
+        <button class="icon-btn" id="chatParamsBtn" title="Chat settings" aria-label="Chat settings">
+          <i data-lucide="sliders-horizontal"></i>
+        </button>
         <button class="icon-btn" id="actionsBtn" title="Agent actions" aria-label="Agent actions">
           <i data-lucide="puzzle"></i>
           <span class="ext-dot" id="extDot" hidden></span>
@@ -151,7 +154,8 @@ try {
   <input type="file" id="filePicker" hidden multiple>
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
-    <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Impose"></textarea>
+    <textarea id="input" rows="1" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
+    <div class="ctx-meter" id="ctxMeter" hidden><span class="ctx-fill"></span></div>
     <div class="composer-row">
       <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
         <i data-lucide="plus"></i>
@@ -173,6 +177,10 @@ try {
     </div>
   </div>
   <p class="disclaimer">Impose can make mistakes. Check important info.</p>
+  <div class="pop pop-sm slash-pop" id="slashPop" role="listbox" aria-label="Saved prompts" hidden>
+    <p class="pop-label">Saved prompts</p>
+    <div id="slashList"></div>
+  </div>
 </div>
 
 <div class="pop" id="modelMenu" role="menu" aria-label="Choose model" hidden>
@@ -193,6 +201,12 @@ try {
   </button>
   <button class="pop-item" id="exportMdItem" role="menuitem">
     <i data-lucide="file-text"></i><span>Export Markdown</span>
+  </button>
+  <button class="pop-item" id="shareHtmlItem" role="menuitem">
+    <i data-lucide="globe"></i><span>Share as web page</span>
+  </button>
+  <button class="pop-item" id="dupItem" role="menuitem">
+    <i data-lucide="copy"></i><span>Duplicate chat</span>
   </button>
   <button class="pop-item danger" id="deleteItem" role="menuitem">
     <i data-lucide="trash-2"></i><span>Delete</span>
@@ -256,6 +270,8 @@ try {
     <div class="settings-tabs" role="tablist" aria-label="Settings sections">
       <button type="button" data-stab="general" role="tab" aria-selected="true">General</button>
       <button type="button" data-stab="providers" role="tab" aria-selected="false">Providers</button>
+      <button type="button" data-stab="prompts" role="tab" aria-selected="false">Prompts</button>
+      <button type="button" data-stab="usage" role="tab" aria-selected="false">Usage</button>
       <button type="button" data-stab="data" role="tab" aria-selected="false">Data</button>
     </div>
     <div class="settings-body">
@@ -278,12 +294,53 @@ try {
             <div class="setting-text"><strong>Show suggestions</strong><span>Starter ideas on new chats</span></div>
             <button class="toggle" id="tglChips" role="switch" aria-checked="true" aria-label="Show suggestions"><span class="knob"></span></button>
           </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Smart follow ups</strong><span>Model suggested next messages</span></div>
+            <button class="toggle" id="tglFollow" role="switch" aria-checked="true" aria-label="Smart follow ups"><span class="knob"></span></button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Name chats automatically</strong><span>One small request names new chats</span></div>
+            <button class="toggle" id="tglAutoName" role="switch" aria-checked="true" aria-label="Name chats automatically"><span class="knob"></span></button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Redact personal info</strong><span>Emails, phones, cards, BVN and NIN masked before send</span></div>
+            <button class="toggle" id="tglRedact" role="switch" aria-checked="false" aria-label="Redact personal info"><span class="knob"></span></button>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h3>Memory</h3>
+          <div id="memoryList" class="mem-list"></div>
+          <div class="mem-add">
+            <input type="text" class="text-input" id="memoryInput" placeholder="Add a fact, e.g. Prefers replies in English" autocomplete="off" maxlength="160">
+            <button class="btn" id="memoryAddBtn" type="button"><i data-lucide="plus"></i><span>Add</span></button>
+          </div>
+          <p class="fhelp">Remembered facts are injected into every chat. Nothing leaves this browser until you send a message.</p>
         </section>
       </div>
       <div data-pane="providers" hidden>
+        <div class="relay-card" id="relayCard">
+          <span class="relay-dot off" aria-hidden="true"></span>
+          <span class="relay-text"><strong class="relay-title">No relay connected</strong><em class="relay-sub"></em></span>
+          <button class="icon-btn sm" id="relayRefreshBtn" title="Recheck" aria-label="Recheck the relay"><i data-lucide="rotate-ccw"></i></button>
+          <button class="btn small" id="relayWakeBtn" hidden><i data-lucide="sun"></i><span>Wake</span></button>
+        </div>
         <div id="providerList"></div>
         <button class="btn wide" id="addProviderBtn" type="button"><i data-lucide="plus"></i><span>Add a provider</span></button>
         <p class="pane-note" id="providerNote"></p>
+      </div>
+      <div data-pane="prompts" hidden>
+        <div id="libList"></div>
+        <section class="settings-section">
+          <h3>New prompt</h3>
+          <div class="lib-form">
+            <input type="text" class="text-input" id="libTitle" placeholder="Title, e.g. Invoice follow up" maxlength="60" autocomplete="off">
+            <textarea class="text-input text-area" id="libBody" rows="4" placeholder="Write a firm but polite follow up email to {{client}} about {{topic}}. {{slots}} become fill in fields." spellcheck="false"></textarea>
+            <button class="btn" id="libSaveBtn" type="button"><i data-lucide="plus"></i><span>Save prompt</span></button>
+          </div>
+        </section>
+      </div>
+      <div data-pane="usage" hidden>
+        <div id="usageTable"></div>
       </div>
       <div data-pane="data" hidden>
         <section class="settings-section">
@@ -297,6 +354,19 @@ try {
             <button class="btn" id="importBtn"><i data-lucide="upload"></i><span>Import</span></button>
           </div>
           <input type="file" id="importPicker" accept="application/json,.json" hidden>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Encrypted backup</strong><span>Passphrase protected, AES-GCM. No recovery without the passphrase</span></div>
+            <button class="btn" id="encExportBtn"><i data-lucide="lock"></i><span>Export</span></button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Keep chats for</strong><span>Older chats delete themselves. Pinned chats stay</span></div>
+            <select class="text-input sel" id="retentionSel" aria-label="Keep chats for">
+              <option value="0">Forever</option>
+              <option value="365">1 year</option>
+              <option value="90">90 days</option>
+              <option value="30">30 days</option>
+            </select>
+          </div>
           <div class="setting-row">
             <div class="setting-text"><strong>Delete all chats</strong><span>Press and hold to confirm</span></div>
             <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
@@ -379,6 +449,17 @@ try {
             <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Impose" spellcheck="false"></textarea>
             <p class="fhelp">One per line, written as Name: value.</p>
           </div>
+          <p class="flabel gap">Prices, per million tokens (optional, for cost estimates)</p>
+          <div class="price-row">
+            <div class="field">
+              <label class="flabel" for="pfPriceIn">Input $</label>
+              <input type="number" class="text-input mono" id="pfPriceIn" min="0" step="0.01" placeholder="e.g. 2.50" autocomplete="off">
+            </div>
+            <div class="field">
+              <label class="flabel" for="pfPriceOut">Output $</label>
+              <input type="number" class="text-input mono" id="pfPriceOut" min="0" step="0.01" placeholder="e.g. 10.00" autocomplete="off">
+            </div>
+          </div>
           <p class="flabel gap">Relay</p>
           <div class="setting-row">
             <div class="setting-text"><strong>Send through my relay</strong><span>For providers that block browsers. Replies arrive whole, not streamed.</span></div>
@@ -401,6 +482,97 @@ try {
           <button class="btn primary grow" id="pfSave" type="button"><i data-lucide="check"></i><span>Save</span></button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="pop pop-sm" id="retryMenu" role="menu" aria-label="Regenerate with another model" hidden>
+  <p class="pop-label">Regenerate with</p>
+  <div id="retryMenuList"></div>
+</div>
+
+<div class="overlay center" id="chatParamsModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Chat settings">
+    <div class="settings-head">
+      <h2>Chat settings</h2>
+      <button class="icon-btn" id="cpCancel" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <p class="pane-note">These apply to the current chat only.</p>
+      <div class="field">
+        <label class="flabel" for="cpSystem">Standing instructions</label>
+        <textarea class="text-input mono text-area" id="cpSystem" rows="3" placeholder="e.g. Answer in short paragraphs. You are a Lagos travel planner." spellcheck="false"></textarea>
+      </div>
+      <div class="price-row">
+        <div class="field">
+          <label class="flabel" for="cpTemp">Temperature (0 to 2)</label>
+          <input type="number" class="text-input mono" id="cpTemp" min="0" max="2" step="0.1" placeholder="default" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="flabel" for="cpTopP">Top P (0 to 1)</label>
+          <input type="number" class="text-input mono" id="cpTopP" min="0" max="1" step="0.05" placeholder="default" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="flabel" for="cpMaxTok">Max reply tokens</label>
+          <input type="number" class="text-input mono" id="cpMaxTok" min="1" step="64" placeholder="default" autocomplete="off">
+        </div>
+      </div>
+      <div class="editor-foot">
+        <button class="btn" id="cpReset" type="button"><i data-lucide="rotate-ccw"></i><span>Reset</span></button>
+        <button class="btn primary grow" id="cpSave" type="button"><i data-lucide="check"></i><span>Save</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay center" id="encModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Encrypted backup">
+    <div class="settings-head">
+      <h2 id="encTitle">Create encrypted backup</h2>
+      <button class="icon-btn" id="encCancel" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div class="field">
+        <label class="flabel" for="encPass">Passphrase</label>
+        <input type="password" class="text-input mono" id="encPass" autocomplete="new-password" spellcheck="false">
+      </div>
+      <div class="field" id="encPass2Row">
+        <label class="flabel" for="encPass2">Repeat the passphrase</label>
+        <input type="password" class="text-input mono" id="encPass2" autocomplete="new-password" spellcheck="false">
+      </div>
+      <p class="status-line" id="encStatus" aria-live="polite"></p>
+      <div class="editor-foot">
+        <button class="btn primary grow" id="encGo" type="button"><span>Export</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay center" id="shortcutsModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div class="settings-head">
+      <h2>Keyboard shortcuts</h2>
+      <button class="icon-btn" id="shortcutsClose" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div class="kbd-list">
+        <div class="kbd-row"><span>Search chats</span><kbd>Ctrl</kbd><kbd>K</kbd></div>
+        <div class="kbd-row"><span>Command palette</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>P</kbd></div>
+        <div class="kbd-row"><span>New chat</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>O</kbd></div>
+        <div class="kbd-row"><span>Saved prompts in the composer</span><kbd>/</kbd></div>
+        <div class="kbd-row"><span>This list</span><kbd>?</kbd></div>
+        <div class="kbd-row"><span>Send message</span><kbd>Enter</kbd></div>
+        <div class="kbd-row"><span>New line</span><kbd>Shift</kbd><kbd>Enter</kbd></div>
+        <div class="kbd-row"><span>Edit a reply, save it</span><kbd>Ctrl</kbd><kbd>Enter</kbd></div>
+        <div class="kbd-row"><span>Close menus and dialogs</span><kbd>Esc</kbd></div>
+      </div>
+      <p class="pane-note">On macOS use Cmd where it says Ctrl.</p>
     </div>
   </div>
 </div>
@@ -541,6 +713,7 @@ try {
 <script src="./anime.min.js"></script>
 <script src="./agent/trace.js"></script>
 <script src="./agent/harness.js"></script>
+<script src="./agent/features.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

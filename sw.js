@@ -12,7 +12,8 @@ var CORE = [
   "./app.js",
   "./styles.css",
   "./agent/trace.js",
-  "./agent/harness.js"
+  "./agent/harness.js",
+  "./agent/features.js"
 ];
 
 /* The full precache list: core files plus the assets that rarely change. */
@@ -23,6 +24,7 @@ var PRECACHE = [
   "./styles.css",
   "./agent/trace.js",
   "./agent/harness.js",
+  "./agent/features.js",
   "./agent/trace.css",
   "./lucide.min.js",
   "./anime.min.js",
