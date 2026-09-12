@@ -4,7 +4,7 @@ services:
   - type: web
     name: impose-web
     env: static
-    buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js dist/ && cp agent/*.js agent/*.css dist/agent/
+    buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js anime.min.js dist/ && cp agent/*.js agent/*.css dist/agent/
     staticPublishPath: ./dist
   - type: web
     name: impose-relay
