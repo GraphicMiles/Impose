@@ -510,6 +510,24 @@ try {
         <p class="fhelp">Nothing sends without your tap. Every send is logged below and in the debug log.</p>
         <div class="action-log" id="extLog"></div>
       </div>
+      <div class="paste-mode">
+        <h3 class="paste-title">No extension? Paste mode</h3>
+        <p class="pane-note">On mobile: copy the conversation from your X app, paste it below, draft, then copy the reply back. No install, no login needed.</p>
+        <div class="field">
+          <label class="flabel" for="extPaste">Pasted conversation</label>
+          <textarea class="text-input mono text-area" id="extPaste" rows="4" placeholder="Paste the DM conversation here."></textarea>
+        </div>
+        <div class="field">
+          <label class="flabel" for="extPasteInstr">Instruction</label>
+          <input type="text" class="text-input" id="extPasteInstr" placeholder="e.g. accept politely and ask for Thursday" autocomplete="off">
+        </div>
+        <button class="btn small" id="extPasteDraft" type="button"><i data-lucide="bot"></i><span>Draft reply</span></button>
+        <div class="field">
+          <label class="flabel" for="extPasteOut">Draft</label>
+          <textarea class="text-input mono text-area" id="extPasteOut" rows="3" placeholder="Your draft appears here."></textarea>
+        </div>
+        <button class="btn small" id="extPasteCopy" type="button"><i data-lucide="copy"></i><span>Copy draft</span></button>
+      </div>
     </div>
   </div>
 </div>
