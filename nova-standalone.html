@@ -3090,12 +3090,16 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
        deps: query, search(q, limit), complete(system, user, onDelta),
        emit(event), onDelta(chunk), rewrite(text) (optional, a promise of a
        search query; empty or rejected falls back to the raw words),
-       signal (optional AbortSignal), excluded (optional array of domains). */
+       signal (optional AbortSignal), excluded (optional array of domains),
+       context (optional string of recent turns, used to resolve follow-ups). */
     function runAgent(deps) {
       var tool;
       try { tool = resolve("search"); }
       catch (e) { return Promise.reject(e); }
       var question = deps.query;
+      var ctxBlock = deps.context && String(deps.context).trim()
+        ? "Conversation so far:\n" + String(deps.context).trim() + "\n\n" : "";
+      function withContext(q) { return ctxBlock + "Question: " + q; }
       function abortErr() {
         var err = new Error("stopped");
         err.name = "AbortError";
@@ -3104,7 +3108,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       function plan() {
         if (typeof deps.rewrite !== "function") return Promise.resolve(question);
         deps.emit({ t: "status", text: "Planning the search" });
-        return Promise.resolve().then(function () { return deps.rewrite(question); }).then(function (q) {
+        return Promise.resolve().then(function () { return deps.rewrite(question, deps.context || ""); }).then(function (q) {
           q = q == null ? "" : String(q).trim();
           if (!q || q.length > 500) return question;
           return q;
@@ -3123,8 +3127,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             deps.emit({ t: "settle", text: "Searched the web" });
             var bare = "You are Nova, a helpful assistant. The web search found nothing for this question. " +
               "Say so in one short line, then answer from your own knowledge anyway. " +
-              "Never refuse a question you can answer, and never ask the user to provide evidence.";
-            return deps.complete(bare, question, deps.onDelta, deps.onThink).then(function () {
+              "Never refuse a question you can answer, and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
+            return deps.complete(bare, withContext(question), deps.onDelta, deps.onThink).then(function () {
               return { sources: [], provider: out.provider || "" };
             });
           }
@@ -3140,8 +3144,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           var system = "You are Nova, a helpful assistant. Use the evidence below when it answers the question, " +
             "and cite sources by number like [1]. If the evidence is off topic or too thin, say the search missed " +
             "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
-            "and never ask the user to provide evidence.";
-          return deps.complete(system, question + "\n\nEvidence:\n" + lines, deps.onDelta, deps.onThink).then(function () {
+            "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
+          return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + lines, deps.onDelta, deps.onThink).then(function () {
             return { sources: results, provider: out.provider };
           });
         });
@@ -5616,6 +5620,41 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   /* First line of a rewrite reply, quotes stripped. Empty means the plan
      failed and the run falls back to the user's own words. */
+  /* Last few turns as plain lines, so the agent can resolve follow-ups
+     ("is he married" after talking about MrBeast). Skips empties, which
+     covers the placeholder being regenerated. */
+  function agentContext(chat, current) {
+    var lines = [];
+    var msgs = (chat && chat.messages) || [];
+    for (var i = msgs.length - 1; i >= 0 && lines.length < 7; i--) {
+      var m = msgs[i];
+      var text = m && typeof m.content === "string" ? m.content.trim().replace(/\s+/g, " ") : "";
+      if (!text) continue;
+      if (text.length > 300) text = text.slice(0, 300) + "\u2026";
+      lines.unshift((m.role === "assistant" ? "assistant" : "user") + ": " + text);
+    }
+    var want = String(current || "").trim().replace(/\s+/g, " ");
+    if (want && lines.length) {
+      var tail = lines[lines.length - 1];
+      if (tail === "user: " + want || tail.indexOf("user: " + want.slice(0, 120)) === 0) lines.pop();
+    }
+    return lines.slice(-6).join("\n");
+  }
+
+  /* Fire-and-forget wake for a sleeping relay. Render free spins down on
+     idle and the first request pays the wake, so this moves the wake ahead
+     of the first real request. Silent by design: no log, no toast. */
+  var warmedAt = 0;
+  function warmRelay() {
+    try {
+      if (Date.now() - warmedAt < 60000) return;
+      warmedAt = Date.now();
+      var cfg = relayCfg();
+      if (!cfg.url) return;
+      fetch(stripSlash(cfg.url) + "/health", { method: "GET", mode: "cors", cache: "no-store" }).then(function () {}, function () {});
+    } catch (e) { /* waking is best effort */ }
+  }
+
   function cleanQuery(s) {
     var lines = String(s || "").split("\n");
     var line = "";
@@ -5655,6 +5694,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     refreshIcons();
     trace.setElapsed();
     var tickTimer = setInterval(function () { trace.setElapsed(); }, 100);
+    var slowTimer = setTimeout(function () {
+      if (stream === s && row.isConnected) trace.setStatus("Still working, the relay is waking up");
+    }, 12000);
     setStreamingUI(true);
     if (isNearBottom()) scrollBottom();
 
@@ -5712,6 +5754,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
+        clearTimeout(slowTimer);
         trace.settle(ev.text);
         if (s.body.isConnected) s.body.innerHTML = "";
       }
@@ -5722,14 +5765,19 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var signal = s.controller ? s.controller.signal : undefined;
     window.NovaHarness.harness.runAgent({
       query: userText,
+      context: agentContext(chat, userText),
       signal: signal,
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
       excluded: chat.excluded,
-      rewrite: function (text) {
+      rewrite: function (text, context) {
         return new Promise(function (resolve) {
           var out = "";
-          streamChat(provider, model, [{ role: "user", content: "Rewrite this chat request as one short web search query of 3 to 10 words. Reply with only the query and no quotes.\n\nRequest: " + text }], signal, function (c) { out += c; }).then(function () {
+          var prompt = "Rewrite this chat request as one short web search query of 3 to 10 words. " +
+            "Use the conversation to resolve names and pronouns like he, she, it, or they, so the query names its subject. " +
+            "Reply with only the query and no quotes.\n\n" +
+            (context ? "Conversation:\n" + context + "\n\n" : "") + "Request: " + text;
+          streamChat(provider, model, [{ role: "user", content: prompt }], signal, function (c) { out += c; }).then(function () {
             resolve(cleanQuery(out));
           }, function () { resolve(""); });
         });
@@ -5755,6 +5803,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
     }).then(function (out) {
       clearInterval(tickTimer);
+      clearTimeout(slowTimer);
       var c = getChat(s.chatId);
       var m = c && c.messages[s.index];
       if (m && out && out.sources) {
@@ -5769,6 +5818,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       finishLive(s, false, null);
     }, function (err) {
       clearInterval(tickTimer);
+      clearTimeout(slowTimer);
       if (err && err.name !== "AbortError") {
         if (s.body.isConnected) trace.settle("Search failed");
         if (!s.text) s.text = err.message;
@@ -6733,6 +6783,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var p = activeProvider();
     $("modelName").textContent = providerDisplay(p);
     syncHealth();
+    warmRelay();
   }
 
   function pulseModelLabel() {
@@ -7485,6 +7536,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     state.settings.searchMode = !state.settings.searchMode;
     save();
     syncSearchBtn();
+    if (state.settings.searchMode) warmRelay();
     toast(state.settings.searchMode ? "Deep search on. Answers will cite the web." : "Deep search off.");
   });
 

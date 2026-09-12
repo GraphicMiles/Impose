@@ -2432,6 +2432,41 @@
 
   /* First line of a rewrite reply, quotes stripped. Empty means the plan
      failed and the run falls back to the user's own words. */
+  /* Last few turns as plain lines, so the agent can resolve follow-ups
+     ("is he married" after talking about MrBeast). Skips empties, which
+     covers the placeholder being regenerated. */
+  function agentContext(chat, current) {
+    var lines = [];
+    var msgs = (chat && chat.messages) || [];
+    for (var i = msgs.length - 1; i >= 0 && lines.length < 7; i--) {
+      var m = msgs[i];
+      var text = m && typeof m.content === "string" ? m.content.trim().replace(/\s+/g, " ") : "";
+      if (!text) continue;
+      if (text.length > 300) text = text.slice(0, 300) + "\u2026";
+      lines.unshift((m.role === "assistant" ? "assistant" : "user") + ": " + text);
+    }
+    var want = String(current || "").trim().replace(/\s+/g, " ");
+    if (want && lines.length) {
+      var tail = lines[lines.length - 1];
+      if (tail === "user: " + want || tail.indexOf("user: " + want.slice(0, 120)) === 0) lines.pop();
+    }
+    return lines.slice(-6).join("\n");
+  }
+
+  /* Fire-and-forget wake for a sleeping relay. Render free spins down on
+     idle and the first request pays the wake, so this moves the wake ahead
+     of the first real request. Silent by design: no log, no toast. */
+  var warmedAt = 0;
+  function warmRelay() {
+    try {
+      if (Date.now() - warmedAt < 60000) return;
+      warmedAt = Date.now();
+      var cfg = relayCfg();
+      if (!cfg.url) return;
+      fetch(stripSlash(cfg.url) + "/health", { method: "GET", mode: "cors", cache: "no-store" }).then(function () {}, function () {});
+    } catch (e) { /* waking is best effort */ }
+  }
+
   function cleanQuery(s) {
     var lines = String(s || "").split("\n");
     var line = "";
@@ -2471,6 +2506,9 @@
     refreshIcons();
     trace.setElapsed();
     var tickTimer = setInterval(function () { trace.setElapsed(); }, 100);
+    var slowTimer = setTimeout(function () {
+      if (stream === s && row.isConnected) trace.setStatus("Still working, the relay is waking up");
+    }, 12000);
     setStreamingUI(true);
     if (isNearBottom()) scrollBottom();
 
@@ -2528,6 +2566,7 @@
       }
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
+        clearTimeout(slowTimer);
         trace.settle(ev.text);
         if (s.body.isConnected) s.body.innerHTML = "";
       }
@@ -2538,14 +2577,19 @@
     var signal = s.controller ? s.controller.signal : undefined;
     window.NovaHarness.harness.runAgent({
       query: userText,
+      context: agentContext(chat, userText),
       signal: signal,
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
       excluded: chat.excluded,
-      rewrite: function (text) {
+      rewrite: function (text, context) {
         return new Promise(function (resolve) {
           var out = "";
-          streamChat(provider, model, [{ role: "user", content: "Rewrite this chat request as one short web search query of 3 to 10 words. Reply with only the query and no quotes.\n\nRequest: " + text }], signal, function (c) { out += c; }).then(function () {
+          var prompt = "Rewrite this chat request as one short web search query of 3 to 10 words. " +
+            "Use the conversation to resolve names and pronouns like he, she, it, or they, so the query names its subject. " +
+            "Reply with only the query and no quotes.\n\n" +
+            (context ? "Conversation:\n" + context + "\n\n" : "") + "Request: " + text;
+          streamChat(provider, model, [{ role: "user", content: prompt }], signal, function (c) { out += c; }).then(function () {
             resolve(cleanQuery(out));
           }, function () { resolve(""); });
         });
@@ -2571,6 +2615,7 @@
       }
     }).then(function (out) {
       clearInterval(tickTimer);
+      clearTimeout(slowTimer);
       var c = getChat(s.chatId);
       var m = c && c.messages[s.index];
       if (m && out && out.sources) {
@@ -2585,6 +2630,7 @@
       finishLive(s, false, null);
     }, function (err) {
       clearInterval(tickTimer);
+      clearTimeout(slowTimer);
       if (err && err.name !== "AbortError") {
         if (s.body.isConnected) trace.settle("Search failed");
         if (!s.text) s.text = err.message;
@@ -3549,6 +3595,7 @@
     var p = activeProvider();
     $("modelName").textContent = providerDisplay(p);
     syncHealth();
+    warmRelay();
   }
 
   function pulseModelLabel() {
@@ -4301,6 +4348,7 @@
     state.settings.searchMode = !state.settings.searchMode;
     save();
     syncSearchBtn();
+    if (state.settings.searchMode) warmRelay();
     toast(state.settings.searchMode ? "Deep search on. Answers will cite the web." : "Deep search off.");
   });
 
