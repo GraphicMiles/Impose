@@ -49,6 +49,7 @@ Relay (`backend/relay/`, Render or anywhere):
 | `GET /v1/models` | Bearer | proxied, wakes the box on 503 when configured |
 | `POST /v1/chat/completions` | Bearer | proxied incl. SSE, wakes the box on 503 when configured |
 | `GET/POST /v1/search` | Bearer | proxied to the box |
+| `POST /v1/fetch` | Bearer | generic fetch proxy for browser-blocked providers |
 | `GET /admin/status` | Bearer | gateway status, idle minutes, wake flags |
 | `POST /admin/wake-llm` | Bearer | wake the chain now (`?background=1` returns at once) |
 
@@ -63,6 +64,17 @@ Search replies look like this (same from both layers):
 ```
 
 `provider` is `""` when nothing answered. `count` is clamped to 1..10.
+
+### Relay fetch proxy (`POST /v1/fetch`)
+
+Some providers sit behind firewalls that block browsers while answering
+servers. For those, the UI can send through the relay: request shape
+`{method, url, headers, body}`, reply shape `{status, headers, body}`.
+Guards: relay key required, GET and POST only, public hosts only (no
+private, loopback, or link-local targets, resolved IPs are checked),
+no redirects followed, 8 MB reply cap, 60 second timeout. Replies
+arrive whole: there is no streaming on this path. Note the relay sees
+the target keys it forwards, so only point it at a relay you run.
 
 ## Search providers
 

@@ -57,6 +57,9 @@ Under Advanced: request shape (OpenAI style, Anthropic, Gemini), how the
 key is sent (Bearer, a header you name, a query parameter you name, or
 no key), and extra headers written one per line as Name: value. That
 last one is what makes an endpoint nobody has heard of yet work today.
+When a provider blocks browsers outright, Advanced also offers Send
+through my relay: calls go server to server, and replies arrive whole
+instead of streamed.
 
 The top bar model menu lists every provider, plus demo mode. Switching
 is instant. Failures come back as sentences about what to do, with the

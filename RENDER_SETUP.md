@@ -93,6 +93,7 @@ Note the two different sleeps: the pinger keeps the relay warm;
 | Old UI after a push | Hard refresh (Ctrl Shift R). Render redeploys on push, your browser caches the rest. |
 | Search returns nothing | The box search chain found nothing, or the box is down. Keyless providers can be rate limited; add a search key on the box if it persists. |
 | CORS errors in the console | Serve the UI over https and keep `ALLOWED_ORIGINS` as `*`. Both servers send open CORS headers. The debug tab shows the exact failing request. |
+| Probe fails but Check models passes | If the shape is right, the provider may block browsers (a firewall answers instead of the API). Turn on Send through my relay in the provider Advanced section, with the relay address and key filled in. |
 
 ## Costs
 

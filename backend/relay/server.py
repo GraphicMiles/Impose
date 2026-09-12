@@ -28,10 +28,13 @@ Env (Render dashboard, or .env for local):
   LIGHTNING_STUDIO / LIGHTNING_TEAMSPACE / LIGHTNING_MACHINE (default T4)
 """
 import hmac
+import ipaddress
 import os
+import socket
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 import uvicorn
@@ -327,6 +330,82 @@ async def search_proxy(request: Request):
     return Response(content=r.content,
                     media_type=r.headers.get("content-type", "application/json"),
                     status_code=r.status_code)
+
+
+# --------------------------------------------------------------------------- #
+# generic fetch proxy: lets browsers reach providers that block them.
+# Browsers call this; the relay calls the target server to server.
+# --------------------------------------------------------------------------- #
+
+_SSRF_BLOCKS = [ipaddress.ip_network(c) for c in (
+    "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+    "169.254.0.0/16", "0.0.0.0/8", "::1/128", "fc00::/7", "fe80::/10")]
+
+_FETCH_BODY_CAP = 8 * 1024 * 1024
+
+
+def _public_host(host: str) -> bool:
+    host = (host or "").strip().rstrip(".").lower()
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    ips = []
+    for info in infos:
+        try:
+            ips.append(ipaddress.ip_address(info[4][0]))
+        except Exception:
+            pass
+    if not ips:
+        return False
+    return not any(any(ip in block for block in _SSRF_BLOCKS) for ip in ips)
+
+
+@app.post("/v1/fetch")
+async def fetch_proxy(request: Request):
+    _authed(request)
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    method = str(data.get("method", "")).upper()
+    if method not in ("GET", "POST"):
+        raise HTTPException(status_code=400, detail="method must be GET or POST")
+    url = str(data.get("url", ""))
+    try:
+        parts = urlparse(url)
+        scheme, user, host = parts.scheme, parts.username, parts.hostname
+    except Exception:
+        raise HTTPException(status_code=400, detail="bad URL")
+    if scheme not in ("http", "https") or user or not host:
+        raise HTTPException(status_code=400, detail="URL must be http(s) with no credentials")
+    if not _public_host(host):
+        raise HTTPException(status_code=400, detail="private or unresolvable host")
+    fwd = {}
+    for k, v in (data.get("headers") or {}).items():
+        if str(k).lower() in ("host", "content-length", "connection", "cookie",
+                               "transfer-encoding", "upgrade"):
+            continue
+        fwd[str(k)] = str(v)
+    body = data.get("body")
+    content = str(body)[:1000000].encode("utf-8", "replace") if body is not None else None
+    t0 = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=False) as client:
+            r = await client.request(method, url, headers=fwd, content=content)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=502, detail="target timed out")
+    except Exception:
+        raise HTTPException(status_code=502, detail="target unreachable")
+    if len(r.content) > _FETCH_BODY_CAP:
+        raise HTTPException(status_code=502, detail="target response too large")
+    ms = int((time.time() - t0) * 1000)
+    print(f"[relay] fetch {method} {host} -> {r.status_code} ({ms}ms)", flush=True)
+    return {"status": r.status_code,
+            "headers": {"content-type": r.headers.get("content-type", "")},
+            "body": r.text}
 
 
 @app.get("/admin/status")

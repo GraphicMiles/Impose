@@ -457,7 +457,7 @@
   }
 
   function defaultSettings() {
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null };
+    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "" };
   }
 
   function loadState() {
@@ -680,8 +680,159 @@
     return explain(like, code, payload, "");
   }
 
+  function relayCfg() {
+    return { url: $("pfRelayUrl").value.trim(), key: $("pfRelayKey").value.trim() };
+  }
+
+  function relayRefusal(code, payload) {
+    var detail = "";
+    try {
+      var data = JSON.parse(String(payload || ""));
+      detail = String((data && data.detail) || "").slice(0, 140);
+    } catch (e) { detail = ""; }
+    var tail = detail ? " " + detail : "";
+    if (code === 400) return "The relay refused this request." + tail;
+    if (code === 502) return "The relay could not reach the target." + tail;
+    return "The relay refused this request (" + code + ")." + tail;
+  }
+
+  /* One request sent server to server through the relay, for providers that
+     block browsers. Replies arrive whole: no streaming on this path. */
+  function relayFetchReq(req, method, bodyObj, signal) {
+    var cfg = relayCfg();
+    var headers = {};
+    Object.keys(req.headers || {}).forEach(function (k) { headers[k] = req.headers[k]; });
+    if (method === "POST" && !hasHeader(headers, "Content-Type")) headers["Content-Type"] = "application/json";
+    var payload = {
+      method: method,
+      url: req.url,
+      headers: headers,
+      body: bodyObj === undefined ? null : JSON.stringify(bodyObj)
+    };
+    var t0 = (window.performance && performance.now()) || Date.now();
+    function ms() {
+      var now = (window.performance && performance.now()) || Date.now();
+      return Math.round(now - t0);
+    }
+    var opts = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      body: JSON.stringify(payload)
+    };
+    if (signal) opts.signal = signal;
+    else opts.signal = withTimeout(90000);
+    return fetch(stripSlash(cfg.url) + "/v1/fetch", opts).then(function (res) {
+      if (res.status === 401) throw new Error("That relay key was rejected. Check it on the relay dashboard.");
+      if (!res.ok) {
+        return res.text().then(function (text) {
+          throw new Error(relayRefusal(res.status, text));
+        }, function () {
+          throw new Error(relayRefusal(res.status, ""));
+        });
+      }
+      return res.json().then(function (env) { return env; }, function () {
+        throw new Error("The relay returned an unreadable reply.");
+      });
+    }).then(function (env) {
+      dnote("net", method + " " + sanitizeUrl(req.url) + " via relay -> " + env.status + " (" + ms() + "ms)");
+      var bodyText = String((env && env.body) || "");
+      if (bodyText.charAt(0) === "<" && /cloudflare/i.test(bodyText)) {
+        throw new Error("A firewall in front of the provider blocked this request (" + env.status + "). The provider may block your region or servers.");
+      }
+      return {
+        ok: env.status >= 200 && env.status < 300,
+        status: env.status,
+        _body: bodyText,
+        text: function () { return Promise.resolve(this._body); },
+        json: function () {
+          try { return Promise.resolve(JSON.parse(this._body)); }
+          catch (e) { return Promise.reject(new Error("The relay returned an unreadable reply.")); }
+        }
+      };
+    }, function (err) {
+      if (err && err.name === "AbortError") throw err;
+      if (err && err.name === "TypeError") throw new Error("Could not reach the relay. Check the relay address.");
+      throw err;
+    });
+  }
+
+  function idsFromModelsData(like, data) {
+    var ids;
+    if (like.kind === "gemini") {
+      ids = (data.models || [])
+        .filter(function (m) {
+          var methods = m && m.supportedGenerationMethods;
+          return !methods || methods.indexOf("generateContent") > -1;
+        })
+        .map(function (m) { return String((m && m.name) || "").replace(/^models\//, ""); })
+        .filter(function (id) { return !!id; });
+      ids.sort();
+      return ids;
+    }
+    var raw = data.data || data.models || [];
+    if (!Array.isArray(raw)) raw = [];
+    ids = raw.map(function (m) {
+      if (typeof m === "string") return m;
+      return String((m && (m.id || m.name)) || "");
+    }).filter(function (id) { return !!id; });
+    ids.sort(function (a, b) {
+      var d = scoreModel(b) - scoreModel(a);
+      return d !== 0 ? d : (a < b ? -1 : a > b ? 1 : 0);
+    });
+    return ids;
+  }
+
+  /* The relay path never streams: one whole reply per request. */
+  function unstreamedChat(provider, model, history, signal, onDelta) {
+    var req, body;
+    if (provider.kind === "anthropic") {
+      req = buildRequest(provider, "/messages");
+      body = { model: model, max_tokens: 1024, system: SYS_MSG, messages: history, stream: false };
+    } else if (provider.kind === "gemini") {
+      req = buildRequest(provider, "/models/" + encodeURIComponent(model) + ":generateContent");
+      body = {
+        systemInstruction: { parts: [{ text: SYS_MSG }] },
+        contents: history.map(function (m) {
+          return { role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] };
+        })
+      };
+    } else {
+      req = buildRequest(provider, "/chat/completions");
+      body = { model: model, messages: [{ role: "system", content: SYS_MSG }].concat(history), stream: false };
+    }
+    req.headers["Content-Type"] = "application/json";
+    return relayFetchReq(req, "POST", body, signal).then(function (res) {
+      return throwIfHttpError(provider, model, res).then(function () { return res.json(); });
+    }).then(function (d) {
+      var text = "";
+      if (provider.kind === "anthropic") {
+        (d.content || []).forEach(function (b) { if (b && b.text) text += b.text; });
+      } else if (provider.kind === "gemini") {
+        (d.candidates || []).forEach(function (c) {
+          ((c.content && c.content.parts) || []).forEach(function (part) { if (part.text) text += part.text; });
+        });
+      } else {
+        var choice = d.choices && d.choices[0];
+        text = (choice && choice.message && choice.message.content) || "";
+      }
+      if (text) onDelta(text);
+    });
+  }
+
   /* What the provider says it serves today. Throws the provider's sentence. */
   function listModels(like) {
+    if (like && like.useRelay) {
+      var rreq = buildRequest(like, "/models");
+      return relayFetchReq(rreq, "GET").then(function (res) {
+        return throwIfHttpError(like, "", res).then(function () { return res.json(); });
+      }).then(function (data) {
+        return idsFromModelsData(like, data || {});
+      }, function (err) {
+        if (err && err.name === "AbortError") throw new Error("The relay took too long to answer. Try again.");
+        if (err instanceof Error && err.message) throw err;
+        throw new Error("The relay returned an unreadable reply.");
+      });
+    }
     var req = buildRequest(like, "/models");
     var opts = { headers: req.headers, signal: withTimeout(45000) };
     return fetch(req.url, opts).then(function (res) {
@@ -692,30 +843,7 @@
         throw new Error(listRefusal(like, res.status, ""));
       });
     }).then(function (data) {
-      data = data || {};
-      var ids;
-      if (like.kind === "gemini") {
-        ids = (data.models || [])
-          .filter(function (m) {
-            var methods = m && m.supportedGenerationMethods;
-            return !methods || methods.indexOf("generateContent") > -1;
-          })
-          .map(function (m) { return String((m && m.name) || "").replace(/^models\//, ""); })
-          .filter(function (id) { return !!id; });
-        ids.sort();
-        return ids;
-      }
-      var raw = data.data || data.models || [];
-      if (!Array.isArray(raw)) raw = [];
-      ids = raw.map(function (m) {
-        if (typeof m === "string") return m;
-        return String((m && (m.id || m.name)) || "");
-      }).filter(function (id) { return !!id; });
-      ids.sort(function (a, b) {
-        var d = scoreModel(b) - scoreModel(a);
-        return d !== 0 ? d : (a < b ? -1 : a > b ? 1 : 0);
-      });
-      return ids;
+      return idsFromModelsData(like, data || {});
     }, function (err) {
       if (err && err.name === "AbortError") throw new Error("The provider took too long to answer. Try again.");
       if (err && err.name === "TypeError") throw new Error("Could not reach the provider. Check the address and your connection.");
@@ -739,6 +867,15 @@
       body = { model: model, max_tokens: 1, messages: [{ role: "user", content: "Hi" }], stream: false };
     }
     req.headers["Content-Type"] = "application/json";
+    if (like && like.useRelay) {
+      return relayFetchReq(req, "POST", body).then(function (res) {
+        return throwIfHttpError(like, model, res).then(function () { return ""; });
+      }, function (err) {
+        if (err && err.name === "AbortError") return "The relay took too long to answer. Try again.";
+        if (err instanceof Error && err.message) return err.message;
+        return "The relay returned an unreadable reply.";
+      });
+    }
     return fetch(req.url, {
       method: "POST",
       headers: req.headers,
@@ -794,6 +931,7 @@
   }
 
   function streamChat(provider, model, history, signal, onDelta) {
+    if (provider && provider.useRelay) return unstreamedChat(provider, model, history, signal, onDelta);
     var req, body;
     if (provider.kind === "anthropic") {
       req = buildRequest(provider, "/messages");
@@ -2147,6 +2285,7 @@
   var edKind = "openai";
   var edAuth = "bearer";
   var edBusy = false;
+  var edRelay = false;
 
   function renderProviders() {
     var list = $("providerList");
@@ -2266,6 +2405,11 @@
     $("pfKey").placeholder = existing ? "Saved. Type to replace it." : (preset.keyHint || "Paste your key");
     $("pfModel").value = existing ? (existing.model || "") : "";
     renderPickList([]);
+    edRelay = !!(existing && existing.useRelay);
+    $("pfRelayToggle").setAttribute("aria-checked", edRelay ? "true" : "false");
+    $("pfRelayFields").hidden = !edRelay;
+    $("pfRelayUrl").value = state.settings.relayUrl || "";
+    $("pfRelayKey").value = state.settings.relayKey || "";
     $("pfAuthName").value = existing ? (existing.authName || defaultAuthName(edKind, edAuth)) : defaultAuthName(edKind, edAuth);
     $("pfHeaders").value = existing ? writeHeaders(existing.headers) : "";
     $("pfAdvanced").hidden = true;
@@ -2315,7 +2459,7 @@
 
   function syncAdvancedSummary() {
     var extra = Object.keys(parseHeaders($("pfHeaders").value)).length > 0;
-    $("pfAdvancedSummary").textContent = kindName(edKind) + ", " + authStyleName(edAuth) + (extra ? ", custom headers" : "");
+    $("pfAdvancedSummary").textContent = kindName(edKind) + ", " + authStyleName(edAuth) + (extra ? ", custom headers" : "") + (edRelay ? ", via relay" : "");
   }
 
   $("pfKindSeg").addEventListener("click", function (e) {
@@ -2344,6 +2488,14 @@
     var open = $("pfAdvanced").hidden;
     $("pfAdvanced").hidden = !open;
     $("pfAdvancedToggle").setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  $("pfRelayToggle").addEventListener("click", function () {
+    if (edBusy) return;
+    edRelay = !edRelay;
+    $("pfRelayToggle").setAttribute("aria-checked", edRelay ? "true" : "false");
+    $("pfRelayFields").hidden = !edRelay;
+    syncAdvancedSummary();
   });
 
   $("pfHeaders").addEventListener("input", syncAdvancedSummary);
@@ -2381,7 +2533,8 @@
       apiKey: key,
       authStyle: edAuth,
       authName: $("pfAuthName").value.trim() || defaultAuthName(edKind, edAuth),
-      headers: parseHeaders($("pfHeaders").value)
+      headers: parseHeaders($("pfHeaders").value),
+      useRelay: edRelay
     };
   }
 
@@ -2439,6 +2592,18 @@
       setStatus($("pfModelStatus"), "Add a key first.", { error: true });
       return;
     }
+    if (like.useRelay) {
+      var rcfg = relayCfg();
+      var rbad = checkAddress(rcfg.url);
+      if (rbad) {
+        setStatus($("pfModelStatus"), rbad, { error: true });
+        return;
+      }
+      if (!rcfg.key) {
+        setStatus($("pfModelStatus"), "Add the relay key.", { error: true });
+        return;
+      }
+    }
     edBusy = true;
     $("pfCheck").disabled = true;
     $("pfSave").disabled = true;
@@ -2475,6 +2640,18 @@
       setStatus($("pfStatus"), "This provider needs a key.", { error: true });
       return;
     }
+    if (like.useRelay) {
+      var rcfg = relayCfg();
+      var rbad = checkAddress(rcfg.url);
+      if (rbad) {
+        setStatus($("pfStatus"), rbad, { error: true });
+        return;
+      }
+      if (!rcfg.key) {
+        setStatus($("pfStatus"), "Add the relay key.", { error: true });
+        return;
+      }
+    }
     var model = formModel();
     if (!model) {
       setStatus($("pfStatus"), "Pick a model. Tap Check models.", { error: true });
@@ -2508,6 +2685,7 @@
         edEditing.authName = like.authName;
         edEditing.headers = like.headers;
         edEditing.model = model;
+        edEditing.useRelay = like.useRelay;
       } else {
         var p = {
           id: uid(),
@@ -2518,11 +2696,14 @@
           authStyle: like.authStyle,
           authName: like.authName,
           headers: like.headers,
-          model: model
+          model: model,
+          useRelay: like.useRelay
         };
         state.providers.push(p);
         if (!state.settings.activeProviderId) state.settings.activeProviderId = p.id;
       }
+      state.settings.relayUrl = $("pfRelayUrl").value.trim();
+      state.settings.relayKey = $("pfRelayKey").value.trim();
       save();
       edBusy = false;
       $("pfCheck").disabled = false;
