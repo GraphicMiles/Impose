@@ -1739,7 +1739,7 @@
     return '<span class="msg-stats">' + secs + "s" + toks + "</span>";
   }
 
-  function actionsHtml(msg) {
+  function actionsHtml(msg, fresh) {
     msg = ensureVariants(msg || { content: "" });
     var pager = "";
     if (msg.variants.length > 1) {
@@ -1749,13 +1749,13 @@
         '<button type="button" data-act="next" title="Next version" aria-label="Next version"><i data-lucide="chevron-right"></i></button>' +
         "</span>";
     }
-    return '<div class="msg-actions">' +
+    return '<div class="msg-actions' + (fresh ? " fresh" : "") + '">' +
       '<button type="button" data-act="copy" title="Copy" aria-label="Copy"><i data-lucide="copy"></i></button>' +
       rateBtn("like", msg.rating, "Good response", "Good response", "thumbs-up") +
       rateBtn("dislike", msg.rating, "Bad response", "Bad response", "thumbs-down") +
       '<button type="button" data-act="retry" title="Regenerate" aria-label="Regenerate"><i data-lucide="rotate-ccw"></i></button>' +
       '<button type="button" data-act="speak" title="Read aloud" aria-label="Read aloud"><i data-lucide="volume-2"></i></button>' +
-      pager + statsHtml(msg) +
+      sourcesToggleHtml(msg) + pager + statsHtml(msg) +
       "</div>";
   }
 
@@ -1781,11 +1781,11 @@
 
   function assistantBodyHtml(msg) {
     if (msg.error && !msg.content) return errorCardHtml(msg.error);
-    return linkCites(renderMarkdown(msg.content || ""), msg) + sourcesHtml(msg);
+    return linkCites(renderMarkdown(msg.content || ""), msg);
   }
 
   function assistantRowHtml(msg, withActions) {
-    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + (withActions ? actionsHtml(msg) : "");
+    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + (withActions ? actionsHtml(msg) : "") + sourcesPanelHtml(msg, !withActions);
   }
 
   function animateIn(row) {
@@ -1905,7 +1905,7 @@
     }
     s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(content);
     if (!s.row.querySelector(".msg-actions")) {
-      s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: content }));
+      s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: content }, true) + sourcesPanelHtml(msg || { content: content }));
     }
     refreshIcons();
     if (!s.stopped && msg) showFollowups(chat, msg);
@@ -1921,7 +1921,7 @@
     var row = document.createElement("div");
     row.className = "msg assistant";
     row.dataset.i = index;
-    row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span></span></div>';
+    row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></div>';
     messagesEl.appendChild(row);
     if (isNearBottom()) scrollBottom();
 
@@ -2018,7 +2018,7 @@
       row = document.createElement("div");
       row.className = "msg assistant";
       row.dataset.i = idx;
-      row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span></span></div>';
+      row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></div>';
       messagesEl.appendChild(row);
     } else {
       idx = replaceIdx;
@@ -2028,7 +2028,9 @@
       if (rm) rm.error = null;
       var oldActions = row.querySelector(".msg-actions");
       if (oldActions) oldActions.remove();
-      row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+      var oldPanel = row.querySelector(".sources");
+      if (oldPanel) oldPanel.remove();
+      row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
     }
 
     setStreamingUI(true);
@@ -2127,7 +2129,7 @@
     if (s.row.isConnected) {
       s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(s.text);
       if (!s.row.querySelector(".msg-actions")) {
-        s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: s.text }));
+        s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: s.text }, true) + sourcesPanelHtml(msg || { content: s.text }));
       }
       refreshIcons();
       if (isNearBottom()) scrollBottom();
@@ -2216,7 +2218,7 @@
       row = document.createElement("div");
       row.className = "msg assistant";
       row.dataset.i = idx;
-      row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span></span></div>';
+      row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></div>';
       messagesEl.appendChild(row);
     } else {
       idx = replaceIdx;
@@ -2228,11 +2230,13 @@
       if (oldTrace) oldTrace.remove();
       var oldActions = row.querySelector(".msg-actions");
       if (oldActions) oldActions.remove();
-      row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+      var oldPanel = row.querySelector(".sources");
+      if (oldPanel) oldPanel.remove();
+      row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
     }
     var trace = window.NovaTrace.mountTrace(row, { active: "Thinking" });
     refreshIcons();
-    var tickTimer = setInterval(function () { trace.setElapsed(); }, 500);
+    var tickTimer = setInterval(function () { trace.setElapsed(); }, 100);
     setStreamingUI(true);
     if (isNearBottom()) scrollBottom();
 
@@ -2288,7 +2292,7 @@
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
         trace.settle(ev.text);
-        if (s.body.isConnected) s.body.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+        if (s.body.isConnected) s.body.innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
       }
       refreshIcons();
       if (isNearBottom()) scrollBottom();
@@ -2642,38 +2646,59 @@
       parts[i] = parts[i].replace(/\[(\d{1,2})\]/g, function (m, d) {
         var n = +d;
         if (n < 1 || n > msg.sources.length) return m;
-        return '<button type="button" class="cite" data-cite="' + n + '">[' + n + "]</button>";
+        var src = msg.sources[n - 1] || {};
+        var host = hostOf(src.url || "");
+        if (!host) return m;
+        return '<button type="button" class="cite-chip" data-cite="' + n + '" title="' + escapeHtml(host) + '">' +
+          '<img class="fav cite-fav" src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=64" alt="" loading="lazy">' +
+          escapeHtml(host) + "</button>";
       });
     }
     return parts.join("");
   }
 
-  function sourcesHtml(msg) {
+  function sourcesToggleHtml(msg) {
+    if (!msg.sources || !msg.sources.length) return "";
+    var stack = msg.sources.slice(0, 3).map(function (s) {
+      var host = hostOf(s.url);
+      if (!host) return "";
+      return '<img class="fav src-stack-img" src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=64" alt="" loading="lazy">';
+    }).join("");
+    return '<button type="button" class="sources-head" data-act="sources" aria-expanded="false">' +
+      '<span class="src-stack">' + stack + "</span>" +
+      "<span>" + msg.sources.length + " sources</span>" +
+      '<i data-lucide="chevron-down"></i></button>';
+  }
+
+  function sourcesPanelHtml(msg, open) {
     if (!msg.sources || !msg.sources.length) return "";
     var items = msg.sources.map(function (s, i) {
       var host = hostOf(s.url);
       return '<li data-si="' + (i + 1) + '"><a href="' + escapeHtml(s.url) + '" target="_blank" rel="noreferrer noopener">' +
         (host ? '<img class="fav src-fav" src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=64" alt="" loading="lazy">' : "") +
-        escapeHtml(s.title || s.url) + "</a>" +
+        '<span class="src-title">' + escapeHtml(s.title || s.url) + "</span></a>" +
         (host ? '<span class="src-host">' + escapeHtml(host) + "</span>" : "") +
         (host ? '<button type="button" class="src-hide" data-exdom="' + escapeHtml(host) + '" title="Hide this site and research again" aria-label="Hide ' + escapeHtml(host) + ' and research again"><i data-lucide="eye-off"></i></button>' : "") +
         "</li>";
     }).join("");
-    return '<div class="sources"><button type="button" class="sources-head" data-act="sources"><i data-lucide="chevron-down"></i><span>' +
-      msg.sources.length + " sources</span></button>" +
-      '<ol class="sources-list" hidden>' + items + "</ol></div>";
+    return '<div class="sources"><div class="sources-grid' + (open ? "" : " closed") + '"><div class="sources-clip">' +
+      '<ol class="sources-list">' + items + "</ol></div></div></div>";
   }
 
   function jumpToSource(row, n) {
-    var list = row.querySelector(".sources-list");
-    if (list && list.hidden) {
-      list.hidden = false;
+    var grid = row.querySelector(".sources-grid");
+    if (grid && grid.classList.contains("closed")) {
+      grid.classList.remove("closed");
       var head = row.querySelector(".sources-head");
-      if (head) head.classList.add("open");
+      if (head) {
+        head.classList.add("open");
+        head.setAttribute("aria-expanded", "true");
+      }
     }
+    var list = row.querySelector(".sources-list");
     var target = row.querySelector('.trace-row[data-si="' + n + '"]') || (list && list.querySelector('li[data-si="' + n + '"]'));
     if (!target) return;
-    target.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+    if (target.scrollIntoView) target.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
     target.classList.add("flash");
     setTimeout(function () { target.classList.remove("flash"); }, 1200);
   }
@@ -2750,15 +2775,24 @@
     var wrap = document.createElement("div");
     wrap.className = "followups";
     wrap.id = "followups";
-    followupsFor(userText, msg.content).forEach(function (s) {
+    var h = document.createElement("p");
+    h.className = "followups-head";
+    h.textContent = "Follow-ups";
+    wrap.appendChild(h);
+    followupsFor(userText, msg.content).forEach(function (s, i) {
       var b = document.createElement("button");
       b.type = "button";
       b.className = "followup";
-      b.textContent = s;
+      b.innerHTML = '<i data-lucide="corner-up-left"></i>';
+      var sp = document.createElement("span");
+      sp.textContent = s;
+      b.appendChild(sp);
+      b.style.setProperty("--d", (i * 90) + "ms");
       b.addEventListener("click", function () { send(s); });
       wrap.appendChild(b);
     });
     row.appendChild(wrap);
+    refreshIcons();
   }
 
   /* ---------- jump to latest ---------- */
@@ -3012,11 +3046,15 @@
     var act = btn.dataset.act;
 
     if (act === "sources") {
-      var list = row.querySelector(".sources-list");
+      var grid = row.querySelector(".sources-grid");
       var head = row.querySelector(".sources-head");
-      if (list) {
-        list.hidden = !list.hidden;
-        if (head) head.classList.toggle("open", !list.hidden);
+      if (grid) {
+        grid.classList.toggle("closed");
+        var isOpen = !grid.classList.contains("closed");
+        if (head) {
+          head.classList.toggle("open", isOpen);
+          head.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        }
       }
     } else if (act === "speak") {
       speakRow(row, msg.content);
