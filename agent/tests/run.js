@@ -158,6 +158,81 @@ test("runAgent answers from knowledge when results are empty", function () {
   });
 });
 
+test("image intent and subject extraction", function () {
+  ok(H.looksLikeImageRequest("Show me 4 images of mark rober"), "show me images");
+  ok(H.looksLikeImageRequest("photos of the eiffel tower"), "photos of");
+  ok(H.looksLikeImageRequest("find pictures of Lagos"), "find pictures of");
+  ok(!H.looksLikeImageRequest("who is mark rober"), "plain question stays search");
+  ok(!H.looksLikeImageRequest("write a python function that draws a circle"), "no image noun");
+  eq(H.imageSubject("Show me 4 images of mark rober"), "mark rober", "subject stripped");
+  eq(H.imageSubject("photos of cats"), "cats", "photos of stripped");
+});
+
+test("images tool cleans and caps results", function () {
+  return H.imagesTool.run({
+    query: "mark rober",
+    limit: 3
+  }, { images: function () {
+    return Promise.resolve({ provider: "p", results: [
+      { title: "a", image: "https://x.io/a.jpg", thumb: "https://x.io/a_t.jpg", page: "https://x.io/a" },
+      { title: "dup", image: "https://x.io/a.jpg" },
+      { title: "bad", image: "data:text/html,evil" },
+      { title: "ok", image: "http://y.io/b.png", thumb: "nope", page: "" }
+    ] });
+  } }).then(function (out) {
+    eq(out.images.length, 2, "dupes and non-http dropped");
+    eq(out.images[0].thumb, "https://x.io/a_t.jpg", "thumb kept");
+    eq(out.images[1].thumb, "http://y.io/b.png", "bad thumb falls back to image");
+    eq(out.images[1].page, "", "bad page dropped");
+  });
+});
+
+test("runAgent attaches a gallery on image asks", function () {
+  var s = searchStub([{ results: [
+    { title: "A", url: "https://a.io/", snippet: "sa" }
+  ], provider: "p" }]);
+  var emits = [];
+  var completed = null;
+  return H.harness.runAgent({
+    query: "Show me 4 images of mark rober",
+    search: s.fn,
+    images: function (q) {
+      eq(q, "mark rober", "gallery queries the clean subject");
+      return Promise.resolve({ provider: "p", results: [
+        { title: "m", image: "https://x.io/m.jpg", thumb: "https://x.io/m_t.jpg", page: "https://x.io/" }
+      ] });
+    },
+    emit: function (e) { emits.push(e.t); },
+    onDelta: function () {},
+    complete: function (system) {
+      completed = system;
+      return Promise.resolve();
+    }
+  }).then(function (out) {
+    ok(emits.indexOf("images") !== -1, "gallery event emitted");
+    eq(out.images.length, 1, "images returned");
+    ok(completed.indexOf("image gallery") !== -1, "system notes the gallery");
+    ok(completed.indexOf("Never say you cannot display images") !== -1, "no false cannot");
+  });
+});
+
+test("runAgent without images dep stays search-only", function () {
+  var s = searchStub([{ results: [
+    { title: "A", url: "https://a.io/", snippet: "sa" }
+  ], provider: "p" }]);
+  var emits = [];
+  return H.harness.runAgent({
+    query: "Show me images of mark rober",
+    search: s.fn,
+    emit: function (e) { emits.push(e.t); },
+    onDelta: function () {},
+    complete: function () { return Promise.resolve(); }
+  }).then(function (out) {
+    ok(emits.indexOf("images") === -1, "no gallery event");
+    eq(out.images, null, "no images key");
+  });
+});
+
 test("runAgent with no tool rejects", function () {
   return H.createHarness().runAgent({
     query: "x", search: function () {}, emit: function () {},

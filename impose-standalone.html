@@ -68,6 +68,11 @@ html[data-theme="dark"] {
   --scroll: rgba(255, 255, 255, 0.18);
   --overlay: rgba(0, 0, 0, 0.6);
   --send-idle: rgba(255, 255, 255, 0.12);
+  --tok-kw: #cc7fd7;
+  --tok-str: #9ece8a;
+  --tok-num: #d7a35f;
+  --tok-fn: #7fb3e8;
+  --tok-com: rgba(255, 255, 255, 0.38);
 }
 
 html[data-theme="light"] {
@@ -95,6 +100,11 @@ html[data-theme="light"] {
   --scroll: rgba(0, 0, 0, 0.2);
   --overlay: rgba(0, 0, 0, 0.45);
   --send-idle: rgba(0, 0, 0, 0.08);
+  --tok-kw: #8250df;
+  --tok-str: #1a7f37;
+  --tok-num: #953800;
+  --tok-fn: #0550ae;
+  --tok-com: rgba(0, 0, 0, 0.45);
 }
 
 html[data-theme="warm"] {
@@ -122,6 +132,11 @@ html[data-theme="warm"] {
   --scroll: rgba(60, 56, 44, 0.24);
   --overlay: rgba(43, 40, 32, 0.45);
   --send-idle: rgba(60, 56, 44, 0.12);
+  --tok-kw: #c37fca;
+  --tok-str: #8fae6b;
+  --tok-num: #c98d55;
+  --tok-fn: #6f9cc7;
+  --tok-com: rgba(60, 55, 44, 0.5);
 }
 
 * { box-sizing: border-box; }
@@ -1857,6 +1872,107 @@ select.sel { appearance: auto; }
   .search-row.hot { background: var(--hover); }
 }
 
+/* --- code tokens ------------------------------------------------------- */
+.codeblock code .tok-kw { color: var(--tok-kw); }
+.codeblock code .tok-str { color: var(--tok-str); }
+.codeblock code .tok-num { color: var(--tok-num); }
+.codeblock code .tok-fn { color: var(--tok-fn); }
+.codeblock code .tok-com { color: var(--tok-com); font-style: italic; }
+
+/* --- image gallery ------------------------------------------------------ */
+.img-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+.img-tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--press);
+  cursor: zoom-in;
+  /* entry: fade + settle, staggered by inline delay; transform/opacity only */
+  animation: img-in 300ms var(--ease-out) backwards;
+  transition: transform 160ms var(--ease-out);
+}
+.img-tile:active { transform: scale(0.97); }
+.img-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 220ms ease, transform 220ms var(--ease-out);
+}
+.img-tile img.loaded { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .img-tile:hover img { transform: scale(1.03); }
+}
+@keyframes img-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+html.reduce-motion .img-tile { animation: none; }
+html.reduce-motion .img-tile img { transition: opacity 150ms ease; }
+
+/* --- image lightbox (a modal: centered origin is correct here) ---------- */
+.imgbox {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--overlay);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 140ms ease; /* exit is faster than enter */
+}
+.imgbox.open {
+  opacity: 1;
+  transition: opacity 200ms var(--ease-out);
+}
+.imgbox-fig {
+  margin: 0;
+  max-width: min(92vw, 860px);
+  transform: scale(0.95);
+  transition: transform 140ms ease;
+}
+.imgbox.open .imgbox-fig {
+  transform: scale(1);
+  transition: transform 200ms var(--ease-out);
+}
+.imgbox-fig img {
+  display: block;
+  max-width: 100%;
+  max-height: 72vh;
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  background: var(--press);
+}
+.imgbox-cap {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.imgbox-cap span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imgbox-cap a { color: var(--link); flex: none; }
+.imgbox-x {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+}
+html.reduce-motion .imgbox-fig { transform: none; transition: none; }
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -3528,6 +3644,64 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return s.trim();
   }
 
+  /* Does this request want pictures? Needs an image noun plus a request
+     frame, so "who is Mark Rober" stays a plain search while "show me 4
+     images of Mark Rober" flips the gallery on. */
+  var IMAGE_NOUN = /\b(images?|photos?|photographs?|pictures?|pics?|wallpapers?|screenshots?)\b/i;
+  var IMAGE_FRAME = /^(\s*(please\s+)?(can|could)?\s*(you\s+)?(show|find|get|search|pull|fetch|give)\b|i want|looking for|send)\b/i;
+
+  function looksLikeImageRequest(text) {
+    var s = String(text || "");
+    if (!IMAGE_NOUN.test(s)) return false;
+    if (IMAGE_FRAME.test(s)) return true;
+    return /\b(images?|photos?|pictures?|pics?)\s+(of|for|from|about)\b/i.test(s);
+  }
+
+  /* "Show me 4 images of Mark Rober" -> "Mark Rober": strip the request
+     framing so the image engine gets a clean subject. */
+  function imageSubject(text) {
+    var s = String(text || "").replace(/[?!.]+$/g, " ").replace(/\s+/g, " ").trim();
+    s = s.replace(/^\s*(please\s+)?(can|could)?\s*(you\s+)?(show|find|get|search|pull|fetch|give)\s+(me\s+)?/i, "");
+    s = s.replace(/^\s*(i\s+(want|need|would like)\s+|looking\s+for\s+)/i, "");
+    s = s.replace(/^\s*(a\s+|an\s+|the\s+|some\s+)?\d*\s*(highest\s+quality\s+|hd\s+|best\s+)?(images?|photos?|photographs?|pictures?|pics?|wallpapers?|screenshots?)\s*(of|for|from|about|:\s?)\s*/i, "");
+    s = s.replace(/\b(in\s+(the\s+)?web|online|from\s+the\s+(web|internet))\s*$/i, "");
+    return s.trim() || String(text || "").trim();
+  }
+
+  var imagesTool = {
+    id: "images.search",
+    version: "1.0",
+    description: "Finds real photos on the web and returns gallery results.",
+    capabilities: ["images"],
+    inputSchema: { query: "string, 1 to 500 chars", limit: "int, 1 to 12" },
+    run: function (args, ctx) {
+      var query = args && typeof args.query === "string" ? args.query.trim() : "";
+      if (!query) return Promise.reject(new Error("Image search needs a query."));
+      if (query.length > 500) return Promise.reject(new Error("Image query is too long."));
+      var limit = args && args.limit ? Math.max(1, Math.min(12, parseInt(args.limit, 10) || 6)) : 6;
+      return ctx.images(query, limit).then(function (out) {
+        var seen = {}, clean = [];
+        var rows = (out && out.results) || [];
+        for (var i = 0; i < rows.length && clean.length < limit; i++) {
+          var r = rows[i];
+          var img = String(r.image || "");
+          if (!/^https?:\/\//i.test(img) || seen[img]) continue;
+          seen[img] = 1;
+          clean.push({
+            title: String(r.title || "image").slice(0, 160),
+            image: img,
+            thumb: /^https?:\/\//i.test(String(r.thumb || "")) ? String(r.thumb) : img,
+            page: /^https?:\/\//i.test(String(r.page || "")) ? String(r.page) : "",
+            source: String(r.source || "").slice(0, 80),
+            w: r.w || null,
+            h: r.h || null
+          });
+        }
+        return { images: clean, provider: (out && out.provider) || "", query: query };
+      });
+    }
+  };
+
   var websearchTool = {
     id: "web.search",
     version: "1.0",
@@ -3575,6 +3749,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     /* One researched answer: plan the query, search, then complete.
        Empty results still complete, from knowledge with a one-line note.
        deps: query, search(q, limit), complete(system, user, onDelta),
+       images(q, limit) (optional, enables the image gallery on image asks),
        emit(event), onDelta(chunk), rewrite(text) (optional, a promise of a
        search query; empty or rejected falls back to the raw words),
        signal (optional AbortSignal), excluded (optional array of domains),
@@ -3584,6 +3759,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       try { tool = resolve("search"); }
       catch (e) { return Promise.reject(e); }
       var question = deps.query;
+      var imagesFn = (typeof deps.images === "function") ? function () {
+        try { return resolve("images"); } catch (e) { return null; }
+      }() : null;
+      var wantImages = !!(imagesFn && (deps.forceImages || looksLikeImageRequest(question)));
       var ctxBlock = deps.context && String(deps.context).trim()
         ? "Conversation so far:\n" + String(deps.context).trim() + "\n\n" : "";
       function withContext(q) { return ctxBlock + "Question: " + q; }
@@ -3604,19 +3783,37 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       return plan().then(function (planned) {
         if (deps.signal && deps.signal.aborted) throw abortErr();
         deps.emit({ t: "status", text: "Searching the web" });
+        var gallery = null;
+        var galleryJob = wantImages ? (function () {
+          var subject = imageSubject(planned);
+          deps.emit({ t: "status", text: "Finding images" });
+          return imagesTool.run({ query: subject || planned, limit: 6 }, { images: deps.images })
+            .then(function (g) {
+              if (g.images.length) { gallery = g; deps.emit({ t: "images", n: g.images.length, provider: g.provider }); }
+            }, function () { /* no gallery is fine */ });
+        })() : null;
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
           var results = (out.results || []).filter(function (r) {
             if (!deps.excluded || !deps.excluded.length) return true;
             return deps.excluded.indexOf(domainOf(r.url)) === -1;
           });
+          var galleryNote = "";
+          if (gallery) {
+            galleryNote = " An image gallery for this request is already shown to the user next to your reply. " +
+              "Never say you cannot display images, and do not list image links in the answer; " +
+              "talk about the subject naturally instead.";
+          }
           if (results.length === 0) {
-            deps.emit({ t: "settle", text: "Searched the web" });
-            var bare = "You are Impose, a helpful assistant. The web search found nothing for this question. " +
-              "Say so in one short line, then answer from your own knowledge anyway. " +
-              "Never refuse a question you can answer, and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
-            return deps.complete(bare, withContext(question), deps.onDelta, deps.onThink).then(function () {
-              return { sources: [], provider: out.provider || "" };
+            return (galleryJob || Promise.resolve()).then(function () {
+              deps.emit({ t: "settle", text: "Searched the web" });
+              var bare = "You are Impose, a helpful assistant running in a web app that renders rich content; never call yourself a CLI or terminal. The web search found nothing for this question. " +
+                "Say so in one short line, then answer from your own knowledge anyway. " +
+                "Never refuse a question you can answer, and never ask the user to provide evidence. Use the conversation to resolve names and pronouns." +
+                galleryNote;
+              return deps.complete(bare, withContext(question), deps.onDelta, deps.onThink).then(function () {
+                return { sources: [], provider: out.provider || "", images: gallery ? gallery.images : null };
+              });
             });
           }
           deps.emit({ t: "status", text: "Reading " + results.length + " sources", provider: out.provider || "" });
@@ -3650,14 +3847,18 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             });
             var evidence = lines.join("\n\n");
             if (pageBlocks.length) evidence += "\n\nPage contents:\n\n" + pageBlocks.join("\n\n");
-            deps.emit({ t: "settle", text: "Searched the web" });
-            var system = "You are Impose, a helpful assistant. Use the evidence below when it answers the question, " +
-              "and cite sources by number like [1]. Page contents, when present, outrank the short snippets. " +
-              "If the evidence is off topic or too thin, say the search missed " +
-              "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
-              "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
-            return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + evidence, deps.onDelta, deps.onThink).then(function () {
-              return { sources: results, provider: out.provider, read: pages.filter(Boolean).length };
+            return (galleryJob || Promise.resolve()).then(function () {
+              deps.emit({ t: "settle", text: "Searched the web" });
+              var system = "You are Impose, a helpful assistant running in a web app that renders rich content; never call yourself a CLI or terminal. Use the evidence below when it answers the question, " +
+                "and cite sources by number like [1]. Page contents, when present, outrank the short snippets. " +
+                "If the evidence is off topic or too thin, say the search missed " +
+                "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
+                "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns." +
+                galleryNote;
+              return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + evidence, deps.onDelta, deps.onThink).then(function () {
+                return { sources: results, provider: out.provider, read: pages.filter(Boolean).length,
+                         images: gallery ? gallery.images : null };
+              });
             });
           });
         });
@@ -3686,11 +3887,15 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   var api = {
     createHarness: createHarness,
     simplifyQuery: simplifyQuery,
+    looksLikeImageRequest: looksLikeImageRequest,
+    imageSubject: imageSubject,
+    imagesTool: imagesTool,
     domainOf: domainOf,
     websearchTool: websearchTool,
     harness: createHarness()
   };
   api.harness.registerTool(websearchTool);
+  api.harness.registerTool(imagesTool);
 
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else getRoot().ImposeHarness = api;
@@ -4129,7 +4334,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   function yesTrans(els) {
     for (var i = 0; i < els.length; i++) els[i].style.transition = "";
   }
-  var SYS_MSG = "You are Impose, a helpful assistant. Be direct and concrete. Skip filler, self-introductions, and restating the question.";
+  var SYS_MSG = "You are Impose, a helpful assistant running inside a web chat app with rich rendering: markdown, highlighted code blocks, image galleries, and clickable links. Never describe yourself as a CLI, terminal, or text-only system, and never claim you cannot display rich content. Be direct and concrete; skip filler, self-introductions, and restating the question.";
 
   /* Base persona + per chat instructions + memory, assembled once per send. */
   function getSystemMsg(chat) {
@@ -5495,6 +5700,71 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return html;
   }
 
+  /* --- syntax highlighting for fenced code ------------------------------- */
+  var HL_SETS = {
+    python: "and as assert async await break class continue def del elif else except finally for from global if import in is lambda None nonlocal not or pass raise return True False try while with yield match case self",
+    js: "async await break case catch class const continue debugger default delete do else export extends finally for from function get if import in instanceof let new of return set static super switch this throw try typeof var void while with yield true false null undefined",
+    clike: "abstract as base bool break byte case catch char class const constexpr continue debugger default delete do double dynamic else enum event explicit extern final finally float for foreach func function go goto if implements import in inline int interface internal is lock long namespace new null nullptr object operator out override package params private protected public readonly ref return sbyte sealed short sizeof static string struct switch this throw try typeof uint ulong unsafe ushort using var virtual void volatile while true false nil defer select range map chan go type struct",
+    sql: "add all alter and any as asc auto_increment between by case check column constraint create cross database default delete desc distinct drop else end exists foreign from full group having in index inner insert into is join key left like limit not null offset on or order outer primary procedure references replace right select set table then top truncate union unique update values view when where with",
+    css: "important media supports keyframes import from to and not"
+  };
+  var HL_ALIAS = {
+    py: "python", python: "python",
+    js: "js", jsx: "js", javascript: "js", mjs: "js", node: "js", ts: "js", tsx: "js", typescript: "js", json: "js",
+    java: "clike", c: "clike", cpp: "clike", "c++": "clike", cs: "clike", "c#": "clike", go: "clike", golang: "clike",
+    rust: "clike", rs: "clike", swift: "clike", kotlin: "clike", kt: "clike", php: "clike", dart: "clike", scala: "clike",
+    sql: "sql", mysql: "sql", postgres: "sql", sqlite: "sql",
+    css: "css", scss: "css", less: "css",
+    sh: "sh", bash: "sh", shell: "sh", zsh: "sh", console: "sh",
+    html: "html", xml: "html", svg: "html", vue: "html", yaml: "sh", yml: "sh", toml: "sh", ini: "sh"
+  };
+  var HL_RE = {
+    python: /(#[^\n]*|"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\')|("(?:\\.|[^"\\\n])*"|\'(?:\\.|[^'\\\n])*\')|(\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|([A-Za-z_][\w]*)/g,
+    js: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|\'(?:\\.|[^'\\\n])*\'|`(?:\\.|[^`\\])*`)|(\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|([A-Za-z_$][\w$]*)/g,
+    clike: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|\'(?:\\.|[^'\\\n])*\')|(\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[fFlLuU]*\b)|([A-Za-z_][\w]*)/g,
+    sql: /(--[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|\'(?:[^'\\\n])*\')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][\w]*)/gi,
+    css: /(\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|\'(?:[^'\\\n])*\')|(#[0-9a-fA-F]{3,8}\b|\b-?\d+(?:\.\d+)?(?:px|em|rem|vh|vw|dvh|s|ms|%)?\b)|([@#.]?[A-Za-z-][\w-]*)/g,
+    sh: /(#[^\n]*)|("(?:\\.|[^"\\\n])*"|\'(?:[^'\\\n])*\')|(\b\d+\b)|([A-Za-z_][\w-]*)/g,
+    html: /(<!--[\s\S]*?-->)|("(?:[^"\\\n])*"|\'(?:[^'\\\n])*\')|(<\/?[a-zA-Z][\w-]*|\/?>)|([a-zA-Z-]+(?==))/g
+  };
+
+  function hlEscape(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function highlightCode(code, lang) {
+    var family = HL_ALIAS[String(lang || "").toLowerCase()] || "";
+    if (!family || !HL_RE[family]) return hlEscape(code);
+    var words = {};
+    (HL_SETS[family === "js" ? "js" : family] || "").split(" ").forEach(function (w) { if (w) words[w] = 1; });
+    var isJson = /^(json|ts|tsx)$/i.test(String(lang || "")) && /^[\s\[{]/.test(code);
+    var out = "", last = 0, m;
+    HL_RE[family].lastIndex = 0;
+    while ((m = HL_RE[family].exec(code))) {
+      if (m.index > last) out += hlEscape(code.slice(last, m.index));
+      last = m.index + m[0].length;
+      var cls = "";
+      if (m[1]) cls = "tok-com";
+      else if (m[2]) {
+        cls = "tok-str";
+        if (family === "js" && isJson && /^"/.test(m[2]) && code.slice(last).match(/^\s*:/)) cls = "tok-fn";
+      }
+      else if (m[3]) cls = "tok-num";
+      else if (m[4]) {
+        var w = m[4];
+        if (words[w]) cls = "tok-kw";
+        else if (code.slice(last).match(/^\s*\(/)) cls = "tok-fn";
+        else if (family === "css" && /^[.@]/.test(w)) cls = "tok-kw";
+        else if (family === "css" && code.slice(m.index - 1, m.index) === ".") cls = "tok-fn";
+      }
+      if (family === "html" && m[3]) cls = "tok-kw";
+      out += cls ? '<span class="' + cls + '">' + hlEscape(m[0]) + "</span>" : hlEscape(m[0]);
+      if (m[0].length === 0) HL_RE[family].lastIndex++;
+    }
+    out += hlEscape(code.slice(last));
+    return out;
+  }
+
   function renderMarkdownBody(src) {
     src = String(src).replace(/\r\n?/g, "\n");
     var fences = (src.match(/^```/gm) || []).length;
@@ -5512,7 +5782,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         i++;
         html += '<div class="codeblock"><div class="code-head"><span>' + escapeHtml(lang) +
           '</span><button class="mini-btn copy-code" type="button"><i data-lucide="copy"></i><span>Copy</span></button></div>' +
-          "<pre><code>" + escapeHtml(buf.join("\n")) + "</code></pre></div>";
+          "<pre><code>" + highlightCode(buf.join("\n"), lang) + "</code></pre></div>";
         continue;
       }
       if (/^\s{0,3}#{1,4}\s+/.test(line)) {
@@ -6217,8 +6487,29 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return linkCites(renderMarkdown(msg.content || ""), msg);
   }
 
+  /* The image gallery a researched answer carries when the request asked
+     for pictures. Tiles keep a square box so loading never shifts layout;
+     the photo fades in over the box once it decodes. */
+  function imagesHtml(msg) {
+    var imgs = msg && msg.images;
+    if (!imgs || !imgs.length) return "";
+    var tiles = "";
+    for (var i = 0; i < imgs.length && i < 8; i++) {
+      var im = imgs[i];
+      var cap = escapeHtml(im.title || "image").replace(/\s+/g, " ").trim().slice(0, 90);
+      tiles += '<button type="button" class="img-tile" data-full="' + escapeHtml(im.image) + '"' +
+        ' data-title="' + cap + '"' +
+        (im.page ? ' data-page="' + escapeHtml(im.page) + '"' : "") +
+        ' style="animation-delay:' + Math.min(i * 45, 360) + 'ms" aria-label="Open image: ' + cap + '">' +
+        '<img src="' + escapeHtml(im.thumb || im.image) + '" alt="' + cap + '"' +
+        ' loading="lazy" decoding="async" referrerpolicy="no-referrer"></button>';
+    }
+    return '<div class="img-grid">' + tiles + "</div>";
+  }
+
   function assistantRowHtml(msg, withActions, chatModel) {
-    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + (withActions ? actionsHtml(msg, false, chatModel) : "") + sourcesPanelHtml(msg, !withActions);
+    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + imagesHtml(msg) +
+      (withActions ? actionsHtml(msg, false, chatModel) : "") + sourcesPanelHtml(msg, !withActions);
   }
 
   function animateIn(row) {
@@ -6511,7 +6802,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     }
     s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(content);
     if (!s.row.querySelector(".msg-actions")) {
-      s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: content }, true, chat.model) + sourcesPanelHtml(msg || { content: content }));
+      s.row.insertAdjacentHTML("beforeend", imagesHtml(msg) + actionsHtml(msg || { content: content }, true, chat.model) + sourcesPanelHtml(msg || { content: content }));
     }
     refreshIcons();
     settleBodyIn(s.body);
@@ -6817,7 +7108,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (s.row.isConnected) {
       s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(s.text);
       if (!s.row.querySelector(".msg-actions")) {
-        s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
+        s.row.insertAdjacentHTML("beforeend", imagesHtml(msg) + actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
       }
       refreshIcons();
       settleBodyIn(s.body);
@@ -6942,6 +7233,27 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return lines.slice(-6).join("\n");
   }
 
+  function fetchImagesViaRelay(query, limit, signal) {
+    var cfg = relayCfg();
+    if (!cfg.url) return Promise.reject(new Error("Set the relay address to search images."));
+    if (!cfg.key) return Promise.reject(new Error("Add the relay key to search images."));
+    var opts = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      body: JSON.stringify({ query: query, limit: limit || 6 })
+    };
+    if (signal) opts.signal = signal;
+    return fetch(stripSlash(cfg.url) + "/v1/images", opts).then(function (res) {
+      if (res.status === 401) throw new Error("That relay key was rejected.");
+      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+        throw new Error("The image search came back unreadable.");
+      });
+    }).then(function (env) {
+      if (env.status !== 200) throw new Error((env.data && env.data.detail) || ("Image search failed (" + env.status + ")."));
+      return { results: env.data.results || [], provider: env.data.provider || "" };
+    });
+  }
+
   /* Fire-and-forget wake for a sleeping relay. Render free spins down on
      idle and the first request pays the wake, so this moves the wake ahead
      of the first real request. Silent by design: no log, no toast. */
@@ -7053,6 +7365,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           shown++;
         }
       }
+      else if (ev.t === "images") trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
         clearTimeout(slowTimer);
@@ -7070,6 +7383,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       signal: signal,
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
+      images: function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
       excluded: chat.excluded,
       rewrite: function (text, context) {
         return new Promise(function (resolve) {
@@ -7107,6 +7421,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       clearTimeout(slowTimer);
       var c = getChat(s.chatId);
       var m = c && c.messages[s.index];
+      if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
       if (m && out && out.sources) {
         m.sources = out.sources.map(function (r) { return { title: r.title || r.url, url: r.url }; });
         m.trace = {
@@ -7506,6 +7821,72 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     target.classList.add("flash");
     setTimeout(function () { target.classList.remove("flash"); }, 1200);
   }
+
+  /* ---------- image lightbox ---------- */
+
+  var imgbox = null;
+  var imgboxTimer = 0;
+
+  function closeImgbox() {
+    if (!imgbox || !imgbox.classList.contains("open")) return;
+    imgbox.classList.remove("open");
+    clearTimeout(imgboxTimer);
+    imgboxTimer = setTimeout(function () { if (imgbox) imgbox.hidden = true; }, 160);
+    document.removeEventListener("keydown", imgboxKeys);
+  }
+
+  function imgboxKeys(e) {
+    if (e.key === "Escape") { e.stopPropagation(); closeImgbox(); }
+  }
+
+  function openImgbox(tile) {
+    if (!imgbox) {
+      imgbox = document.createElement("div");
+      imgbox.className = "imgbox";
+      imgbox.hidden = true;
+      imgbox.setAttribute("role", "dialog");
+      imgbox.setAttribute("aria-modal", "true");
+      imgbox.setAttribute("aria-label", "Image preview");
+      document.body.appendChild(imgbox);
+      imgbox.addEventListener("click", function (e) {
+        if (e.target === imgbox || e.target.classList.contains("imgbox-x")) closeImgbox();
+      });
+    }
+    var full = tile.getAttribute("data-full") || "";
+    var page = tile.getAttribute("data-page") || "";
+    var title = tile.getAttribute("data-title") || "image";
+    imgbox.innerHTML =
+      '<button type="button" class="imgbox-x icon-btn" aria-label="Close"><i data-lucide="x"></i></button>' +
+      '<figure class="imgbox-fig">' +
+      '<a href="' + escapeHtml(full) + '" target="_blank" rel="noopener noreferrer">' +
+      '<img src="' + escapeHtml(full) + '" alt="' + escapeHtml(title) + '" referrerpolicy="no-referrer"></a>' +
+      '<figcaption class="imgbox-cap"><span>' + escapeHtml(title) + "</span>" +
+      (page ? '<a href="' + escapeHtml(page) + '" target="_blank" rel="noopener noreferrer">Source</a>' : "") +
+      "</figcaption></figure>";
+    imgbox.hidden = false;
+    /* next frame so the entry transition runs */
+    requestAnimationFrame(function () { imgbox.classList.add("open"); });
+    refreshIcons();
+    document.addEventListener("keydown", imgboxKeys);
+  }
+
+  messagesEl.addEventListener("click", function (e) {
+    var tile = e.target.closest ? e.target.closest(".img-tile") : null;
+    if (tile) { openImgbox(tile); return; }
+    if (e.target.closest && e.target.closest(".imgbox")) closeImgbox();
+  });
+  /* load does not bubble: fade the photo in over its box from here */
+  messagesEl.addEventListener("load", function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains("loaded")) return;
+    if (e.target && e.target.tagName === "IMG" && e.target.parentElement && e.target.parentElement.classList.contains("img-tile")) {
+      e.target.classList.add("loaded");
+    }
+  }, true);
+  messagesEl.addEventListener("error", function (e) {
+    if (e.target && e.target.tagName === "IMG" && e.target.parentElement && e.target.parentElement.classList.contains("img-tile")) {
+      e.target.parentElement.classList.add("broken");
+    }
+  }, true);
 
   /* ---------- citation hover cards ---------- */
 

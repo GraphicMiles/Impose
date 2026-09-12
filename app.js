@@ -26,7 +26,7 @@
   function yesTrans(els) {
     for (var i = 0; i < els.length; i++) els[i].style.transition = "";
   }
-  var SYS_MSG = "You are Impose, a helpful assistant. Be direct and concrete. Skip filler, self-introductions, and restating the question.";
+  var SYS_MSG = "You are Impose, a helpful assistant running inside a web chat app with rich rendering: markdown, highlighted code blocks, image galleries, and clickable links. Never describe yourself as a CLI, terminal, or text-only system, and never claim you cannot display rich content. Be direct and concrete; skip filler, self-introductions, and restating the question.";
 
   /* Base persona + per chat instructions + memory, assembled once per send. */
   function getSystemMsg(chat) {
@@ -1392,6 +1392,71 @@
     return html;
   }
 
+  /* --- syntax highlighting for fenced code ------------------------------- */
+  var HL_SETS = {
+    python: "and as assert async await break class continue def del elif else except finally for from global if import in is lambda None nonlocal not or pass raise return True False try while with yield match case self",
+    js: "async await break case catch class const continue debugger default delete do else export extends finally for from function get if import in instanceof let new of return set static super switch this throw try typeof var void while with yield true false null undefined",
+    clike: "abstract as base bool break byte case catch char class const constexpr continue debugger default delete do double dynamic else enum event explicit extern final finally float for foreach func function go goto if implements import in inline int interface internal is lock long namespace new null nullptr object operator out override package params private protected public readonly ref return sbyte sealed short sizeof static string struct switch this throw try typeof uint ulong unsafe ushort using var virtual void volatile while true false nil defer select range map chan go type struct",
+    sql: "add all alter and any as asc auto_increment between by case check column constraint create cross database default delete desc distinct drop else end exists foreign from full group having in index inner insert into is join key left like limit not null offset on or order outer primary procedure references replace right select set table then top truncate union unique update values view when where with",
+    css: "important media supports keyframes import from to and not"
+  };
+  var HL_ALIAS = {
+    py: "python", python: "python",
+    js: "js", jsx: "js", javascript: "js", mjs: "js", node: "js", ts: "js", tsx: "js", typescript: "js", json: "js",
+    java: "clike", c: "clike", cpp: "clike", "c++": "clike", cs: "clike", "c#": "clike", go: "clike", golang: "clike",
+    rust: "clike", rs: "clike", swift: "clike", kotlin: "clike", kt: "clike", php: "clike", dart: "clike", scala: "clike",
+    sql: "sql", mysql: "sql", postgres: "sql", sqlite: "sql",
+    css: "css", scss: "css", less: "css",
+    sh: "sh", bash: "sh", shell: "sh", zsh: "sh", console: "sh",
+    html: "html", xml: "html", svg: "html", vue: "html", yaml: "sh", yml: "sh", toml: "sh", ini: "sh"
+  };
+  var HL_RE = {
+    python: /(#[^\n]*|"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\')|("(?:\\.|[^"\\\n])*"|\'(?:\\.|[^'\\\n])*\')|(\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|([A-Za-z_][\w]*)/g,
+    js: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|\'(?:\\.|[^'\\\n])*\'|`(?:\\.|[^`\\])*`)|(\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|([A-Za-z_$][\w$]*)/g,
+    clike: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|\'(?:\\.|[^'\\\n])*\')|(\b0[xX][0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[fFlLuU]*\b)|([A-Za-z_][\w]*)/g,
+    sql: /(--[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|\'(?:[^'\\\n])*\')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][\w]*)/gi,
+    css: /(\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|\'(?:[^'\\\n])*\')|(#[0-9a-fA-F]{3,8}\b|\b-?\d+(?:\.\d+)?(?:px|em|rem|vh|vw|dvh|s|ms|%)?\b)|([@#.]?[A-Za-z-][\w-]*)/g,
+    sh: /(#[^\n]*)|("(?:\\.|[^"\\\n])*"|\'(?:[^'\\\n])*\')|(\b\d+\b)|([A-Za-z_][\w-]*)/g,
+    html: /(<!--[\s\S]*?-->)|("(?:[^"\\\n])*"|\'(?:[^'\\\n])*\')|(<\/?[a-zA-Z][\w-]*|\/?>)|([a-zA-Z-]+(?==))/g
+  };
+
+  function hlEscape(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function highlightCode(code, lang) {
+    var family = HL_ALIAS[String(lang || "").toLowerCase()] || "";
+    if (!family || !HL_RE[family]) return hlEscape(code);
+    var words = {};
+    (HL_SETS[family === "js" ? "js" : family] || "").split(" ").forEach(function (w) { if (w) words[w] = 1; });
+    var isJson = /^(json|ts|tsx)$/i.test(String(lang || "")) && /^[\s\[{]/.test(code);
+    var out = "", last = 0, m;
+    HL_RE[family].lastIndex = 0;
+    while ((m = HL_RE[family].exec(code))) {
+      if (m.index > last) out += hlEscape(code.slice(last, m.index));
+      last = m.index + m[0].length;
+      var cls = "";
+      if (m[1]) cls = "tok-com";
+      else if (m[2]) {
+        cls = "tok-str";
+        if (family === "js" && isJson && /^"/.test(m[2]) && code.slice(last).match(/^\s*:/)) cls = "tok-fn";
+      }
+      else if (m[3]) cls = "tok-num";
+      else if (m[4]) {
+        var w = m[4];
+        if (words[w]) cls = "tok-kw";
+        else if (code.slice(last).match(/^\s*\(/)) cls = "tok-fn";
+        else if (family === "css" && /^[.@]/.test(w)) cls = "tok-kw";
+        else if (family === "css" && code.slice(m.index - 1, m.index) === ".") cls = "tok-fn";
+      }
+      if (family === "html" && m[3]) cls = "tok-kw";
+      out += cls ? '<span class="' + cls + '">' + hlEscape(m[0]) + "</span>" : hlEscape(m[0]);
+      if (m[0].length === 0) HL_RE[family].lastIndex++;
+    }
+    out += hlEscape(code.slice(last));
+    return out;
+  }
+
   function renderMarkdownBody(src) {
     src = String(src).replace(/\r\n?/g, "\n");
     var fences = (src.match(/^```/gm) || []).length;
@@ -1409,7 +1474,7 @@
         i++;
         html += '<div class="codeblock"><div class="code-head"><span>' + escapeHtml(lang) +
           '</span><button class="mini-btn copy-code" type="button"><i data-lucide="copy"></i><span>Copy</span></button></div>' +
-          "<pre><code>" + escapeHtml(buf.join("\n")) + "</code></pre></div>";
+          "<pre><code>" + highlightCode(buf.join("\n"), lang) + "</code></pre></div>";
         continue;
       }
       if (/^\s{0,3}#{1,4}\s+/.test(line)) {
@@ -2114,8 +2179,29 @@
     return linkCites(renderMarkdown(msg.content || ""), msg);
   }
 
+  /* The image gallery a researched answer carries when the request asked
+     for pictures. Tiles keep a square box so loading never shifts layout;
+     the photo fades in over the box once it decodes. */
+  function imagesHtml(msg) {
+    var imgs = msg && msg.images;
+    if (!imgs || !imgs.length) return "";
+    var tiles = "";
+    for (var i = 0; i < imgs.length && i < 8; i++) {
+      var im = imgs[i];
+      var cap = escapeHtml(im.title || "image").replace(/\s+/g, " ").trim().slice(0, 90);
+      tiles += '<button type="button" class="img-tile" data-full="' + escapeHtml(im.image) + '"' +
+        ' data-title="' + cap + '"' +
+        (im.page ? ' data-page="' + escapeHtml(im.page) + '"' : "") +
+        ' style="animation-delay:' + Math.min(i * 45, 360) + 'ms" aria-label="Open image: ' + cap + '">' +
+        '<img src="' + escapeHtml(im.thumb || im.image) + '" alt="' + cap + '"' +
+        ' loading="lazy" decoding="async" referrerpolicy="no-referrer"></button>';
+    }
+    return '<div class="img-grid">' + tiles + "</div>";
+  }
+
   function assistantRowHtml(msg, withActions, chatModel) {
-    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + (withActions ? actionsHtml(msg, false, chatModel) : "") + sourcesPanelHtml(msg, !withActions);
+    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + imagesHtml(msg) +
+      (withActions ? actionsHtml(msg, false, chatModel) : "") + sourcesPanelHtml(msg, !withActions);
   }
 
   function animateIn(row) {
@@ -2408,7 +2494,7 @@
     }
     s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(content);
     if (!s.row.querySelector(".msg-actions")) {
-      s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: content }, true, chat.model) + sourcesPanelHtml(msg || { content: content }));
+      s.row.insertAdjacentHTML("beforeend", imagesHtml(msg) + actionsHtml(msg || { content: content }, true, chat.model) + sourcesPanelHtml(msg || { content: content }));
     }
     refreshIcons();
     settleBodyIn(s.body);
@@ -2714,7 +2800,7 @@
     if (s.row.isConnected) {
       s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(s.text);
       if (!s.row.querySelector(".msg-actions")) {
-        s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
+        s.row.insertAdjacentHTML("beforeend", imagesHtml(msg) + actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
       }
       refreshIcons();
       settleBodyIn(s.body);
@@ -2839,6 +2925,27 @@
     return lines.slice(-6).join("\n");
   }
 
+  function fetchImagesViaRelay(query, limit, signal) {
+    var cfg = relayCfg();
+    if (!cfg.url) return Promise.reject(new Error("Set the relay address to search images."));
+    if (!cfg.key) return Promise.reject(new Error("Add the relay key to search images."));
+    var opts = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      body: JSON.stringify({ query: query, limit: limit || 6 })
+    };
+    if (signal) opts.signal = signal;
+    return fetch(stripSlash(cfg.url) + "/v1/images", opts).then(function (res) {
+      if (res.status === 401) throw new Error("That relay key was rejected.");
+      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+        throw new Error("The image search came back unreadable.");
+      });
+    }).then(function (env) {
+      if (env.status !== 200) throw new Error((env.data && env.data.detail) || ("Image search failed (" + env.status + ")."));
+      return { results: env.data.results || [], provider: env.data.provider || "" };
+    });
+  }
+
   /* Fire-and-forget wake for a sleeping relay. Render free spins down on
      idle and the first request pays the wake, so this moves the wake ahead
      of the first real request. Silent by design: no log, no toast. */
@@ -2950,6 +3057,7 @@
           shown++;
         }
       }
+      else if (ev.t === "images") trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
         clearTimeout(slowTimer);
@@ -2967,6 +3075,7 @@
       signal: signal,
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
+      images: function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
       excluded: chat.excluded,
       rewrite: function (text, context) {
         return new Promise(function (resolve) {
@@ -3004,6 +3113,7 @@
       clearTimeout(slowTimer);
       var c = getChat(s.chatId);
       var m = c && c.messages[s.index];
+      if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
       if (m && out && out.sources) {
         m.sources = out.sources.map(function (r) { return { title: r.title || r.url, url: r.url }; });
         m.trace = {
@@ -3403,6 +3513,72 @@
     target.classList.add("flash");
     setTimeout(function () { target.classList.remove("flash"); }, 1200);
   }
+
+  /* ---------- image lightbox ---------- */
+
+  var imgbox = null;
+  var imgboxTimer = 0;
+
+  function closeImgbox() {
+    if (!imgbox || !imgbox.classList.contains("open")) return;
+    imgbox.classList.remove("open");
+    clearTimeout(imgboxTimer);
+    imgboxTimer = setTimeout(function () { if (imgbox) imgbox.hidden = true; }, 160);
+    document.removeEventListener("keydown", imgboxKeys);
+  }
+
+  function imgboxKeys(e) {
+    if (e.key === "Escape") { e.stopPropagation(); closeImgbox(); }
+  }
+
+  function openImgbox(tile) {
+    if (!imgbox) {
+      imgbox = document.createElement("div");
+      imgbox.className = "imgbox";
+      imgbox.hidden = true;
+      imgbox.setAttribute("role", "dialog");
+      imgbox.setAttribute("aria-modal", "true");
+      imgbox.setAttribute("aria-label", "Image preview");
+      document.body.appendChild(imgbox);
+      imgbox.addEventListener("click", function (e) {
+        if (e.target === imgbox || e.target.classList.contains("imgbox-x")) closeImgbox();
+      });
+    }
+    var full = tile.getAttribute("data-full") || "";
+    var page = tile.getAttribute("data-page") || "";
+    var title = tile.getAttribute("data-title") || "image";
+    imgbox.innerHTML =
+      '<button type="button" class="imgbox-x icon-btn" aria-label="Close"><i data-lucide="x"></i></button>' +
+      '<figure class="imgbox-fig">' +
+      '<a href="' + escapeHtml(full) + '" target="_blank" rel="noopener noreferrer">' +
+      '<img src="' + escapeHtml(full) + '" alt="' + escapeHtml(title) + '" referrerpolicy="no-referrer"></a>' +
+      '<figcaption class="imgbox-cap"><span>' + escapeHtml(title) + "</span>" +
+      (page ? '<a href="' + escapeHtml(page) + '" target="_blank" rel="noopener noreferrer">Source</a>' : "") +
+      "</figcaption></figure>";
+    imgbox.hidden = false;
+    /* next frame so the entry transition runs */
+    requestAnimationFrame(function () { imgbox.classList.add("open"); });
+    refreshIcons();
+    document.addEventListener("keydown", imgboxKeys);
+  }
+
+  messagesEl.addEventListener("click", function (e) {
+    var tile = e.target.closest ? e.target.closest(".img-tile") : null;
+    if (tile) { openImgbox(tile); return; }
+    if (e.target.closest && e.target.closest(".imgbox")) closeImgbox();
+  });
+  /* load does not bubble: fade the photo in over its box from here */
+  messagesEl.addEventListener("load", function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains("loaded")) return;
+    if (e.target && e.target.tagName === "IMG" && e.target.parentElement && e.target.parentElement.classList.contains("img-tile")) {
+      e.target.classList.add("loaded");
+    }
+  }, true);
+  messagesEl.addEventListener("error", function (e) {
+    if (e.target && e.target.tagName === "IMG" && e.target.parentElement && e.target.parentElement.classList.contains("img-tile")) {
+      e.target.parentElement.classList.add("broken");
+    }
+  }, true);
 
   /* ---------- citation hover cards ---------- */
 
