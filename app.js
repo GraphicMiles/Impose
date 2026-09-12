@@ -2779,6 +2779,11 @@
     }
     var chat = getChat(s.chatId);
     var msg = chat && chat.messages[s.index];
+    /* The gallery is a work product of the search, not of the answer: keep
+       it even when the completion failed. */
+    if (s.galleryImages && msg && !(msg.images && msg.images.length)) {
+      msg.images = s.galleryImages.slice(0, 8);
+    }
     if (!s.text && (s.stopped || !failed)) {
       /* Stopped before a word arrived: leave no empty bubble behind. */
       if (chat) {
@@ -3079,7 +3084,10 @@
           shown++;
         }
       }
-      else if (ev.t === "images") trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
+      else if (ev.t === "images") {
+        s.galleryImages = ev.images || null;
+        trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
+      }
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
         clearTimeout(slowTimer);

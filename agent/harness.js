@@ -169,7 +169,10 @@
           deps.emit({ t: "status", text: "Finding images" });
           return imagesTool.run({ query: subject || planned, limit: 6 }, { images: deps.images })
             .then(function (g) {
-              if (g.images.length) { gallery = g; deps.emit({ t: "images", n: g.images.length, provider: g.provider }); }
+              if (g.images.length) {
+                gallery = g;
+                deps.emit({ t: "images", n: g.images.length, provider: g.provider, images: g.images });
+              }
             }, function () { /* no gallery is fine */ });
         })() : null;
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {

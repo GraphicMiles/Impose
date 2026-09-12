@@ -3789,7 +3789,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           deps.emit({ t: "status", text: "Finding images" });
           return imagesTool.run({ query: subject || planned, limit: 6 }, { images: deps.images })
             .then(function (g) {
-              if (g.images.length) { gallery = g; deps.emit({ t: "images", n: g.images.length, provider: g.provider }); }
+              if (g.images.length) {
+                gallery = g;
+                deps.emit({ t: "images", n: g.images.length, provider: g.provider, images: g.images });
+              }
             }, function () { /* no gallery is fine */ });
         })() : null;
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
@@ -7087,6 +7090,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     }
     var chat = getChat(s.chatId);
     var msg = chat && chat.messages[s.index];
+    /* The gallery is a work product of the search, not of the answer: keep
+       it even when the completion failed. */
+    if (s.galleryImages && msg && !(msg.images && msg.images.length)) {
+      msg.images = s.galleryImages.slice(0, 8);
+    }
     if (!s.text && (s.stopped || !failed)) {
       /* Stopped before a word arrived: leave no empty bubble behind. */
       if (chat) {
@@ -7387,7 +7395,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           shown++;
         }
       }
-      else if (ev.t === "images") trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
+      else if (ev.t === "images") {
+        s.galleryImages = ev.images || null;
+        trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
+      }
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
         clearTimeout(slowTimer);

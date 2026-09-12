@@ -216,6 +216,23 @@ test("runAgent attaches a gallery on image asks", function () {
   });
 });
 
+test("the images event carries the array", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "sa" }], provider: "p" }]);
+  var imgEvent = null;
+  return H.harness.runAgent({
+    query: "show me photos of cats",
+    search: s.fn,
+    images: function () { return Promise.resolve({ provider: "p", results: [
+      { title: "c", image: "https://x.io/c.jpg", thumb: "https://x.io/c_t.jpg", page: "" }
+    ] }); },
+    emit: function (e) { if (e.t === "images") imgEvent = e; },
+    onDelta: function () {},
+    complete: function () { return Promise.resolve(); }
+  }).then(function () {
+    ok(imgEvent && Array.isArray(imgEvent.images) && imgEvent.images.length === 1, "array on the event");
+  });
+});
+
 test("runAgent without images dep stays search-only", function () {
   var s = searchStub([{ results: [
     { title: "A", url: "https://a.io/", snippet: "sa" }
