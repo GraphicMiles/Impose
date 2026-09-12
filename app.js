@@ -26,7 +26,7 @@
   function yesTrans(els) {
     for (var i = 0; i < els.length; i++) els[i].style.transition = "";
   }
-  var SYS_MSG = "You are Impose, a helpful assistant.";
+  var SYS_MSG = "You are Impose, a helpful assistant. Be direct and concrete. Skip filler, self-introductions, and restating the question.";
 
   /* Base persona + per chat instructions + memory, assembled once per send. */
   function getSystemMsg(chat) {
@@ -984,7 +984,7 @@
     return relayFetchReq(req, "POST", body, signal).then(function (res) {
       return throwIfHttpError(provider, model, res).then(function () { return res.json(); });
     }).then(function (d) {
-      if (opts.usage) {
+      if (opts.usage) { /* usage capture stays ahead of the reveal */
         if (provider.kind === "anthropic" && d.usage) { opts.usage.toksIn = d.usage.input_tokens; opts.usage.toksOut = d.usage.output_tokens; }
         else if (provider.kind === "openai" && d.usage) { opts.usage.toksIn = d.usage.prompt_tokens; opts.usage.toksOut = d.usage.completion_tokens; }
         else if (provider.kind === "gemini" && d.usageMetadata) { opts.usage.toksIn = d.usageMetadata.promptTokenCount; opts.usage.toksOut = d.usageMetadata.candidatesTokenCount; }
@@ -1012,7 +1012,43 @@
         if (umsg && umsg.reasoning_content) think = umsg.reasoning_content;
       }
       if (think) text = "<think>\n" + think + "\n</think>\n\n" + text;
-      if (text) onDelta(text);
+      if (text) return phantomStream(text, signal, onDelta);
+    });
+  }
+
+  /* The relay path answers whole, but a wall of text under the loading dots
+     reads as broken. Reveal it at reading pace with the same cursor the
+     live stream uses. ~1.6s for a short reply, capped at ~4s for long ones. */
+  function phantomStream(text, signal, onDelta) {
+    if (signal && signal.aborted) {
+      var err = new Error("stopped");
+      err.name = "AbortError";
+      return Promise.reject(err);
+    }
+    if (REDUCED || !window.requestAnimationFrame) {
+      onDelta(text);
+      return Promise.resolve();
+    }
+    var parts = text.match(/\S+\s+|\S+$/g) || [text];
+    var frames = Math.max(12, Math.min(90, Math.round(parts.length / 2)));
+    var perFrame = Math.ceil(parts.length / frames);
+    return new Promise(function (resolve, reject) {
+      var i = 0;
+      function step() {
+        if (signal && signal.aborted) {
+          var err = new Error("stopped");
+          err.name = "AbortError";
+          reject(err);
+          return;
+        }
+        var end = Math.min(parts.length, i + perFrame);
+        var chunk = "";
+        while (i < end) chunk += parts[i++];
+        if (chunk) onDelta(chunk);
+        if (i < parts.length) requestAnimationFrame(step);
+        else resolve();
+      }
+      requestAnimationFrame(step);
     });
   }
 
@@ -1998,17 +2034,19 @@
     return msg;
   }
 
-  function statsHtml(msg) {
+  function statsHtml(msg, chatModel) {
     if (!msg.stats || msg.stats.ms == null) return "";
     var secs = Math.max(1, Math.round(msg.stats.ms / 1000));
     var bits = [secs + "s"];
     if (msg.stats.toks > 0) bits.push("≈" + msg.stats.toks + " tok");
     if (msg.stats.cost > 0) bits.push("$" + (msg.stats.cost >= 1 ? msg.stats.cost.toFixed(2) : msg.stats.cost.toFixed(4)));
-    if (msg.via) bits.push(msg.via);
+    /* "via" only when the reply came from somewhere other than the provider
+       the header already names. */
+    if (msg.via && msg.via !== chatModel) bits.push("via " + msg.via);
     return '<span class="msg-stats">' + bits.join(" · ") + "</span>";
   }
 
-  function actionsHtml(msg, fresh) {
+  function actionsHtml(msg, fresh, chatModel) {
     msg = ensureVariants(msg || { content: "" });
     var pager = "";
     if (msg.variants.length > 1) {
@@ -2031,7 +2069,7 @@
       retryAs +
       '<button type="button" data-act="editasst" title="Edit reply" aria-label="Edit reply"><i data-lucide="pencil"></i></button>' +
       '<button type="button" data-act="speak" title="Read aloud" aria-label="Read aloud"><i data-lucide="volume-2"></i></button>' +
-      sourcesToggleHtml(msg) + pager + statsHtml(msg) +
+      sourcesToggleHtml(msg) + pager + statsHtml(msg, chatModel) +
       "</div>";
   }
 
@@ -2076,8 +2114,8 @@
     return linkCites(renderMarkdown(msg.content || ""), msg);
   }
 
-  function assistantRowHtml(msg, withActions) {
-    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + (withActions ? actionsHtml(msg) : "") + sourcesPanelHtml(msg, !withActions);
+  function assistantRowHtml(msg, withActions, chatModel) {
+    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + (withActions ? actionsHtml(msg, false, chatModel) : "") + sourcesPanelHtml(msg, !withActions);
   }
 
   function animateIn(row) {
@@ -2202,7 +2240,7 @@
       var row = document.createElement("div");
       row.className = "msg " + m.role;
       row.dataset.i = i;
-      row.innerHTML = m.role === "user" ? userRowHtml(m) : assistantRowHtml(m, true);
+      row.innerHTML = m.role === "user" ? userRowHtml(m) : assistantRowHtml(m, true, chat.model);
       messagesEl.appendChild(row);
       if (m.role !== "user") {
         (function (r, msg) {
@@ -2370,7 +2408,7 @@
     }
     s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(content);
     if (!s.row.querySelector(".msg-actions")) {
-      s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: content }, true) + sourcesPanelHtml(msg || { content: content }));
+      s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: content }, true, chat.model) + sourcesPanelHtml(msg || { content: content }));
     }
     refreshIcons();
     settleBodyIn(s.body);
@@ -2485,6 +2523,8 @@
 
   /* replaceIdx null appends a fresh answer, otherwise regenerates in place.
      retried marks a failover attempt so a bad provider cannot loop forever. */
+  var dotsHtml = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
+
   function streamLive(chat, provider, model, history, replaceIdx, retried) {
     var idx, row;
     if (replaceIdx == null) {
@@ -2568,6 +2608,26 @@
     }, liveOpts).then(function () {
       finishLive(s, false, null);
     }, function (err) {
+      /* Some gateways (Cloudflare et al.) block direct browser calls. If the
+         first attempt dies as a network error and a relay is configured,
+         retry the SAME provider through the relay once. */
+      var netFail = err && err.name !== "AbortError" &&
+        (err.name === "TypeError" || /network|fetch/i.test(String(err.message || "")));
+      var rcfg = relayCfg();
+      if (netFail && !s.retried && provider && !provider.useRelay && rcfg && rcfg.url) {
+        s.retried = true;
+        dnote("chat", "Direct call to " + (provider.label || provider.baseUrl) +
+          " was blocked. Retrying through the relay.");
+        toast("Provider blocked the browser. Trying through your relay.");
+        var relayClone = Object.assign({}, provider, { useRelay: true });
+        var idxKeep = s.index;
+        var rowKeep = s.row;
+        if (stream === s) stream = null;
+        setStreamingUI(true);
+        rowKeep.querySelector(".msg-body").innerHTML = dotsHtml;
+        streamLive(chat, relayClone, model, historyFor(chat.messages.slice(0, idxKeep), relayClone.kind, model), idxKeep, true);
+        return;
+      }
       /* Failover: one automatic retry on the next usable provider. */
       var backup = (!err || err.name !== "AbortError") && !s.retried && state.settings.failover
         ? pickBackup(provider && provider.id) : null;
@@ -2578,7 +2638,8 @@
         var rowKeep = s.row;
         if (stream === s) stream = null;
         setStreamingUI(true);
-        rowKeep.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
+        rowKeep.querySelector(".msg-body").innerHTML = dotsHtml;
+        chat.model = backup.label; /* header label mirrors who actually answers */
         var hist2 = historyFor(chat.messages.slice(0, idxKeep), backup.kind, backup.model);
         streamLive(chat, backup.provider, backup.model, hist2, idxKeep, true);
         return;
@@ -2641,7 +2702,10 @@
         }
       }
       msg.stats = stats;
-      msg.via = s.provider ? providerDisplay(s.provider) : null;
+      /* The header already shows who is answering; keep "via" only when the
+         reply actually came from somewhere else (failover, regenerate). */
+      var disp = s.provider ? providerDisplay(s.provider) : null;
+      msg.via = disp && disp !== chat.model ? disp : null;
       if (s.stopped && !failed && s.text) msg.stopped = true; else msg.stopped = null;
       if (msg.variants) msg.variants[msg.vi] = s.text;
       chat.updatedAt = Date.now();
@@ -2650,7 +2714,7 @@
     if (s.row.isConnected) {
       s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(s.text);
       if (!s.row.querySelector(".msg-actions")) {
-        s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: s.text }, true) + sourcesPanelHtml(msg || { content: s.text }));
+        s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
       }
       refreshIcons();
       settleBodyIn(s.body);
@@ -3855,7 +3919,7 @@
       var body = row.querySelector(".msg-body");
       if (body) body.innerHTML = assistantBodyHtml(msg);
       var acts = row.querySelector(".msg-actions");
-      if (acts) acts.outerHTML = actionsHtml(msg);
+      if (acts) acts.outerHTML = actionsHtml(msg, false, chat.model);
       refreshIcons();
     } else if (act === "edit") {
       if (stream) return;
