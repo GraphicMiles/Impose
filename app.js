@@ -1794,6 +1794,24 @@
     });
   }
 
+  function restoreTrace(row, msg) {
+    if (!window.NovaTrace || !msg || !msg.sources || !msg.sources.length) return;
+    if (row.querySelector(".agent-trace")) return;
+    var rows = msg.sources.map(function (s, i) {
+      return { primary: s.title || s.url, secondary: hostOf(s.url), href: s.url, si: i + 1 };
+    });
+    var snap = msg.trace
+      ? { status: msg.trace.status, secs: msg.trace.secs, query: msg.trace.query, rows: rows }
+      : {
+        status: "Searched the web",
+        secs: msg.stats && msg.stats.ms ? Math.max(1, Math.round(msg.stats.ms / 1000)) : 1,
+        query: null,
+        rows: rows
+      };
+    window.NovaTrace.mountSettled(row, snap);
+    refreshIcons();
+  }
+
   function renderMessages() {
     var chat = getChat(activeId);
     messagesEl.innerHTML = "";
@@ -1804,6 +1822,13 @@
       row.dataset.i = i;
       row.innerHTML = m.role === "user" ? userRowHtml(m) : assistantRowHtml(m, true);
       messagesEl.appendChild(row);
+      if (m.role !== "user") {
+        (function (r, msg) {
+          requestAnimationFrame(function () {
+            if (r.isConnected) restoreTrace(r, msg);
+          });
+        })(row, m);
+      }
     });
     refreshIcons();
   }
@@ -2276,7 +2301,10 @@
     function emit(ev) {
       if (!row.isConnected) return;
       if (ev.t === "status") trace.setStatus(ev.text + (ev.provider ? " via " + niceProvider(ev.provider) : ""));
-      else if (ev.t === "query") trace.addRow({ kind: "query", primary: ev.q, mono: true });
+      else if (ev.t === "query") {
+        s.query = ev.q;
+        trace.addRow({ kind: "query", primary: ev.q, mono: true });
+      }
       else if (ev.t === "source") {
         siCount++;
         if (shown < 5) {
@@ -2333,6 +2361,11 @@
       var m = c && c.messages[s.index];
       if (m && out && out.sources) {
         m.sources = out.sources.map(function (r) { return { title: r.title || r.url, url: r.url }; });
+        m.trace = {
+          status: "Searched the web",
+          secs: Math.max(1, Math.round((Date.now() - (s.t0 || Date.now())) / 1000)),
+          query: s.query || null
+        };
         save();
       }
       finishLive(s, false, null);

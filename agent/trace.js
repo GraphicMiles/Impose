@@ -127,9 +127,8 @@
       sizeRail();
     }
 
-    function settle(doneText) {
+    function doSettle(doneText, secs) {
       working = false;
-      var secs = Math.max(1, Math.round((Date.now() - t0) / 1000));
       statusEl.textContent = doneText || ("Thought for " + secs + " seconds");
       timeEl.textContent = secs + "s";
       var rings = list.querySelectorAll("[data-ico].trace-ring");
@@ -140,6 +139,10 @@
         rings[i].parentElement.replaceChild(s, rings[i]);
       }
       render();
+    }
+
+    function settle(doneText) {
+      doSettle(doneText, Math.max(1, Math.round((Date.now() - t0) / 1000)));
     }
 
     render();
@@ -156,7 +159,8 @@
       addRow: addRow,
       setStep: setStep,
       setMore: setMore,
-      settle: settle
+      settle: settle,
+      settleWith: function (text, secs) { doSettle(text, Math.max(1, secs || 1)); }
     };
   }
 
@@ -352,8 +356,25 @@
     });
   }
 
+  /* Rebuilds a settled trace from a persisted snapshot (reload, history).
+     No timers, no stagger: the run already happened. */
+  function mountSettled(host, snap) {
+    snap = snap || {};
+    var trace = mountTrace(host, { active: snap.status || "Searched the web" });
+    if (snap.query) trace.addRow({ kind: "query", primary: snap.query, mono: true });
+    (snap.rows || []).slice(0, 5).forEach(function (r, i) {
+      trace.addRow({ primary: r.primary, secondary: r.secondary, href: r.href, si: r.si || (i + 1) });
+    });
+    if ((snap.rows || []).length > 5) trace.setMore(snap.rows.length - 5);
+    trace.settleWith(snap.status, snap.secs);
+    var rows = host.querySelectorAll(".trace-row, .trace-more");
+    for (var i = 0; i < rows.length; i++) rows[i].style.setProperty("--d", "0ms");
+    return trace;
+  }
+
   window.NovaTrace = {
     mountTrace: mountTrace,
+    mountSettled: mountSettled,
     mountPlan: mountPlan,
     playDemo: playDemo
   };
