@@ -63,6 +63,12 @@ try {
           <span class="avatar avatar-sm" id="profileAvatar">Y</span>
           <span class="profile-name" id="profileName">You</span>
         </button>
+        <div class="side-meta">
+          <span class="side-credit">Built by GraphicMiles</span>
+          <button class="icon-btn sm" id="feedbackBtn" title="Report a bug or send feedback" aria-label="Report a bug or send feedback">
+            <i data-lucide="bug"></i>
+          </button>
+        </div>
       </div>
     </div>
   </aside>
@@ -404,10 +410,43 @@ try {
   </div>
 </section>
 
+<div class="overlay center" id="feedbackModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Send feedback">
+    <div class="settings-head">
+      <h2>Send feedback</h2>
+      <button class="icon-btn" id="feedbackClose" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <p class="pane-note">Found a bug or have an idea? This opens your email app with the report addressed to the maker.</p>
+      <div class="seg" id="feedbackType" role="group" aria-label="Feedback type">
+        <button type="button" data-fb="Bug report" aria-pressed="true">Bug report</button>
+        <button type="button" data-fb="Idea" aria-pressed="false">Idea</button>
+        <button type="button" data-fb="Other" aria-pressed="false">Other</button>
+      </div>
+      <div class="field">
+        <label class="flabel" for="fbSummary">Summary</label>
+        <input type="text" class="text-input" id="fbSummary" placeholder="One line, e.g. sources panel sticks open" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="flabel" for="fbDetails">Details</label>
+        <textarea class="text-input mono text-area" id="fbDetails" rows="4" placeholder="What happened, and what did you expect?" spellcheck="true"></textarea>
+      </div>
+      <p class="fhelp" id="fbContext"></p>
+      <div class="editor-foot">
+        <button class="btn" id="fbCopy" type="button"><i data-lucide="copy"></i><span>Copy</span></button>
+        <button class="btn primary grow" id="fbSend" type="button"><i data-lucide="send"></i><span>Send via email</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
 <noscript><p style="padding:24px;font-family:sans-serif">Nova needs JavaScript to run.</p></noscript>
 <script src="./lucide.min.js"></script>
+<script src="./anime.min.js"></script>
 <script src="./agent/trace.js"></script>
 <script src="./agent/harness.js"></script>
 <script src="./app.js"></script>

@@ -5,6 +5,26 @@
 
   var STORE_KEY = "nova.clone.v1";
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* anime.js (vendored) drives JS motion; CSS owns hovers and reveals. */
+  function motionOK() {
+    return !REDUCED && typeof window.anime !== "undefined" && !!window.anime.animate;
+  }
+  function EZ(name) {
+    try { return window.anime.eases[name]; }
+    catch (e) { return "linear"; }
+  }
+  function play(params) {
+    if (!motionOK()) return null;
+    try { return window.anime.animate(params); }
+    catch (e) { return null; }
+  }
+  function noTrans(els) {
+    for (var i = 0; i < els.length; i++) els[i].style.transition = "none";
+  }
+  function yesTrans(els) {
+    for (var i = 0; i < els.length; i++) els[i].style.transition = "";
+  }
   var SYS_MSG = "You are Nova, a helpful assistant.";
 
   /* ---------- canned replies (demo mode, no provider set) ---------- */
@@ -1650,7 +1670,7 @@
     refreshIcons();
   }
 
-  function renderList() {
+  function renderList(animateGlide) {
     var order = ["Today", "Yesterday", "Previous 7 days", "Previous 30 days", "Older"];
     var buckets = {};
     order.forEach(function (k) { buckets[k] = []; });
@@ -1688,6 +1708,45 @@
       list.forEach(function (c) { groupsEl.appendChild(chatRowEl(c)); });
     });
     refreshIcons();
+    placeGlide(!!animateGlide);
+  }
+
+  /* ---------- sidebar glide indicator ---------- */
+
+  var glideEl = null;
+
+  function glideRow() {
+    if (!activeId) return null;
+    return groupsEl.querySelector('.chat-row[data-id="' + activeId + '"]');
+  }
+
+  function placeGlide(animate) {
+    var row = null;
+    try { row = glideRow(); } catch (e) { row = null; }
+    if (!row) {
+      if (glideEl) glideEl.style.display = "none";
+      return;
+    }
+    try {
+      if (!glideEl) {
+        glideEl = document.createElement("div");
+        glideEl.className = "row-glide";
+        glideEl.setAttribute("aria-hidden", "true");
+      }
+      if (glideEl.parentNode !== groupsEl) groupsEl.appendChild(glideEl);
+      var g = groupsEl.getBoundingClientRect();
+      var r = row.getBoundingClientRect();
+      var top = r.top - g.top + groupsEl.scrollTop + Math.max(0, (r.height - 24) / 2);
+      if (window.anime && window.anime.remove) {
+        try { window.anime.remove(glideEl); } catch (e) { /* noop */ }
+      }
+      glideEl.style.display = "";
+      if (animate && motionOK()) {
+        play({ targets: glideEl, top: top, duration: 340, ease: EZ("outExpo") });
+      } else {
+        glideEl.style.top = top + "px";
+      }
+    } catch (e) { /* decorative */ }
   }
 
   /* ---------- messages ---------- */
@@ -1794,6 +1853,91 @@
     });
   }
 
+  function staggerActions(row) {
+    if (!motionOK()) return;
+    var box = row.querySelector(".msg-actions");
+    if (!box || !box.children.length) return;
+    var kids = Array.prototype.slice.call(box.children);
+    try {
+      noTrans(kids);
+      play({
+        targets: kids,
+        opacity: [0, 1],
+        translateY: [7, 0],
+        duration: 260,
+        ease: EZ("outCubic"),
+        delay: window.anime.stagger(38),
+        onComplete: function () { yesTrans(kids); }
+      });
+    } catch (e) { yesTrans(kids); }
+  }
+
+  function settleBodyIn(body) {
+    if (!body || !body.isConnected) return;
+    play({ targets: body, opacity: [0.5, 1], translateY: [5, 0], duration: 280, ease: EZ("outCubic") });
+  }
+
+  function countUpStats(row, msg) {
+    if (!motionOK() || !msg || !msg.stats || msg.stats.ms == null) return;
+    var slot = row.querySelector(".msg-stats");
+    if (!slot) return;
+    var secs = Math.max(1, Math.round(msg.stats.ms / 1000));
+    var toks = msg.stats.toks > 0 ? Math.round(msg.stats.toks) : 0;
+    try {
+      var o = { s: 0, t: 0 };
+      play({
+        targets: o,
+        s: secs,
+        t: toks,
+        duration: 650,
+        ease: EZ("outCubic"),
+        onUpdate: function () {
+          if (!slot.isConnected) return;
+          slot.textContent = Math.max(1, Math.round(o.s)) + "s" + (toks > 0 ? " · ≈" + Math.round(o.t) + " tok" : "");
+        }
+      });
+    } catch (e) { /* static text stays */ }
+  }
+
+  function flashCopied(btn) {
+    if (!btn || !btn.isConnected) return;
+    btn.innerHTML = '<i data-lucide="check"></i>';
+    btn.classList.add("on");
+    btn.title = "Copied";
+    refreshIcons();
+    if (motionOK()) {
+      try {
+        btn.style.transition = "none";
+        play({
+          targets: btn,
+          scale: [0.65, 1],
+          duration: 260,
+          ease: EZ("outExpo"),
+          onComplete: function () { btn.style.transition = ""; }
+        });
+      } catch (e) { btn.style.transition = ""; }
+    }
+    setTimeout(function () {
+      if (!btn.isConnected) return;
+      btn.innerHTML = '<i data-lucide="copy"></i>';
+      btn.classList.remove("on");
+      btn.title = "Copy";
+      refreshIcons();
+    }, 1300);
+  }
+
+  var regenBusy = false;
+  function fadeRegen(row, next) {
+    if (REDUCED || !row) { next(); return; }
+    regenBusy = true;
+    row.classList.add("regen-out");
+    setTimeout(function () {
+      row.classList.remove("regen-out");
+      regenBusy = false;
+      next();
+    }, 180);
+  }
+
   function restoreTrace(row, msg) {
     if (!window.NovaTrace || !msg || !msg.sources || !msg.sources.length) return;
     if (row.querySelector(".agent-trace")) return;
@@ -1857,9 +2001,9 @@
     clearFollowups();
     awayBase = -1;
     stopSpeak();
-    jumpPill.hidden = true;
+    hideJump(true);
     activeId = id;
-    renderList();
+    renderList(true);
     renderMessages();
     showDock();
     scrollBottom();
@@ -1872,11 +2016,32 @@
     clearFollowups();
     awayBase = -1;
     stopSpeak();
-    jumpPill.hidden = true;
+    hideJump(true);
     activeId = null;
     renderList();
-    messagesEl.innerHTML = "";
-    showEmpty();
+    if (motionOK() && messagesEl.children.length && !messagesEl.hidden) {
+      try {
+        play({
+          targets: messagesEl,
+          opacity: [1, 0],
+          translateY: [0, 10],
+          duration: 170,
+          ease: EZ("inCubic"),
+          onComplete: function () {
+            messagesEl.innerHTML = "";
+            showEmpty();
+            messagesEl.style.opacity = "";
+            messagesEl.style.transform = "";
+          }
+        });
+      } catch (e) {
+        messagesEl.innerHTML = "";
+        showEmpty();
+      }
+    } else {
+      messagesEl.innerHTML = "";
+      showEmpty();
+    }
     autogrow();
     dnote("chat", "New chat started");
     syncSend();
@@ -1887,8 +2052,50 @@
   /* ---------- streaming: canned demo + live provider ---------- */
 
   function setStreamingUI(on) {
-    sendBtn.hidden = on;
-    stopBtn.hidden = !on;
+    if (!motionOK()) {
+      sendBtn.hidden = on;
+      stopBtn.hidden = !on;
+      return;
+    }
+    var outEl = on ? sendBtn : stopBtn;
+    var inEl = on ? stopBtn : sendBtn;
+    if (outEl.hidden && !inEl.hidden) return;
+    try {
+      if (window.anime.remove) { window.anime.remove(outEl); window.anime.remove(inEl); }
+      outEl.style.transition = "none";
+      inEl.style.transition = "none";
+      play({
+        targets: outEl,
+        scale: [1, 0.5],
+        opacity: [1, 0],
+        duration: 130,
+        ease: EZ("inCubic"),
+        onComplete: function () {
+          outEl.hidden = true;
+          outEl.style.transition = "";
+          outEl.style.opacity = "";
+          outEl.style.transform = "";
+          inEl.hidden = false;
+          play({
+            targets: inEl,
+            scale: [0.5, 1],
+            opacity: [0, 1],
+            duration: 200,
+            ease: EZ("outExpo"),
+            onComplete: function () {
+              inEl.style.transition = "";
+              inEl.style.opacity = "";
+              inEl.style.transform = "";
+            }
+          });
+        }
+      });
+    } catch (e) {
+      outEl.style.transition = "";
+      inEl.style.transition = "";
+      sendBtn.hidden = on;
+      stopBtn.hidden = !on;
+    }
   }
 
   function stopStream() {
@@ -1928,6 +2135,9 @@
       s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: content }, true) + sourcesPanelHtml(msg || { content: content }));
     }
     refreshIcons();
+    settleBodyIn(s.body);
+    staggerActions(s.row);
+    countUpStats(s.row, msg);
     if (!s.stopped && msg) showFollowups(chat, msg);
     if (awayBase !== -1) updateJumpPill();
     renderList();
@@ -2152,6 +2362,9 @@
         s.row.insertAdjacentHTML("beforeend", actionsHtml(msg || { content: s.text }, true) + sourcesPanelHtml(msg || { content: s.text }));
       }
       refreshIcons();
+      settleBodyIn(s.body);
+      staggerActions(s.row);
+      countUpStats(s.row, msg);
       if (isNearBottom()) scrollBottom();
     }
     if (failed) {
@@ -2256,6 +2469,7 @@
     }
     var trace = window.NovaTrace.mountTrace(row, { active: "Thinking" });
     refreshIcons();
+    trace.setElapsed();
     var tickTimer = setInterval(function () { trace.setElapsed(); }, 100);
     setStreamingUI(true);
     if (isNearBottom()) scrollBottom();
@@ -2731,6 +2945,81 @@
     setTimeout(function () { target.classList.remove("flash"); }, 1200);
   }
 
+  /* ---------- citation hover cards ---------- */
+
+  var citeCard = null;
+  var citeHideTimer = 0;
+
+  function hideCiteCard() {
+    clearTimeout(citeHideTimer);
+    if (citeCard) {
+      citeCard._chip = null;
+      citeCard.classList.remove("show");
+      citeCard.style.opacity = "0";
+      citeCard.style.visibility = "hidden";
+    }
+  }
+
+  function showCiteCard(chip) {
+    var row = chip.closest(".msg");
+    var chat = getChat(activeId);
+    if (!row || !chat) return;
+    var msg = chat.messages[+row.dataset.i];
+    var src = msg && msg.sources && msg.sources[(+chip.dataset.cite) - 1];
+    if (!src || (!src.title && !src.url)) return;
+    if (!citeCard) {
+      citeCard = document.createElement("div");
+      citeCard.className = "cite-card";
+      citeCard.setAttribute("aria-hidden", "true");
+      document.body.appendChild(citeCard);
+    }
+    if (citeCard._chip === chip && citeCard.classList.contains("show")) return;
+    citeCard._chip = chip;
+    clearTimeout(citeHideTimer);
+    citeCard.innerHTML = "";
+    var t = document.createElement("strong");
+    t.textContent = src.title || hostOf(src.url || "");
+    var h = document.createElement("span");
+    h.textContent = hostOf(src.url || "");
+    var hint = document.createElement("em");
+    hint.textContent = "Select to jump to the source";
+    citeCard.appendChild(t);
+    citeCard.appendChild(h);
+    citeCard.appendChild(hint);
+    var r = chip.getBoundingClientRect();
+    var cw = Math.min(260, window.innerWidth - 16);
+    citeCard.style.maxWidth = cw + "px";
+    citeCard.style.visibility = "visible";
+    var left = Math.max(8, Math.min(window.innerWidth - cw - 8, r.left + r.width / 2 - cw / 2));
+    citeCard.style.left = left + "px";
+    var ch = citeCard.offsetHeight || 64;
+    var top = r.top - ch - 8;
+    if (top < 8) top = r.bottom + 8;
+    citeCard.style.top = Math.max(8, top) + "px";
+    citeCard.classList.add("show");
+    play({ targets: citeCard, opacity: [0, 1], translateY: [4, 0], duration: 160, ease: EZ("outCubic") });
+    if (!motionOK()) citeCard.style.opacity = "1";
+  }
+
+  messagesEl.addEventListener("mouseover", function (e) {
+    var chip = e.target.closest ? e.target.closest("[data-cite]") : null;
+    if (chip) showCiteCard(chip);
+  });
+  messagesEl.addEventListener("mouseout", function (e) {
+    if (e.target.closest && e.target.closest("[data-cite]")) {
+      clearTimeout(citeHideTimer);
+      citeHideTimer = setTimeout(hideCiteCard, 120);
+    }
+  });
+  messagesEl.addEventListener("focusin", function (e) {
+    var chip = e.target.closest ? e.target.closest("[data-cite]") : null;
+    if (chip) showCiteCard(chip);
+  });
+  messagesEl.addEventListener("focusout", function (e) {
+    if (e.target.closest && e.target.closest("[data-cite]")) hideCiteCard();
+  });
+  chatScroll.addEventListener("scroll", hideCiteCard, { passive: true });
+
   function prepRegen(chat, msg) {
     ensureVariants(msg);
     msg.vi = msg.variants.length;
@@ -2752,7 +3041,7 @@
   }
 
   function excludeAndRetry(exBtn) {
-    if (stream) return;
+    if (stream || regenBusy) return;
     var row = exBtn.closest(".msg");
     var chat = getChat(activeId);
     if (!row || !chat) return;
@@ -2765,8 +3054,10 @@
       save();
     }
     toast("Hidden " + dom + ". Researching again.");
-    prepRegen(chat, msg);
-    routeSend(chat, prevUserText(chat, idx), idx);
+    fadeRegen(row, function () {
+      prepRegen(chat, msg);
+      routeSend(chat, prevUserText(chat, idx), idx);
+    });
   }
 
   var FU_BANK = [
@@ -2828,10 +3119,32 @@
   var jumpPill = $("jumpPill");
   var awayBase = -1;
 
+  var jumpTimer = 0;
+
+  function showJump() {
+    if (!jumpPill.hidden && jumpPill.classList.contains("show")) return;
+    clearTimeout(jumpTimer);
+    jumpPill.hidden = false;
+    if (REDUCED) { jumpPill.classList.add("show"); return; }
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { jumpPill.classList.add("show"); });
+    });
+  }
+
+  function hideJump(instant) {
+    if (jumpPill.hidden && !jumpPill.classList.contains("show")) return;
+    clearTimeout(jumpTimer);
+    jumpPill.classList.remove("show");
+    if (instant || REDUCED) { jumpPill.hidden = true; return; }
+    jumpTimer = setTimeout(function () {
+      if (!jumpPill.classList.contains("show")) jumpPill.hidden = true;
+    }, 200);
+  }
+
   chatScroll.addEventListener("scroll", function () {
     if (isNearBottom()) {
       awayBase = -1;
-      jumpPill.hidden = true;
+      hideJump();
       return;
     }
     if (awayBase === -1) {
@@ -2842,17 +3155,19 @@
   });
 
   function updateJumpPill() {
-    if (awayBase === -1) { jumpPill.hidden = true; return; }
+    if (awayBase === -1) { hideJump(); return; }
     var chat = getChat(activeId);
     var n = chat ? Math.max(0, chat.messages.length - awayBase) : 0;
     jumpPill.querySelector("span").textContent = n > 0 ? n + " new" : "Latest";
-    jumpPill.hidden = false;
+    showJump();
   }
 
   jumpPill.addEventListener("click", function () {
     awayBase = -1;
-    jumpPill.hidden = true;
-    scrollBottom();
+    hideJump();
+    if (REDUCED || !chatScroll.scrollTo) { scrollBottom(); return; }
+    try { chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior: "smooth" }); }
+    catch (e) { scrollBottom(); }
   });
 
   /* ---------- command palette (instant, keyboard driven) ---------- */
@@ -3033,6 +3348,18 @@
       copyText(code, "Code copied to clipboard");
       copyBtn.innerHTML = '<i data-lucide="check"></i><span>Copied</span>';
       refreshIcons();
+      if (motionOK()) {
+        try {
+          copyBtn.style.transition = "none";
+          play({
+            targets: copyBtn,
+            scale: [0.85, 1],
+            duration: 230,
+            ease: EZ("outExpo"),
+            onComplete: function () { copyBtn.style.transition = ""; }
+          });
+        } catch (e) { copyBtn.style.transition = ""; }
+      }
       setTimeout(function () {
         if (copyBtn.isConnected) {
           copyBtn.innerHTML = '<i data-lucide="copy"></i><span>Copy</span>';
@@ -3088,6 +3415,7 @@
       speakRow(row, msg.content);
     } else if (act === "copy") {
       copyText(msg.content, "Copied to clipboard");
+      flashCopied(btn);
     } else if (act === "like" || act === "dislike") {
       var other = act === "like" ? "dislike" : "like";
       var otherBtn = row.querySelector('[data-act="' + other + '"]');
@@ -3118,9 +3446,11 @@
       if (msg.role !== "user") return;
       startEditUser(chat, row, idx, msg);
     } else if (act === "retry") {
-      if (stream) return;
-      prepRegen(chat, msg);
-      routeSend(chat, prevUserText(chat, idx), idx);
+      if (stream || regenBusy) return;
+      fadeRegen(row, function () {
+        prepRegen(chat, msg);
+        routeSend(chat, prevUserText(chat, idx), idx);
+      });
     }
   });
 
@@ -3143,8 +3473,23 @@
     el.title = est > 30000 ? "Large message. Some models may refuse it." : "Estimated tokens";
   }
 
+  var sendWasDisabled = true;
   function syncSend() {
-    sendBtn.disabled = input.value.trim().length === 0;
+    var dis = input.value.trim().length === 0;
+    sendBtn.disabled = dis;
+    if (sendWasDisabled && !dis && motionOK() && !sendBtn.hidden) {
+      try {
+        sendBtn.style.transition = "none";
+        play({
+          targets: sendBtn,
+          scale: [0.8, 1],
+          duration: 230,
+          ease: EZ("outExpo"),
+          onComplete: function () { sendBtn.style.transition = ""; }
+        });
+      } catch (e) { sendBtn.style.transition = ""; }
+    }
+    sendWasDisabled = dis;
     updateTokEst();
   }
 
@@ -3206,6 +3551,12 @@
     syncHealth();
   }
 
+  function pulseModelLabel() {
+    var lab = $("modelName");
+    if (!lab) return;
+    play({ targets: lab, opacity: [0, 1], translateY: [5, 0], duration: 240, ease: EZ("outCubic") });
+  }
+
   function modelRow(icon, title, sub, checked, attrs) {
     var b = document.createElement("button");
     b.className = "pop-model";
@@ -3265,6 +3616,8 @@
       renderModelMenu();
       dnote("provider", "Switched to demo replies");
       hidePop();
+      toast.success("Switched to demo replies");
+      pulseModelLabel();
       return;
     }
     var item = e.target.closest("[data-prov]");
@@ -3278,6 +3631,8 @@
     renderProviders();
     dnote("provider", "Now using " + providerDisplay(p));
     hidePop();
+    toast.success("Switched to " + providerDisplay(p));
+    pulseModelLabel();
   });
 
   /* ---------- drawer gestures (mobile): swipe to close, edge to open ---------- */
@@ -3954,6 +4309,52 @@
     if (e.target === settingsModal) closeModal(settingsModal);
   });
 
+  /* ---------- feedback (opens the maker's email) ---------- */
+
+  var FEEDBACK_TO = "rfarouq69@gmail.com";
+  var feedbackModal = $("feedbackModal");
+  var fbType = "Bug report";
+
+  $("feedbackType").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-fb]");
+    if (!b) return;
+    fbType = b.getAttribute("data-fb");
+    var btns = $("feedbackType").querySelectorAll("[data-fb]");
+    for (var i = 0; i < btns.length; i++) btns[i].setAttribute("aria-pressed", btns[i] === b ? "true" : "false");
+  });
+
+  function fbContextLine() {
+    return "Nova 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
+  }
+
+  function fbDraft() {
+    var summary = $("fbSummary").value.trim() || "(no summary)";
+    var details = $("fbDetails").value.trim() || "(no details)";
+    return { subject: "[" + fbType + "] " + summary, body: details + "\n\n---\n" + fbContextLine() };
+  }
+
+  function openFeedback() {
+    $("fbContext").textContent = "Sends to " + FEEDBACK_TO + " · " + fbContextLine();
+    openModal(feedbackModal);
+    setTimeout(function () { $("fbSummary").focus(); }, 250);
+  }
+
+  $("feedbackBtn").addEventListener("click", openFeedback);
+  $("feedbackClose").addEventListener("click", function () { closeModal(feedbackModal); });
+  feedbackModal.addEventListener("pointerdown", function (e) {
+    if (e.target === feedbackModal) closeModal(feedbackModal);
+  });
+  $("fbSend").addEventListener("click", function () {
+    var d = fbDraft();
+    window.location.href = "mailto:" + FEEDBACK_TO + "?subject=" + encodeURIComponent(d.subject) + "&body=" + encodeURIComponent(d.body);
+    closeModal(feedbackModal);
+    toast("Opening your email app with the report addressed.");
+  });
+  $("fbCopy").addEventListener("click", function () {
+    var d = fbDraft();
+    copyText(d.subject + "\n\n" + d.body, "Feedback copied to clipboard");
+  });
+
   function doExportJSON() {
     var blob = new Blob([JSON.stringify({ chats: state.chats, folders: state.folders }, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
@@ -4564,6 +4965,7 @@
       if (openPop) { hidePop(); return; }
       if (!searchModal.hidden) { closeModal(searchModal); return; }
       if (!settingsModal.hidden) { closeModal(settingsModal); return; }
+      if (!feedbackModal.hidden) { closeModal(feedbackModal); return; }
     }
   });
 

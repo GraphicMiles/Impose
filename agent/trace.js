@@ -48,6 +48,10 @@
     clip.appendChild(list);
     listBody.appendChild(clip);
     box.appendChild(head);
+    var prog = el("div", "trace-progress");
+    prog.setAttribute("aria-hidden", "true");
+    prog.innerHTML = "<span></span>";
+    box.appendChild(prog);
     box.appendChild(listBody);
     var anchor = host.querySelector(".msg-body");
     if (anchor) host.insertBefore(box, anchor);
@@ -62,6 +66,7 @@
     function render() {
       var open = manual !== null ? manual : working;
       box.classList.toggle("closed", !open);
+      box.classList.toggle("working", working);
       head.classList.toggle("working", working);
       head.setAttribute("aria-expanded", open ? "true" : "false");
     }
@@ -70,6 +75,16 @@
       var open = manual !== null ? manual : working;
       manual = !open;
       render();
+      if (manual && !document.documentElement.classList.contains("reduce-motion")) {
+        var cells = list.querySelectorAll(".trace-row, .trace-more");
+        var ci;
+        for (ci = 0; ci < cells.length; ci++) {
+          cells[ci].style.animation = "none";
+          cells[ci].style.setProperty("--d", (ci * 45) + "ms");
+        }
+        void list.offsetWidth;
+        for (ci = 0; ci < cells.length; ci++) cells[ci].style.animation = "";
+      }
     });
 
     function leftFor(def) {
@@ -100,6 +115,9 @@
       }
       if (moreEl) list.insertBefore(row, moreEl);
       else list.appendChild(row);
+      var olds = list.querySelectorAll(".trace-row.live");
+      for (var li = 0; li < olds.length; li++) olds[li].classList.remove("live");
+      row.classList.add("live");
       sizeRail();
       return row;
     }
@@ -132,6 +150,13 @@
       working = false;
       statusEl.textContent = doneText || ("Thought for " + secs + " seconds");
       timeEl.textContent = secs + "s";
+      var lives = list.querySelectorAll(".trace-row.live");
+      for (var li = 0; li < lives.length; li++) lives[li].classList.remove("live");
+      if (prog) prog.classList.add("done");
+      if (!document.documentElement.classList.contains("reduce-motion")) {
+        head.classList.add("settled-flash");
+        setTimeout(function () { head.classList.remove("settled-flash"); }, 750);
+      }
       var rings = list.querySelectorAll("[data-ico].trace-ring");
       for (var i = 0; i < rings.length; i++) {
         var s = el("span", "trace-ico");

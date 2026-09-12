@@ -11,12 +11,13 @@ html = (ROOT / "index.html").read_text(encoding="utf-8")
 css = (ROOT / "styles.css").read_text(encoding="utf-8")
 trace_css = (ROOT / "agent" / "trace.css").read_text(encoding="utf-8")
 lucide = (ROOT / "lucide.min.js").read_text(encoding="utf-8")
+anime = (ROOT / "anime.min.js").read_text(encoding="utf-8")
 trace_js = (ROOT / "agent" / "trace.js").read_text(encoding="utf-8")
 harness = (ROOT / "agent" / "harness.js").read_text(encoding="utf-8")
 app = (ROOT / "app.js").read_text(encoding="utf-8")
 
 for name, blob in (("styles.css", css), ("agent/trace.css", trace_css),
-                   ("lucide.min.js", lucide), ("agent/trace.js", trace_js),
+                   ("lucide.min.js", lucide), ("anime.min.js", anime), ("agent/trace.js", trace_js),
                    ("agent/harness.js", harness),
                    ("app.js", app)):
     if "</script" in blob.lower():
@@ -35,6 +36,11 @@ html = html.replace(
 html = html.replace(
     '<script src="./lucide.min.js"></script>',
     "<script>\n" + lucide + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./anime.min.js"></script>',
+    "<script>\n" + anime + "\n</script>",
     1,
 )
 html = html.replace(
