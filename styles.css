@@ -1025,10 +1025,22 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
 
   .share-btn span { display: none; }
   .share-btn { padding: 8px; }
-  .model-btn { font-size: 16px; }
   .bubble { max-width: 88%; }
   .overlay { padding: 8vh 12px 12px; }
   .overlay.center { padding: 12px; }
+
+  /* Topbar on phones: the model label yields, the buttons keep their feet.
+     A fixed 44vw label plus four right side buttons overflowed the row and
+     pushed the avatar off screen with a sideways scroll. */
+  html, body { overflow-x: hidden; }
+  .topbar { padding: 0 8px; gap: 6px; }
+  .top-left { flex: 1 1 auto; min-width: 0; }
+  .top-right { flex: none; gap: 0; }
+  .model-btn { min-width: 0; max-width: 100%; padding: 8px 6px 8px 8px; font-size: 16px; }
+  /* Two classes beat the plain #modelName rule further down the file. */
+  .model-btn #modelName { max-width: none; flex: 0 1 auto; min-width: 0; }
+  .model-btn .health-dot, .model-btn .chev { flex: none; }
+  .top-right .icon-btn { flex: none; }
 }
 
 /* ---------- scrollbars ---------- */
