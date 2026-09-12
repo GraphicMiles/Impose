@@ -48,18 +48,19 @@ Settings has a Providers tab. Adding one works like this:
 2. Paste a key. Keys stay in this browser's local storage. They are sent
    to your provider, nowhere else.
 3. Tap Check models. Nova asks the provider what your key can actually
-   use, then you pick three models and mark one as active.
-4. Save. Each model is probed with one real request before anything
-   is kept.
+   use, and shows the answer as a list. Tap one to check it; only a
+   model that answers is kept. Nothing is typed from memory.
+4. Save. The kept model is checked once more with one real request
+   before anything is kept.
 
 Under Advanced: request shape (OpenAI style, Anthropic, Gemini), how the
 key is sent (Bearer, a header you name, a query parameter you name, or
 no key), and extra headers written one per line as Name: value. That
 last one is what makes an endpoint nobody has heard of yet work today.
 
-The top bar model menu lists every provider's three models, plus demo
-mode. Switching is instant. Failures come back as sentences about what
-to do, with the provider's own detail attached when it offers any.
+The top bar model menu lists every provider, plus demo mode. Switching
+is instant. Failures come back as sentences about what to do, with the
+provider's own detail attached when it offers any.
 
 Notes:
 

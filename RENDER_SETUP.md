@@ -65,7 +65,7 @@ nothing filled in.
 2. Base URL: `https://impose-relay.onrender.com/v1` (your relay host
    plus `/v1`).
 3. Key: the relay `CONTROL_KEY` from the dashboard.
-4. Check models, pick up to three, probe, save. From here it behaves
+4. Check models, tap one to check it, save. From here it behaves
    like any other provider.
 
 ## Keep-awake

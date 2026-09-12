@@ -283,26 +283,14 @@ try {
           <p class="fhelp">Kept in this browser only. It is sent to your provider, nowhere else.</p>
         </div>
         <div class="models-head">
-          <span class="flabel">Models</span>
+          <label class="flabel" for="pfModel">Model</label>
           <button class="btn" id="pfCheck" type="button"><i data-lucide="rotate-ccw"></i><span>Check models</span></button>
         </div>
+        <div class="field">
+          <input type="text" class="text-input mono" id="pfModel" placeholder="Check the list rather than typing it" autocomplete="off" spellcheck="false">
+        </div>
         <p class="status-line" id="pfModelStatus" aria-live="polite"></p>
-        <div class="slot">
-          <input type="radio" name="pfActive" value="0" aria-label="Use model 1">
-          <span class="slot-num">1</span>
-          <input type="text" class="text-input mono pf-model" data-slot="0" list="modelOptions" placeholder="First model" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="slot">
-          <input type="radio" name="pfActive" value="1" aria-label="Use model 2">
-          <span class="slot-num">2</span>
-          <input type="text" class="text-input mono pf-model" data-slot="1" list="modelOptions" placeholder="Second model" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="slot">
-          <input type="radio" name="pfActive" value="2" aria-label="Use model 3">
-          <span class="slot-num">3</span>
-          <input type="text" class="text-input mono pf-model" data-slot="2" list="modelOptions" placeholder="Third model" autocomplete="off" spellcheck="false">
-        </div>
-        <datalist id="modelOptions"></datalist>
+        <div id="pickList"></div>
         <button class="advanced-row" id="pfAdvancedToggle" type="button" aria-expanded="false">
           <i data-lucide="sliders-horizontal"></i>
           <span class="advanced-text"><strong>Advanced</strong><em id="pfAdvancedSummary">OpenAI style, Bearer</em></span>

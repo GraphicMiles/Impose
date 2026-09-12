@@ -468,6 +468,11 @@
         if (parsed && Array.isArray(parsed.chats)) {
           parsed.settings = Object.assign(defaultSettings(), parsed.settings || {});
           parsed.providers = Array.isArray(parsed.providers) ? parsed.providers : [];
+          parsed.providers.forEach(function (pr) {
+            if (!pr.model && pr.models) pr.model = pr.models[pr.activeSlot || 0] || pr.models[0] || "";
+            delete pr.models;
+            delete pr.activeSlot;
+          });
           return parsed;
         }
       } catch (e) { /* fall through to seed */ }
@@ -503,8 +508,7 @@
 
   function activeModelOf(p) {
     if (!p) return "";
-    var slot = typeof p.activeSlot === "number" ? p.activeSlot : 0;
-    return String((p.models || [])[slot] || "").trim();
+    return String(p.model || "").trim();
   }
 
   function providerDisplay(p) {
@@ -665,24 +669,48 @@
     return s;
   }
 
+  /* A refused list is not a verdict on the key: some providers hide the
+     list even from a key that can chat. Point at the model field instead. */
+  function listRefusal(like, code, payload) {
+    var t = String(payload || "").trim();
+    if ((code === 401 || code === 403 || code === 404) && t.charAt(0) !== "<") {
+      var who = like.kind === "anthropic" ? "Anthropic" : like.kind === "gemini" ? "Google" : "The provider";
+      return who + " answered " + code + " for the model list. Some providers hide the list even from a key that can chat, so this is not a verdict on the key. Type the model's name and save. The check before saving proves whether it works.";
+    }
+    return explain(like, code, payload, "");
+  }
+
   /* What the provider says it serves today. Throws the provider's sentence. */
   function listModels(like) {
     var req = buildRequest(like, "/models");
     var opts = { headers: req.headers, signal: withTimeout(45000) };
     return fetch(req.url, opts).then(function (res) {
-      return throwIfHttpError(like, "", res).then(function () { return res.json(); });
+      if (res.ok) return res.json();
+      return res.text().then(function (text) {
+        throw new Error(listRefusal(like, res.status, text));
+      }, function () {
+        throw new Error(listRefusal(like, res.status, ""));
+      });
     }).then(function (data) {
+      data = data || {};
+      var ids;
       if (like.kind === "gemini") {
-        return (data.models || [])
+        ids = (data.models || [])
           .filter(function (m) {
-            var methods = m.supportedGenerationMethods || [];
-            return methods.indexOf("generateContent") > -1;
+            var methods = m && m.supportedGenerationMethods;
+            return !methods || methods.indexOf("generateContent") > -1;
           })
-          .map(function (m) { return String(m.name || "").replace(/^models\//, ""); })
-          .filter(function (id) { return !!id; })
-          .sort();
+          .map(function (m) { return String((m && m.name) || "").replace(/^models\//, ""); })
+          .filter(function (id) { return !!id; });
+        ids.sort();
+        return ids;
       }
-      var ids = (data.data || []).map(function (m) { return String(m.id || ""); }).filter(function (id) { return !!id; });
+      var raw = data.data || data.models || [];
+      if (!Array.isArray(raw)) raw = [];
+      ids = raw.map(function (m) {
+        if (typeof m === "string") return m;
+        return String((m && (m.id || m.name)) || "");
+      }).filter(function (id) { return !!id; });
       ids.sort(function (a, b) {
         var d = scoreModel(b) - scoreModel(a);
         return d !== 0 ? d : (a < b ? -1 : a > b ? 1 : 0);
@@ -702,20 +730,20 @@
     var req, body;
     if (like.kind === "anthropic") {
       req = buildRequest(like, "/messages");
-      body = { model: model, max_tokens: 16, messages: [{ role: "user", content: "Reply with the word OK." }] };
+      body = { model: model, max_tokens: 1, messages: [{ role: "user", content: "Hi" }] };
     } else if (like.kind === "gemini") {
       req = buildRequest(like, "/models/" + encodeURIComponent(model) + ":generateContent");
-      body = { contents: [{ parts: [{ text: "Reply with the word OK." }] }] };
+      body = { contents: [{ parts: [{ text: "Hi" }] }] };
     } else {
       req = buildRequest(like, "/chat/completions");
-      body = { model: model, messages: [{ role: "user", content: "Reply with the word OK." }], stream: false };
+      body = { model: model, max_tokens: 1, messages: [{ role: "user", content: "Hi" }], stream: false };
     }
     req.headers["Content-Type"] = "application/json";
     return fetch(req.url, {
       method: "POST",
       headers: req.headers,
       body: JSON.stringify(body),
-      signal: withTimeout(45000)
+      signal: withTimeout(30000)
     }).then(function (res) {
       return throwIfHttpError(like, model, res).then(function () { return ""; });
     }, function (err) {
@@ -1681,7 +1709,7 @@
     send(chip.dataset.prompt);
   });
 
-  /* ---------- model menu (demo + every provider's three models) ---------- */
+  /* ---------- model menu (demo + every provider) ---------- */
 
   var modelMenuBody = $("modelMenuBody");
 
@@ -1714,19 +1742,13 @@
     modelMenuBody.appendChild(demoBtn);
 
     state.providers.forEach(function (p) {
-      var g = document.createElement("p");
-      g.className = "model-group";
-      g.textContent = p.label;
-      modelMenuBody.appendChild(g);
-      (p.models || []).forEach(function (m, i) {
-        var name = String(m || "").trim();
-        if (!name) return;
-        var checked = state.settings.activeProviderId === p.id && (p.activeSlot || 0) === i;
-        modelMenuBody.appendChild(modelRow("cpu", name, checked ? "In use" : p.label, checked, {
-          "data-prov": p.id,
-          "data-slot": i
-        }));
-      });
+      var preset = presetMatch(p.kind, p.baseUrl);
+      var checked = state.settings.activeProviderId === p.id;
+      var m = activeModelOf(p);
+      var sub = m ? (checked ? m + " · In use" : m) : "No model chosen yet";
+      modelMenuBody.appendChild(modelRow(preset.icon, p.label, sub, checked, {
+        "data-prov": p.id
+      }));
     });
 
     var sep = document.createElement("div");
@@ -1761,7 +1783,6 @@
     if (!item) return;
     var p = getProvider(item.getAttribute("data-prov"));
     if (!p) return;
-    p.activeSlot = +item.getAttribute("data-slot") || 0;
     state.settings.activeProviderId = p.id;
     save();
     syncModelLabel();
@@ -2139,7 +2160,7 @@
       row.innerHTML = '<span class="icon-box"><i data-lucide="' + preset.icon + '"></i></span>' +
         '<span class="provider-text"><strong></strong><em></em></span>';
       row.querySelector("strong").textContent = p.label;
-      row.querySelector("em").textContent = model || "No model set";
+      row.querySelector("em").textContent = model || "No model chosen yet";
       if (isActive) {
         var tag = document.createElement("span");
         tag.className = "active-tag";
@@ -2161,6 +2182,17 @@
         });
         row.appendChild(use);
       }
+      var recheck = document.createElement("button");
+      recheck.className = "icon-btn sm";
+      recheck.type = "button";
+      recheck.title = "Check models";
+      recheck.setAttribute("aria-label", "Check what " + p.label + " serves today");
+      recheck.innerHTML = '<i data-lucide="rotate-ccw"></i>';
+      recheck.addEventListener("click", function () {
+        openEditor(p);
+        $("pfCheck").click();
+      });
+      row.appendChild(recheck);
       var edit = document.createElement("button");
       edit.className = "icon-btn sm";
       edit.type = "button";
@@ -2232,19 +2264,12 @@
     $("pfKey").type = "password";
     $("pfKeyToggle").innerHTML = '<i data-lucide="eye"></i>';
     $("pfKey").placeholder = existing ? "Saved. Type to replace it." : (preset.keyHint || "Paste your key");
-    var models = existing ? (existing.models || []) : [];
-    var inputs = document.querySelectorAll(".pf-model");
-    inputs.forEach(function (inp, i) {
-      inp.value = models[i] || "";
-    });
-    var radios = document.querySelectorAll('input[name="pfActive"]');
-    var slot = existing && typeof existing.activeSlot === "number" ? existing.activeSlot : 0;
-    radios.forEach(function (r, i) { r.checked = i === slot; });
+    $("pfModel").value = existing ? (existing.model || "") : "";
+    renderPickList([]);
     $("pfAuthName").value = existing ? (existing.authName || defaultAuthName(edKind, edAuth)) : defaultAuthName(edKind, edAuth);
     $("pfHeaders").value = existing ? writeHeaders(existing.headers) : "";
     $("pfAdvanced").hidden = true;
     $("pfAdvancedToggle").setAttribute("aria-expanded", "false");
-    $("modelOptions").innerHTML = "";
     setStatus($("pfModelStatus"), "");
     setStatus($("pfStatus"), "");
     $("pfRemove").hidden = !existing;
@@ -2360,17 +2385,46 @@
     };
   }
 
-  function formModels() {
-    var out = [];
-    document.querySelectorAll(".pf-model").forEach(function (inp) {
-      out.push(inp.value.trim());
-    });
-    return out;
+  function formModel() {
+    return $("pfModel").value.trim();
   }
 
-  function formSlot() {
-    var checked = document.querySelector('input[name="pfActive"]:checked');
-    return checked ? +checked.value : 0;
+  /* The provider's own list, not one baked into the app. Tapping a row
+     probes it at once; only a model that answers fills the field. */
+  function renderPickList(names) {
+    var box = $("pickList");
+    box.innerHTML = "";
+    (names || []).slice(0, 300).forEach(function (name) {
+      var b = document.createElement("button");
+      b.className = "pick-row";
+      b.type = "button";
+      b.innerHTML = '<i data-lucide="cpu"></i><span><strong></strong><em></em></span>';
+      b.querySelector("strong").textContent = name;
+      var em = b.querySelector("em");
+      if (name === $("pfModel").value.trim()) em.textContent = "In use";
+      b.addEventListener("click", function () {
+        if (edBusy) return;
+        var like = formLike();
+        edBusy = true;
+        em.textContent = "Checking it works…";
+        dnote("provider", "Checking " + name + "...");
+        probeModel(like, name).then(function (problem) {
+          edBusy = false;
+          if (problem) {
+            em.textContent = "";
+            toast(problem);
+            dfail("provider", name + " failed: " + problem);
+            return;
+          }
+          $("pfModel").value = name;
+          renderPickList([]);
+          setStatus($("pfModelStatus"), "Using " + name + ".");
+          dnote("provider", "Picked " + name);
+        });
+      });
+      box.appendChild(b);
+    });
+    refreshIcons();
   }
 
   $("pfCheck").addEventListener("click", function () {
@@ -2397,14 +2451,8 @@
         setStatus($("pfModelStatus"), "That key can see no models.", { error: true });
         return;
       }
-      var dl = $("modelOptions");
-      dl.innerHTML = "";
-      found.slice(0, 300).forEach(function (id) {
-        var opt = document.createElement("option");
-        opt.value = id;
-        dl.appendChild(opt);
-      });
-      setStatus($("pfModelStatus"), "It serves " + found.length + ". Pick three from the list.");
+      renderPickList(found);
+      setStatus($("pfModelStatus"), "It serves " + found.length + ". Tap one to check it.");
       dnote("provider", "Check models: " + found.length + " served");
     }, function (err) {
       edBusy = false;
@@ -2427,35 +2475,26 @@
       setStatus($("pfStatus"), "This provider needs a key.", { error: true });
       return;
     }
-    var models = formModels();
-    if (models.some(function (m) { return !m; })) {
-      setStatus($("pfStatus"), "Fill in all three model slots.", { error: true });
+    var model = formModel();
+    if (!model) {
+      setStatus($("pfStatus"), "Pick a model. Tap Check models.", { error: true });
       return;
     }
     edBusy = true;
     $("pfCheck").disabled = true;
     $("pfSave").disabled = true;
-
-    var i = 0;
-    function next() {
-      if (i >= models.length) {
-        persist();
+    setStatus($("pfStatus"), "Checking " + model + "...", { spin: true });
+    probeModel(like, model).then(function (problem) {
+      edBusy = false;
+      $("pfCheck").disabled = false;
+      $("pfSave").disabled = false;
+      if (problem) {
+        setStatus($("pfStatus"), problem, { error: true });
+        dfail("provider", "Save check failed: " + problem);
         return;
       }
-      setStatus($("pfStatus"), "Checking model " + (i + 1) + " of 3...", { spin: true });
-      probeModel(like, models[i]).then(function (problem) {
-        if (problem) {
-          edBusy = false;
-          $("pfCheck").disabled = false;
-          $("pfSave").disabled = false;
-          setStatus($("pfStatus"), "Model " + (i + 1) + " failed. " + problem, { error: true });
-          dfail("provider", "Model " + (i + 1) + " failed: " + problem);
-          return;
-        }
-        i++;
-        next();
-      });
-    }
+      persist();
+    });
 
     function persist() {
       var label = $("pfName").value.trim() || (edPreset ? edPreset.name : "Provider");
@@ -2468,8 +2507,7 @@
         edEditing.authStyle = like.authStyle;
         edEditing.authName = like.authName;
         edEditing.headers = like.headers;
-        edEditing.models = models;
-        edEditing.activeSlot = formSlot();
+        edEditing.model = model;
       } else {
         var p = {
           id: uid(),
@@ -2480,8 +2518,7 @@
           authStyle: like.authStyle,
           authName: like.authName,
           headers: like.headers,
-          models: models,
-          activeSlot: formSlot()
+          model: model
         };
         state.providers.push(p);
         if (!state.settings.activeProviderId) state.settings.activeProviderId = p.id;
@@ -2493,7 +2530,7 @@
       renderProviders();
       renderModelMenu();
       syncModelLabel();
-      dnote("provider", "Saved " + label + " (" + models.length + " models, active: " + models[formSlot()] + ")");
+      dnote("provider", "Saved " + label + " (" + model + ")");
       closeModal(providerModal);
       toast("Provider saved");
     }

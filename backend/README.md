@@ -107,7 +107,7 @@ keyed provider when you want stronger general results.
 
 In Nova: Settings → Providers → Add → Self hosted. Paste the public box
 URL plus `/v1` as the base address, the box `CONTROL_KEY` as the key
-(Bearer is the default), tap Check models, pick three, save. Chat now
+(Bearer is the default), tap Check models, tap one to check it, save. Chat now
 runs on your own model.
 
 ### Part 3: the relay (optional, later)

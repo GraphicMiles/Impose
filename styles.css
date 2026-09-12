@@ -1268,3 +1268,15 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .debug-row.warn .debug-pill { background: var(--press); color: var(--text); }
 .debug-what { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.45; color: var(--text-2); overflow-wrap: break-word; margin-top: 3px; }
 .debug-row.bad .debug-what { color: var(--text); font-weight: 600; }
+
+/* ---------- model pick list (tap a row, it probes, it fills) ---------- */
+#pickList { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px; }
+#pickList:empty { display: none; }
+.pick-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 12px; background: var(--hover); border: 1px solid var(--border); border-radius: 12px; transition: transform 160ms var(--ease-out), background-color 140ms ease; }
+.pick-row:hover { background: var(--press); }
+.pick-row:active { transform: scale(0.98); }
+.pick-row .lucide, .pick-row i[data-lucide] { width: 15px; height: 15px; color: var(--text-3); flex: none; }
+.pick-row span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pick-row strong { font-size: 12.5px; font-weight: 500; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-row em { font-style: normal; font-size: 11.5px; color: var(--text-3); }
+.pick-row em:empty { display: none; }
