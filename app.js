@@ -682,7 +682,9 @@
   }
 
   function relayCfg() {
-    return { url: $("pfRelayUrl").value.trim(), key: $("pfRelayKey").value.trim() };
+    var url = ($("pfRelayUrl").value || "").trim() || (state.settings.relayUrl || "").trim();
+    var key = ($("pfRelayKey").value || "").trim() || (state.settings.relayKey || "").trim();
+    return { url: url, key: key };
   }
 
   function relayRefusal(code, payload) {
@@ -701,6 +703,8 @@
      block browsers. Replies arrive whole: no streaming on this path. */
   function relayFetchReq(req, method, bodyObj, signal) {
     var cfg = relayCfg();
+    if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
+    if (!cfg.key) return Promise.reject(new Error("Add the relay key in the provider editor under Advanced, Relay."));
     var headers = {};
     Object.keys(req.headers || {}).forEach(function (k) { headers[k] = req.headers[k]; });
     if (method === "POST" && !hasHeader(headers, "Content-Type")) headers["Content-Type"] = "application/json";
