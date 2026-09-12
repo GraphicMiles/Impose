@@ -32,7 +32,7 @@
     head.setAttribute("type", "button");
     head.setAttribute("aria-expanded", "true");
     head.innerHTML =
-      '<span class="trace-glyph">' + icon(opts.icon || "sparkles") + "</span>" +
+      '<span class="trace-glyph">' + icon(opts.icon || "sparkle") + "</span>" +
       '<span class="trace-status">' + esc(opts.active || "Thinking") + "</span>" +
       '<span class="trace-time"></span>' +
       '<span class="trace-chev">' + icon("chevron-down") + "</span>";
@@ -41,6 +41,9 @@
     var listBody = el("div", "trace-body");
     var clip = el("div", "trace-clip");
     var list = el("div", "trace-list");
+    var rail = el("span", "trace-rail");
+    rail.setAttribute("aria-hidden", "true");
+    list.appendChild(rail);
     clip.appendChild(list);
     listBody.appendChild(clip);
     box.appendChild(head);
@@ -58,6 +61,7 @@
     function render() {
       var open = manual !== null ? manual : working;
       box.classList.toggle("closed", !open);
+      box.classList.toggle("working", working);
       head.classList.toggle("working", working);
       head.setAttribute("aria-expanded", open ? "true" : "false");
     }
@@ -68,20 +72,11 @@
       render();
     });
 
-    function domainOf(url) {
-      var m = /^https?:\/\/([^\/:?#]+)/i.exec(String(url || ""));
-      return m ? m[1].toLowerCase().replace(/^www\./, "") : "";
-    }
-
     function leftFor(def) {
       if (def.kind === "query") return '<span class="trace-ico">' + icon("search") + "</span>";
-      if (def.kind === "step") return '<span class="trace-ico spin" data-ico>' + icon("loader-circle") + "</span>";
-      if (def.href) {
-        var d = domainOf(def.href);
-        if (d) return '<span class="trace-fav"><img class="fav trace-fav-img" src="https://www.google.com/s2/favicons?domain=' + d + '&sz=64" alt="" loading="lazy"></span>';
-      }
+      if (def.kind === "step") return '<span class="trace-ring" data-ico></span>';
       var tone = def.tone || TONES[count % TONES.length];
-      return '<span class="trace-dot ' + tone + '"><i></i></span>';
+      return '<span class="trace-dot ' + tone + '">' + icon("globe") + "</span>";
     }
 
     function addRow(def) {
@@ -105,15 +100,22 @@
       }
       if (moreEl) list.insertBefore(row, moreEl);
       else list.appendChild(row);
+      sizeRail();
       return row;
     }
 
+    function sizeRail() {
+      rail.style.height = Math.max(0, list.scrollHeight - 4) + "px";
+    }
+
     function setStep(row, done) {
-      if (!row || !row.isConnected) return;
+      if (!row || !row.isConnected || !done) return;
       var ico = row.querySelector("[data-ico]");
       if (!ico) return;
-      ico.classList.toggle("spin", !done);
-      ico.innerHTML = icon(done ? "check" : "loader-circle");
+      var s = el("span", "trace-ico");
+      s.setAttribute("data-ico", "");
+      s.innerHTML = icon("check");
+      ico.parentElement.replaceChild(s, ico);
     }
 
     function setMore(n) {
@@ -123,6 +125,7 @@
       }
       moreEl.style.setProperty("--d", (count * 120) + "ms");
       moreEl.textContent = "+" + n + " more";
+      sizeRail();
     }
 
     function settle(doneText) {
@@ -130,10 +133,12 @@
       var secs = Math.max(1, Math.round((Date.now() - t0) / 1000));
       statusEl.textContent = doneText || ("Thought for " + secs + " seconds");
       timeEl.textContent = secs + "s";
-      var spins = list.querySelectorAll("[data-ico].spin");
-      for (var i = 0; i < spins.length; i++) {
-        spins[i].classList.remove("spin");
-        spins[i].innerHTML = icon("check");
+      var rings = list.querySelectorAll("[data-ico].trace-ring");
+      for (var i = 0; i < rings.length; i++) {
+        var s = el("span", "trace-ico");
+        s.setAttribute("data-ico", "");
+        s.innerHTML = icon("check");
+        rings[i].parentElement.replaceChild(s, rings[i]);
       }
       render();
     }
@@ -143,7 +148,11 @@
       el: box,
       setStatus: function (t) { statusEl.textContent = t; },
       setElapsed: function () {
-        if (working) timeEl.textContent = Math.max(1, Math.round((Date.now() - t0) / 1000)) + "s";
+        if (!working) return;
+        var total = (Date.now() - t0) / 1000;
+        timeEl.textContent = total < 60
+          ? total.toFixed(1) + "s"
+          : Math.floor(total / 60) + "m " + (total % 60).toFixed(1) + "s";
       },
       addRow: addRow,
       setStep: setStep,
@@ -254,7 +263,7 @@
     row.innerHTML = '<div class="demo-note">Sample run with sample data.</div><div class="msg-body"></div>';
     root.appendChild(row);
     var body = row.querySelector(".msg-body");
-    body.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+    body.innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
     helpers.refreshIcons();
     helpers.pin();
 
