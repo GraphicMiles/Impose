@@ -1,7 +1,7 @@
 /* Nova app shell cache. Navigations stay fresh from the network with an
    offline fallback; versioned static assets are served from the cache. */
 
-var CACHE = "nova-shell-v2";
+var CACHE = "nova-shell-v3";
 var SHELL = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ var SHELL = [
   "./agent/trace.css",
   "./lucide.min.js",
   "./anime.min.js",
+  "./og-image.png",
   "./agent/trace.js",
   "./agent/harness.js",
   "./app.js",
