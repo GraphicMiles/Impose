@@ -1,0 +1,2 @@
+# Extra deps for the always-on relay (wake + idle control of the GPU Studio).
+lightning-sdk>=2025.0

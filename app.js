@@ -61,6 +61,7 @@
     { id: "together", name: "Together", kind: "openai", baseUrl: "https://api.together.xyz/v1", note: "Open-weight models, hosted", icon: "users" },
     { id: "xai", name: "xAI", kind: "openai", baseUrl: "https://api.x.ai/v1", note: "Grok models", icon: "rocket" },
     { id: "local", name: "LM Studio or llama.cpp", kind: "openai", baseUrl: "http://192.168.1.10:1234/v1", note: "A server on your own network. No key needed", icon: "house" },
+    { id: "selfhost", name: "Self hosted", kind: "openai", baseUrl: "", note: "Your own Lightning box. Paste its address after deploy", icon: "server" },
     { id: "custom", name: "Something else", kind: "openai", baseUrl: "", note: "Any endpoint. Pick the shape yourself", icon: "sliders-horizontal" }
   ];
 
