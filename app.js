@@ -1343,6 +1343,14 @@
     });
   };
 
+  document.addEventListener("error", function (e) {
+    var t = e.target;
+    if (t && t.classList && t.classList.contains("fav")) {
+      if (t.parentElement && t.parentElement.classList.contains("trace-fav")) t.parentElement.classList.add("bare");
+      t.remove();
+    }
+  }, true);
+
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) liveToasts.forEach(function (r) { r.pause(); });
     else liveToasts.forEach(function (r) { r.resume(); });
@@ -2645,6 +2653,7 @@
     var items = msg.sources.map(function (s, i) {
       var host = hostOf(s.url);
       return '<li data-si="' + (i + 1) + '"><a href="' + escapeHtml(s.url) + '" target="_blank" rel="noreferrer noopener">' +
+        (host ? '<img class="fav src-fav" src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=64" alt="" loading="lazy">' : "") +
         escapeHtml(s.title || s.url) + "</a>" +
         (host ? '<span class="src-host">' + escapeHtml(host) + "</span>" : "") +
         (host ? '<button type="button" class="src-hide" data-exdom="' + escapeHtml(host) + '" title="Hide this site and research again" aria-label="Hide ' + escapeHtml(host) + ' and research again"><i data-lucide="eye-off"></i></button>' : "") +

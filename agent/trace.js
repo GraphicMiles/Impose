@@ -68,9 +68,18 @@
       render();
     });
 
+    function domainOf(url) {
+      var m = /^https?:\/\/([^\/:?#]+)/i.exec(String(url || ""));
+      return m ? m[1].toLowerCase().replace(/^www\./, "") : "";
+    }
+
     function leftFor(def) {
       if (def.kind === "query") return '<span class="trace-ico">' + icon("search") + "</span>";
       if (def.kind === "step") return '<span class="trace-ico spin" data-ico>' + icon("loader-circle") + "</span>";
+      if (def.href) {
+        var d = domainOf(def.href);
+        if (d) return '<span class="trace-fav"><img class="fav trace-fav-img" src="https://www.google.com/s2/favicons?domain=' + d + '&sz=64" alt="" loading="lazy"></span>';
+      }
       var tone = def.tone || TONES[count % TONES.length];
       return '<span class="trace-dot ' + tone + '"><i></i></span>';
     }

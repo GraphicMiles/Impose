@@ -1469,3 +1469,7 @@ html.reduce-motion .folder-toggle .lucide, html.reduce-motion .folder-toggle i[d
   .topbar { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
   .sidebar-inner { padding-bottom: env(safe-area-inset-bottom); }
 }
+
+/* sources footer favicons */
+
+.src-fav { width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 7px; }
