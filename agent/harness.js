@@ -69,6 +69,7 @@
     }
 
     /* One researched answer: plan the query, search, then complete.
+       Empty results still complete, from knowledge with a one-line note.
        deps: query, search(q, limit), complete(system, user, onDelta),
        emit(event), onDelta(chunk), rewrite(text) (optional, a promise of a
        search query; empty or rejected falls back to the raw words),
@@ -98,7 +99,13 @@
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
           if (!out.results || out.results.length === 0) {
-            throw new Error("The search came back empty. Try fewer or different words.");
+            deps.emit({ t: "settle", text: "Searched the web" });
+            var bare = "You are Nova, a helpful assistant. The web search found nothing for this question. " +
+              "Say so in one short line, then answer from your own knowledge anyway. " +
+              "Never refuse a question you can answer, and never ask the user to provide evidence.";
+            return deps.complete(bare, question, deps.onDelta).then(function () {
+              return { sources: [], provider: out.provider || "" };
+            });
           }
           out.results.forEach(function (r) {
             deps.emit({ t: "source", title: r.title || r.url, sub: domainOf(r.url), href: r.url });

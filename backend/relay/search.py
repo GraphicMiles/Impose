@@ -2,9 +2,18 @@
 
 No API keys, no browser. httpx plus BeautifulSoup with the stdlib parser.
 SearXNG instances are env-overridable (SEARXNG_URLS, comma separated).
+
+Providers race concurrently inside each tier, and no result set wins
+without validation: the SearXNG query echo must match, and at least one
+result must share a significant token with the query. A tier that answers
+with nothing relevant yields empty results (the agent answers from
+knowledge); SearchFailed is reserved for a true outage where nobody
+answered at all.
 """
+import asyncio
 import base64
 import os
+import re
 import time
 import urllib.parse
 from functools import partial
@@ -25,7 +34,9 @@ _FRESH = {"day": "day", "week": "week", "month": "month", "year": "year"}
 
 
 class AttemptFail(Exception):
-    pass
+    def __init__(self, message, answered=False):
+        super().__init__(message)
+        self.answered = answered
 
 
 class SearchFailed(Exception):
@@ -58,6 +69,51 @@ def parse_searxng(data):
                     "source": _clean(r.get("engine", ""), 60),
                     "publishedAt": r.get("publishedDate") or None})
     return out
+
+
+_STOP = set("""
+about after again all also an and any are as at been before between both but
+by can could define definition did do does doing each explained few for from
+further had has have here how into is more most online other over own same
+should some such than that the their then there these this those through too
+under very was were what whats when where which who whom whose why will with
+would versus vs best top review reviews price buy cheap free near new
+""".split())
+
+
+def _significant(query):
+    toks = re.findall(r"[a-z0-9]{4,}|[一-鿿]{2,}", str(query or "").lower())
+    return [t for t in toks if t not in _STOP]
+
+
+def _relevant(results, query):
+    """At least one result shares a significant query token. Queries with
+    no significant tokens pass, since there is nothing to judge by."""
+    toks = _significant(query)
+    if not toks:
+        return True
+    for r in results or []:
+        blob = " ".join([r.get("title", ""), r.get("snippet", ""),
+                         r.get("url", "")]).lower()
+        if any(t in blob for t in toks):
+            return True
+    return False
+
+
+def _norm_q(s):
+    return " ".join(str(s or "").lower().split())
+
+
+def select_searxng(data, query):
+    """Validate one SearXNG JSON payload: a mismatched query echo means
+    the instance answered somebody else's search."""
+    echo = (data or {}).get("query")
+    if echo and _norm_q(echo) != _norm_q(query):
+        raise AttemptFail("answered a different query", answered=True)
+    results = parse_searxng(data)
+    if not results:
+        raise AttemptFail("no results", answered=True)
+    return results
 
 
 def _bing_target(href):
@@ -164,7 +220,7 @@ async def _searxng(client, base, query, limit, language, freshness):
     if freshness in _FRESH:
         params["time_range"] = _FRESH[freshness]
     try:
-        r = await client.get(base + "/search", params=params, timeout=10.0)
+        r = await client.get(base + "/search", params=params, timeout=8.0)
     except httpx.TimeoutException:
         raise AttemptFail("timed out")
     except Exception:
@@ -174,11 +230,13 @@ async def _searxng(client, base, query, limit, language, freshness):
     if r.status_code != 200:
         raise AttemptFail("http " + str(r.status_code))
     try:
-        results = parse_searxng(r.json())
+        results = select_searxng(r.json(), query)
+    except AttemptFail:
+        raise
     except Exception:
         raise AttemptFail("not JSON (bot wall?)")
-    if not results:
-        raise AttemptFail("no results")
+    if not _relevant(results, query):
+        raise AttemptFail("off topic results", answered=True)
     return results[:limit]
 
 
@@ -186,7 +244,7 @@ async def _bing(client, query, limit):
     try:
         r = await client.get("https://www.bing.com/search",
                              params={"q": query, "count": min(limit, 20)},
-                             timeout=12.0)
+                             timeout=10.0)
     except httpx.TimeoutException:
         raise AttemptFail("timed out")
     except Exception:
@@ -195,14 +253,16 @@ async def _bing(client, query, limit):
         raise AttemptFail("http " + str(r.status_code))
     results = parse_bing(r.text)
     if not results:
-        raise AttemptFail("no results parsed")
+        raise AttemptFail("no results parsed", answered=True)
+    if not _relevant(results, query):
+        raise AttemptFail("off topic results", answered=True)
     return results[:limit]
 
 
 async def _ddg(client, query, limit):
     try:
         r = await client.get("https://html.duckduckgo.com/html/",
-                             params={"q": query}, timeout=12.0)
+                             params={"q": query}, timeout=10.0)
     except httpx.TimeoutException:
         raise AttemptFail("timed out")
     except Exception:
@@ -211,47 +271,76 @@ async def _ddg(client, query, limit):
         raise AttemptFail("http " + str(r.status_code))
     results = parse_ddg(r.text)
     if not results:
-        raise AttemptFail("no results parsed")
+        raise AttemptFail("no results parsed", answered=True)
+    if not _relevant(results, query):
+        raise AttemptFail("off topic results", answered=True)
     return results[:limit]
+
+
+async def _run_job(name, job):
+    start = time.time()
+    try:
+        results = await job()
+    except AttemptFail as e:
+        return {"provider": name, "results": None, "error": str(e),
+                "answered": e.answered,
+                "ms": int((time.time() - start) * 1000)}
+    except Exception as e:
+        return {"provider": name, "results": None,
+                "error": "error: " + str(e)[:100], "answered": False,
+                "ms": int((time.time() - start) * 1000)}
+    ms = int((time.time() - start) * 1000)
+    if not results:
+        return {"provider": name, "results": None, "error": "no results",
+                "answered": True, "ms": ms}
+    return {"provider": name, "results": results, "error": None,
+            "answered": False, "ms": ms}
 
 
 async def engine_search(query, limit=8, domains=None, freshness=None,
                         language="en", region=None):
     t0 = time.time()
     attempts = []
+    answered_any = False
     async with httpx.AsyncClient(headers=UA, follow_redirects=True,
                                  max_redirects=3) as client:
-        jobs = []
-        for base in SEARXNG_URLS:
-            jobs.append(("searxng:" + base.split("://", 1)[-1],
-                         partial(_searxng, client, base, query, limit,
-                                 language, freshness)))
-        jobs.append(("bing-html", partial(_bing, client, query, limit)))
-        jobs.append(("ddg-html", partial(_ddg, client, query, limit)))
-        for name, job in jobs:
-            start = time.time()
-            try:
-                results = await job()
-                err = "no results" if not results else None
-            except AttemptFail as e:
-                results, err = None, str(e)
-            except Exception as e:
-                results, err = None, "error: " + str(e)[:100]
-            ms = int((time.time() - start) * 1000)
-            if err:
-                attempts.append({"provider": name, "ok": False,
-                                 "ms": ms, "error": err})
-                continue
-            results = _by_domains(_dedup(results), domains)[:limit]
-            if not results:
-                attempts.append({"provider": name, "ok": False,
-                                 "ms": ms, "error": "filtered out"})
-                continue
-            total = int((time.time() - t0) * 1000)
-            print("[relay] search '%s' via %s -> %d (%dms)"
-                  % (query[:60], name, len(results), total), flush=True)
-            return {"results": results, "provider": name,
-                    "attempts": attempts, "query": query,
-                    "count": len(results), "ms": total}
+        tiers = [
+            [("searxng:" + base.split("://", 1)[-1],
+              partial(_searxng, client, base, query, limit,
+                      language, freshness))
+             for base in SEARXNG_URLS],
+            [("bing-html", partial(_bing, client, query, limit)),
+             ("ddg-html", partial(_ddg, client, query, limit))],
+        ]
+        for tier in tiers:
+            runs = await asyncio.gather(*[_run_job(n, j) for n, j in tier])
+            for run in runs:
+                if run["answered"]:
+                    answered_any = True
+                if run["error"]:
+                    attempts.append({"provider": run["provider"], "ok": False,
+                                     "ms": run["ms"], "error": run["error"]})
+            for run in runs:
+                if run["error"]:
+                    continue
+                results = _by_domains(_dedup(run["results"]), domains)[:limit]
+                if not results:
+                    attempts.append({"provider": run["provider"], "ok": False,
+                                     "ms": run["ms"], "error": "filtered out"})
+                    answered_any = True
+                    continue
+                total = int((time.time() - t0) * 1000)
+                print("[relay] search '%s' via %s -> %d (%dms)"
+                      % (query[:60], run["provider"], len(results), total),
+                      flush=True)
+                return {"results": results, "provider": run["provider"],
+                        "attempts": attempts, "query": query,
+                        "count": len(results), "ms": total}
+    if answered_any:
+        total = int((time.time() - t0) * 1000)
+        print("[relay] search '%s' -> nothing relevant (%dms)"
+              % (query[:60], total), flush=True)
+        return {"results": [], "provider": "", "attempts": attempts,
+                "query": query, "count": 0, "ms": total}
     raise SearchFailed("all search providers failed: " + "; ".join(
         a["provider"] + "=" + a["error"] for a in attempts), attempts)
