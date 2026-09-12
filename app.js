@@ -607,7 +607,8 @@
     try {
       var data = JSON.parse(text);
       var err = data && data.error;
-      var msg = typeof err === "string" ? err : (err && err.message) || data.message || "";
+      var det = data && typeof data.detail === "string" ? data.detail : "";
+      var msg = typeof err === "string" ? err : (err && err.message) || data.message || det || "";
       msg = String(msg).trim().replace(/\s+/g, " ");
       return msg.length > 140 ? msg.slice(0, 140) + "..." : msg;
     } catch (e) {
