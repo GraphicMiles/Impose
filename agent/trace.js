@@ -61,7 +61,6 @@
     function render() {
       var open = manual !== null ? manual : working;
       box.classList.toggle("closed", !open);
-      box.classList.toggle("working", working);
       head.classList.toggle("working", working);
       head.setAttribute("aria-expanded", open ? "true" : "false");
     }
