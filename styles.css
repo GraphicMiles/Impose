@@ -1286,3 +1286,15 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
   background: var(--seg-active);
   color: var(--text);
 }
+
+/* Input bars take focus without the ring; their border cue stays. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/* Dictation in progress. */
+.icon-btn.recording {
+  background: var(--danger-soft);
+  color: var(--danger);
+}

@@ -1297,6 +1297,18 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
   color: var(--text);
 }
 
+/* Input bars take focus without the ring; their border cue stays. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/* Dictation in progress. */
+.icon-btn.recording {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -1765,23 +1777,11 @@ try {
         </div>
       </div>
 
-      <nav class="sidebar-nav" aria-label="Sections">
-        <button class="side-action" id="libraryBtn">
-          <i data-lucide="library"></i><span>Library</span>
-        </button>
-        <button class="side-action" id="exploreBtn">
-          <i data-lucide="compass"></i><span>Explore</span>
-        </button>
-      </nav>
 
       <div class="chat-groups" id="chatGroups" role="list"></div>
 
       <div class="sidebar-foot">
-        <button class="plan-card" id="upgradeBtn">
-          <i data-lucide="sparkles"></i>
-          <span class="plan-text"><strong>Upgrade plan</strong><em>More access to the best models</em></span>
-        </button>
-        <button class="profile-row" id="profileBtn" aria-haspopup="menu">
+        <button class="profile-row" id="profileBtn">
           <span class="avatar avatar-sm">A</span>
           <span class="profile-name">Adaeze</span>
         </button>
@@ -1804,7 +1804,7 @@ try {
         <button class="share-btn" id="shareBtn">
           <i data-lucide="share"></i><span>Share</span>
         </button>
-        <button class="avatar avatar-btn" id="avatarBtn" title="Account" aria-label="Account" aria-haspopup="menu">A</button>
+        <button class="avatar avatar-btn" id="avatarBtn" title="Account" aria-label="Account">A</button>
       </div>
     </header>
 
@@ -1841,17 +1841,18 @@ try {
 </div>
 
 <div class="composer-block" id="composerBlock">
+  <input type="file" id="filePicker" hidden multiple>
   <div class="composer" id="composer">
     <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Nova"></textarea>
     <div class="composer-row">
-      <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files" aria-haspopup="menu">
+      <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
         <i data-lucide="plus"></i>
       </button>
       <button class="icon-btn" id="searchBtn" title="Deep search the web" aria-label="Deep search the web" aria-pressed="false">
         <i data-lucide="search"></i>
       </button>
       <div class="composer-spacer"></div>
-      <button class="icon-btn" id="micBtn" title="Voice input" aria-label="Voice input">
+      <button class="icon-btn" id="micBtn" title="Voice input" aria-label="Voice input" aria-pressed="false">
         <i data-lucide="mic"></i>
       </button>
       <button class="send-btn" id="sendBtn" title="Send message" aria-label="Send message" disabled>
@@ -1869,35 +1870,7 @@ try {
   <div id="modelMenuBody"></div>
 </div>
 
-<div class="pop" id="profileMenu" role="menu" aria-label="Account" hidden>
-  <div class="profile-head">
-    <span class="avatar">A</span>
-    <span class="profile-meta"><strong>Adaeze</strong><em>adaeze@mail.com</em></span>
-  </div>
-  <div class="pop-sep"></div>
-  <button class="pop-item" id="settingsItem" role="menuitem">
-    <i data-lucide="settings"></i><span>Settings</span>
-  </button>
-  <button class="pop-item" id="helpItem" role="menuitem">
-    <i data-lucide="circle-help"></i><span>Help</span>
-  </button>
-  <div class="pop-sep"></div>
-  <button class="pop-item" id="logoutItem" role="menuitem">
-    <i data-lucide="log-out"></i><span>Log out</span>
-  </button>
-</div>
 
-<div class="pop" id="attachMenu" role="menu" aria-label="Attach" hidden>
-  <button class="pop-item" data-demo="File upload is not part of this demo" role="menuitem">
-    <i data-lucide="paperclip"></i><span>Upload files</span>
-  </button>
-  <button class="pop-item" data-demo="Photo upload is not part of this demo" role="menuitem">
-    <i data-lucide="image"></i><span>Upload photos</span>
-  </button>
-  <button class="pop-item" data-demo="Connected apps are not part of this demo" role="menuitem">
-    <i data-lucide="blocks"></i><span>Connect apps</span>
-  </button>
-</div>
 
 <div class="pop pop-sm" id="itemMenu" role="menu" aria-label="Chat options" hidden>
   <button class="pop-item" id="renameItem" role="menuitem">
@@ -3993,11 +3966,17 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     chatScroll.scrollTop = chatScroll.scrollHeight;
   }
 
-  function actionsHtml() {
+  function rateBtn(act, rating, title, label, icon) {
+    var on = rating === act;
+    return '<button type="button" data-act="' + act + '" title="' + title + '" aria-label="' + label + '"' +
+      (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + '><i data-lucide="' + icon + '"></i></button>';
+  }
+
+  function actionsHtml(rating) {
     return '<div class="msg-actions">' +
       '<button type="button" data-act="copy" title="Copy" aria-label="Copy"><i data-lucide="copy"></i></button>' +
-      '<button type="button" data-act="like" title="Good response" aria-label="Good response"><i data-lucide="thumbs-up"></i></button>' +
-      '<button type="button" data-act="dislike" title="Bad response" aria-label="Bad response"><i data-lucide="thumbs-down"></i></button>' +
+      rateBtn("like", rating, "Good response", "Good response", "thumbs-up") +
+      rateBtn("dislike", rating, "Bad response", "Bad response", "thumbs-down") +
       '<button type="button" data-act="retry" title="Regenerate" aria-label="Regenerate"><i data-lucide="rotate-ccw"></i></button>' +
       "</div>";
   }
@@ -4006,8 +3985,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return '<div class="bubble">' + escapeHtml(content).replace(/\n/g, "<br>") + "</div>";
   }
 
-  function assistantRowHtml(content, withActions) {
-    return '<div class="msg-body">' + renderMarkdown(content) + "</div>" + (withActions ? actionsHtml() : "");
+  function assistantRowHtml(content, withActions, rating) {
+    return '<div class="msg-body">' + renderMarkdown(content) + "</div>" + (withActions ? actionsHtml(rating) : "");
   }
 
   function animateIn(row) {
@@ -4029,7 +4008,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       var row = document.createElement("div");
       row.className = "msg " + m.role;
       row.dataset.i = i;
-      row.innerHTML = m.role === "user" ? userRowHtml(m.content) : assistantRowHtml(m.content, true);
+      row.innerHTML = m.role === "user" ? userRowHtml(m.content) : assistantRowHtml(m.content, true, m.rating);
       messagesEl.appendChild(row);
     });
     refreshIcons();
@@ -4115,7 +4094,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     }
     s.body.innerHTML = renderMarkdown(content);
     if (!s.row.querySelector(".msg-actions")) {
-      s.row.insertAdjacentHTML("beforeend", actionsHtml());
+      s.row.insertAdjacentHTML("beforeend", actionsHtml(chat && chat.messages[s.index] && chat.messages[s.index].rating));
     }
     refreshIcons();
     renderList();
@@ -4270,7 +4249,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (s.row.isConnected) {
       s.body.innerHTML = renderMarkdown(s.text);
       if (!s.row.querySelector(".msg-actions")) {
-        s.row.insertAdjacentHTML("beforeend", actionsHtml());
+        s.row.insertAdjacentHTML("beforeend", actionsHtml(chat && chat.messages[s.index] && chat.messages[s.index].rating));
       }
       refreshIcons();
       if (isNearBottom()) scrollBottom();
@@ -4331,14 +4310,26 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
   }
 
-  function streamResearched(chat, provider, model, userText) {
-    var idx = chat.messages.length;
-    chat.messages.push({ role: "assistant", content: "", ts: Date.now() });
-    var row = document.createElement("div");
-    row.className = "msg assistant";
-    row.dataset.i = idx;
-    row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span></span></div>';
-    messagesEl.appendChild(row);
+  function streamResearched(chat, provider, model, userText, replaceIdx) {
+    var idx, row;
+    if (replaceIdx == null) {
+      idx = chat.messages.length;
+      chat.messages.push({ role: "assistant", content: "", ts: Date.now(), researched: true });
+      row = document.createElement("div");
+      row.className = "msg assistant";
+      row.dataset.i = idx;
+      row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span></span></div>';
+      messagesEl.appendChild(row);
+    } else {
+      idx = replaceIdx;
+      row = messagesEl.querySelector('.msg[data-i="' + idx + '"]');
+      if (!row) return;
+      var oldTrace = row.querySelector(".agent-trace");
+      if (oldTrace) oldTrace.remove();
+      var oldActions = row.querySelector(".msg-actions");
+      if (oldActions) oldActions.remove();
+      row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+    }
     var trace = window.NovaTrace.mountTrace(row, { active: "Thinking" });
     refreshIcons();
     setStreamingUI(true);
@@ -4549,6 +4540,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       btn.classList.toggle("on");
       if (otherBtn) otherBtn.classList.remove("on");
       btn.setAttribute("aria-pressed", btn.classList.contains("on") ? "true" : "false");
+      msg.rating = btn.classList.contains("on") ? act : null;
+      chat.updatedAt = Date.now();
+      save();
     } else if (act === "retry") {
       if (stream) return;
       var t = getTarget();
@@ -4559,7 +4553,16 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         return;
       }
       if (t) {
-        streamLive(chat, t.provider, t.model, historyFor(chat.messages.slice(0, idx)), idx);
+        if (msg.researched && window.NovaHarness && window.NovaTrace) {
+          var prevUser = "";
+          for (var k = idx - 1; k >= 0; k--) {
+            if (chat.messages[k].role === "user") { prevUser = chat.messages[k].content; break; }
+          }
+          dnote("chat", "Research via " + providerDisplay(t.provider));
+          streamResearched(chat, t.provider, t.model, prevUser, idx);
+        } else {
+          streamLive(chat, t.provider, t.model, historyFor(chat.messages.slice(0, idx)), idx);
+        }
         return;
       }
       var prevUser = null;
@@ -4691,53 +4694,103 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   $("openSidebarBtn").addEventListener("click", function () { document.body.classList.add("nav-open"); });
   $("backdrop").addEventListener("click", function () { document.body.classList.remove("nav-open"); });
 
-  $("libraryBtn").addEventListener("click", function () { toast("Library is not part of this demo"); });
-  $("exploreBtn").addEventListener("click", function () { toast("Explore is not part of this demo"); });
-  $("upgradeBtn").addEventListener("click", function () { toast("Plans are not part of this demo"); });
-  $("micBtn").addEventListener("click", function () { toast("Voice input is not part of this demo"); });
+  var recog = null;
+  var recogOn = false;
+  function setMicUI(on) {
+    recogOn = on;
+    $("micBtn").setAttribute("aria-pressed", on ? "true" : "false");
+    $("micBtn").classList.toggle("recording", on);
+    $("micBtn").title = on ? "Stop dictation" : "Voice input";
+  }
+  $("micBtn").addEventListener("click", function () {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { toast("Voice input is not supported in this browser."); return; }
+    if (recogOn) { try { recog.stop(); } catch (e) { /* noop */ } return; }
+    try { recog = new SR(); }
+    catch (e) { toast("Could not start voice input."); return; }
+    recog.lang = navigator.language || "en-US";
+    recog.interimResults = true;
+    recog.maxAlternatives = 1;
+    var base = input.value;
+    if (base && !/\s$/.test(base)) base += " ";
+    recog.onresult = function (e) {
+      var text = "";
+      for (var i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      input.value = base + text;
+      autogrow();
+      syncSend();
+    };
+    recog.onerror = function (e) {
+      var kind = e && e.error;
+      if (kind === "not-allowed" || kind === "service-not-allowed") toast("Microphone blocked. Allow it to dictate.");
+      else if (kind === "no-speech") toast("Heard nothing. Try again.");
+      else if (kind !== "aborted") toast("Voice input stopped.");
+    };
+    recog.onend = function () { setMicUI(false); recog = null; };
+    try { recog.start(); setMicUI(true); dnote("app", "Dictation started"); }
+    catch (e) { toast("Could not start voice input."); }
+  });
 
   $("modelBtn").addEventListener("click", function () {
     renderModelMenu();
     showPop($("modelMenu"), $("modelBtn"), { side: "bottom", align: "start" });
   });
 
-  $("profileBtn").addEventListener("click", function () {
-    hidePop(true);
-    showPop($("profileMenu"), $("profileBtn"), { side: "top", align: "start" });
+  $("profileBtn").addEventListener("click", function () { openSettings("general"); });
+
+  $("avatarBtn").addEventListener("click", function () { openSettings("general"); });
+
+  var filePicker = $("filePicker");
+  $("attachBtn").addEventListener("click", function () { filePicker.click(); });
+  filePicker.addEventListener("change", function () {
+    var files = Array.prototype.slice.call(filePicker.files || []).slice(0, 5);
+    filePicker.value = "";
+    if (!files.length) return;
+    var reads = files.map(function (f) {
+      return new Promise(function (resolve) {
+        if (f.size > 100 * 1024) { resolve({ name: f.name, error: "over 100KB" }); return; }
+        var r = new FileReader();
+        r.onload = function () {
+          var text = String(r.result || "");
+          if (/\u0000/.test(text)) resolve({ name: f.name, error: "not a text file" });
+          else resolve({ name: f.name, text: text.slice(0, 100 * 1024) });
+        };
+        r.onerror = function () { resolve({ name: f.name, error: "unreadable" }); };
+        r.readAsText(f);
+      });
+    });
+    Promise.all(reads).then(function (out) {
+      var ok = out.filter(function (o) { return !o.error; });
+      var bad = out.filter(function (o) { return o.error; });
+      if (ok.length) {
+        var block = ok.map(function (o) {
+          return "File: " + o.name + "\n```\n" + o.text.trim() + "\n```";
+        }).join("\n\n");
+        input.value = (input.value ? input.value.replace(/\s+$/, "") + "\n\n" : "") + block;
+        autogrow();
+        syncSend();
+        input.focus();
+        dnote("app", "Attached " + ok.length + " file" + (ok.length > 1 ? "s" : ""));
+      }
+      if (bad.length) toast(bad.map(function (o) { return o.name + " (" + o.error + ")"; }).join("; "));
+      else if (ok.length) toast(ok.length === 1 ? "File added to your message." : ok.length + " files added to your message.");
+    });
   });
 
-  $("avatarBtn").addEventListener("click", function () {
-    hidePop(true);
-    showPop($("profileMenu"), $("avatarBtn"), { side: "bottom", align: "end" });
-  });
-
-  $("attachBtn").addEventListener("click", function () {
-    showPop($("attachMenu"), $("attachBtn"), { side: "top", align: "start" });
-  });
-
-  $("attachMenu").addEventListener("click", function (e) {
-    var item = e.target.closest("[data-demo]");
-    if (!item) return;
-    hidePop();
-    toast(item.dataset.demo);
-  });
-
-  $("settingsItem").addEventListener("click", function () {
-    hidePop(true);
-    openSettings("general");
-  });
-  $("helpItem").addEventListener("click", function () {
-    hidePop();
-    toast("No help center in this demo");
-  });
-  $("logoutItem").addEventListener("click", function () {
-    hidePop();
-    toast("Log out is disabled in this demo");
-  });
 
   $("shareBtn").addEventListener("click", function () {
-    var id = activeId || "new";
-    copyText("https://nova.chat/share/" + id, "Share link copied to clipboard");
+    var chat = getChat(activeId);
+    if (!chat || !chat.messages.length) { toast("Nothing to share yet."); return; }
+    var text = chat.title + "\n\n" + chat.messages.map(function (m) {
+      return (m.role === "user" ? "You: " : "Nova: ") + m.content;
+    }).join("\n\n");
+    if (navigator.share) {
+      navigator.share({ title: chat.title, text: text }).then(function () {
+        dnote("app", "Chat shared");
+      }, function () { /* dismissed */ });
+    } else {
+      copyText(text, "Chat copied to clipboard");
+    }
   });
 
   /* ---------- chat item menu: rename + delete ---------- */
