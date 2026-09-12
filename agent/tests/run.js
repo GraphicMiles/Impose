@@ -129,7 +129,8 @@ test("runAgent full flow emits the pipeline", function () {
   }).then(function (out) {
     eq(emits.join(","), "status,query,source,source,settle", "event order");
     eq(deltas.join(""), "hi", "delta forwarded");
-    ok(completed.system.indexOf("ONLY from the evidence") !== -1, "grounded system");
+    ok(completed.system.indexOf("cite sources by number like [1]") !== -1, "cites sources");
+    ok(completed.system.indexOf("answer from your own knowledge anyway") !== -1, "knowledge fallback");
     ok(completed.user.indexOf("[1] A") !== -1 && completed.user.indexOf("[2] B") !== -1, "numbered evidence");
     eq(out.sources.length, 2, "sources returned");
   });
@@ -173,6 +174,41 @@ test("runAgent honors abort before completing", function () {
     throw new Error("should have rejected");
   }, function (e) {
     eq(e.name, "AbortError", "abort propagates");
+  });
+});
+
+test("runAgent searches the rewritten query", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/" }], provider: "p" }]);
+  var emits = [];
+  var completed = null;
+  return H.harness.runAgent({
+    query: "Walk me through a Python function line by line",
+    rewrite: function (q) {
+      eq(q.indexOf("Python") !== -1, true, "rewrite sees the question");
+      return Promise.resolve("Python function explained line by line");
+    },
+    search: s.fn,
+    emit: function (e) { emits.push(e.t); },
+    onDelta: function () {},
+    complete: function (system, user) { completed = user; return Promise.resolve(); }
+  }).then(function () {
+    eq(s.calls[0][0], "Python function explained line by line", "planned query searched");
+    eq(emits.join(","), "status,status,query,source,settle", "planning beat shown");
+    ok(completed.indexOf("Walk me through") === 0, "synthesis keeps the original question");
+  });
+});
+
+test("runAgent falls back to raw words when rewrite fails", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/" }] }]);
+  return H.harness.runAgent({
+    query: "phones under 300k",
+    rewrite: function () { return Promise.reject(new Error("nope")); },
+    search: s.fn,
+    emit: function () {},
+    onDelta: function () {},
+    complete: function () { return Promise.resolve(); }
+  }).then(function () {
+    eq(s.calls[0][0], "phones under 300k", "raw query searched");
   });
 });
 

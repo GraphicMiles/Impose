@@ -1737,6 +1737,19 @@
     });
   }
 
+  /* First line of a rewrite reply, quotes stripped. Empty means the plan
+     failed and the run falls back to the user's own words. */
+  function cleanQuery(s) {
+    var lines = String(s || "").split("\n");
+    var line = "";
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].trim()) { line = lines[i].trim(); break; }
+    }
+    line = line.replace(/^["'\u201c\u201d]+|["'\u201c\u201d]+$/g, "");
+    if (!line || line.length > 120) return "";
+    return line;
+  }
+
   function streamResearched(chat, provider, model, userText, replaceIdx) {
     var idx, row;
     if (replaceIdx == null) {
@@ -1812,6 +1825,14 @@
       signal: signal,
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
+      rewrite: function (text) {
+        return new Promise(function (resolve) {
+          var out = "";
+          streamChat(provider, model, [{ role: "user", content: "Rewrite this chat request as one short web search query of 3 to 10 words. Reply with only the query and no quotes.\n\nRequest: " + text }], signal, function (c) { out += c; }).then(function () {
+            resolve(cleanQuery(out));
+          }, function () { resolve(""); });
+        });
+      },
       onDelta: function (chunk) {
         if (stream !== s) return;
         s.text += chunk;
