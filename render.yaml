@@ -1,6 +1,11 @@
 # Render Blueprint: the file Render looks for at the repository ROOT.
-# Deploys the optional Impose relay (backend/relay/) as a free web service.
+# Deploys the chat UI as a static site plus the optional relay (backend/relay/).
 services:
+  - type: web
+    name: impose-web
+    env: static
+    buildCommand: mkdir -p dist && cp index.html styles.css app.js lucide.min.js dist/
+    staticPublishPath: ./dist
   - type: web
     name: impose-relay
     runtime: python

@@ -166,6 +166,226 @@
     }
   };
 
+  /* ---------- debug log (edge tab, bottom sheet) ----------
+     Every network request is logged automatically (keys in URLs are
+     redacted). App events and failures are logged at their call sites.
+     Newest first, 500 lines max, like Luna's panel. */
+
+  var debugLog = [];
+  var debugErrorsOnly = false;
+  var debugCopiedFlash = false;
+  var DEBUG_MAX = 500;
+
+  function debugClock(d) {
+    function pad(n, w) { n = String(n); while (n.length < w) n = "0" + n; return n; }
+    try {
+      return pad(d.getHours(), 2) + ":" + pad(d.getMinutes(), 2) + ":" + pad(d.getSeconds(), 2) + "." + pad(d.getMilliseconds(), 3);
+    } catch (e) { return ""; }
+  }
+
+  function debugPlain(e) {
+    function pad(s, w) { s = String(s); while (s.length < w) s += " "; return s; }
+    return debugClock(e.t) + "  " + pad(e.level.toUpperCase(), 5) + " " + pad(e.where, 10) + " " + e.what;
+  }
+
+  function dlog(level, where, what) {
+    if (level !== "error" && level !== "warn") level = "info";
+    debugLog.unshift({ t: new Date(), level: level, where: String(where), what: String(what).replace(/\n/g, " ").trim() });
+    if (debugLog.length > DEBUG_MAX) debugLog.length = DEBUG_MAX;
+    if (!$("debugPanel").hidden && (!debugErrorsOnly || level === "error")) {
+      prependDebugRow(debugLog[0]);
+    }
+    syncDebugChrome();
+  }
+
+  function dnote(where, what) { dlog("info", where, what); }
+  function dwarn(where, what) { dlog("warn", where, what); }
+  function dfail(where, what) { dlog("error", where, what); }
+
+  function sanitizeUrl(url) {
+    return String(url || "").replace(/([?&](key|api_key|token|auth|secret)=)[^&]*/gi, "$1…");
+  }
+
+  function debugRow(entry) {
+    var row = document.createElement("div");
+    row.className = "debug-row" + (entry.level === "error" ? " bad" : entry.level === "warn" ? " warn" : "");
+    row.title = "Click to copy this line";
+    var meta = document.createElement("div");
+    meta.className = "debug-meta";
+    var clock = document.createElement("span");
+    clock.className = "debug-clock";
+    clock.textContent = debugClock(entry.t);
+    var where = document.createElement("span");
+    where.className = "debug-where";
+    where.textContent = entry.where;
+    meta.appendChild(clock);
+    meta.appendChild(where);
+    if (entry.level !== "info") {
+      var pill = document.createElement("span");
+      pill.className = "debug-pill";
+      pill.textContent = entry.level === "error" ? "ERROR" : "WARN";
+      meta.appendChild(pill);
+    }
+    var what = document.createElement("div");
+    what.className = "debug-what";
+    what.textContent = entry.what;
+    row.appendChild(meta);
+    row.appendChild(what);
+    row.addEventListener("click", function () {
+      copyText(debugPlain(entry), "Line copied");
+    });
+    return row;
+  }
+
+  function prependDebugRow(entry) {
+    var list = $("debugList");
+    var empty = list.querySelector(".debug-empty");
+    if (empty) empty.remove();
+    list.insertBefore(debugRow(entry), list.firstChild);
+    while (list.children.length > DEBUG_MAX) list.lastChild.remove();
+  }
+
+  function renderDebugList() {
+    var list = $("debugList");
+    list.innerHTML = "";
+    var shown = 0;
+    debugLog.forEach(function (entry) {
+      if (debugErrorsOnly && entry.level !== "error") return;
+      list.appendChild(debugRow(entry));
+      shown++;
+    });
+    if (!shown) {
+      var p = document.createElement("p");
+      p.className = "debug-empty";
+      p.textContent = debugErrorsOnly ? "Nothing has failed." : "Nothing logged yet.";
+      list.appendChild(p);
+    }
+    list.scrollTop = 0;
+  }
+
+  function syncDebugChrome() {
+    var errors = 0;
+    debugLog.forEach(function (e) { if (e.level === "error") errors++; });
+    var tab = $("debugTab");
+    tab.classList.toggle("bad", errors > 0);
+    var count = $("debugTabCount");
+    count.hidden = errors === 0;
+    count.textContent = errors > 99 ? "99" : String(errors);
+    var shown = debugErrorsOnly ? errors : debugLog.length;
+    $("debugCount").textContent = debugCopiedFlash ? "Copied" : shown + (shown === 1 ? " line" : " lines");
+  }
+
+  function openDebug() {
+    renderDebugList();
+    syncDebugChrome();
+    var panel = $("debugPanel");
+    panel.hidden = false;
+    void panel.offsetWidth;
+    panel.classList.add("open");
+    $("debugTab").hidden = true;
+  }
+
+  function closeDebug() {
+    var panel = $("debugPanel");
+    panel.classList.remove("open");
+    $("debugTab").hidden = false;
+    setTimeout(function () {
+      if (!panel.classList.contains("open")) panel.hidden = true;
+    }, 320);
+  }
+
+  function copySilent(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {}, function () { copyFallback(text); });
+    } else {
+      copyFallback(text);
+    }
+  }
+
+  function copyFallback(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* noop */ }
+    ta.remove();
+  }
+
+  $("debugTab").addEventListener("click", openDebug);
+  $("debugClose").addEventListener("click", closeDebug);
+
+  $("debugSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-df]");
+    if (!b) return;
+    debugErrorsOnly = b.dataset.df === "errors";
+    $("debugSeg").querySelectorAll("button").forEach(function (x) {
+      x.setAttribute("aria-pressed", x === b ? "true" : "false");
+    });
+    renderDebugList();
+    syncDebugChrome();
+  });
+
+  $("debugClear").addEventListener("click", function () {
+    debugLog.length = 0;
+    renderDebugList();
+    syncDebugChrome();
+  });
+
+  $("debugCopy").addEventListener("click", function () {
+    var lines = debugLog.filter(function (e) { return !debugErrorsOnly || e.level === "error"; });
+    copySilent(lines.map(debugPlain).join("\n") || "Debug log is empty.");
+    debugCopiedFlash = true;
+    syncDebugChrome();
+    $("debugCopy").innerHTML = '<i data-lucide="check"></i>';
+    refreshIcons();
+    setTimeout(function () {
+      debugCopiedFlash = false;
+      syncDebugChrome();
+      var btn = $("debugCopy");
+      if (btn) { btn.innerHTML = '<i data-lucide="copy"></i>'; refreshIcons(); }
+    }, 1400);
+  });
+
+  /* Log every network request the app makes. Keys in URLs are redacted. */
+  (function wrapFetch() {
+    if (!window.fetch || window.fetch.__novaWrapped) return;
+    var nativeFetch = window.fetch.bind(window);
+    function wrapped(input, opts) {
+      var url = typeof input === "string" ? input : (input && input.url) || "";
+      var method = (opts && opts.method) || (input && input.method) || "GET";
+      var t0 = (window.performance && performance.now()) || Date.now();
+      function ms() {
+        var now = (window.performance && performance.now()) || Date.now();
+        return Math.round(now - t0);
+      }
+      return nativeFetch(input, opts).then(function (res) {
+        var line = method + " " + sanitizeUrl(url) + " -> " + res.status + " (" + ms() + "ms)";
+        if (res.ok) dnote("net", line);
+        else dfail("net", line);
+        return res;
+      }, function (err) {
+        if (err && err.name === "AbortError") {
+          dwarn("net", method + " " + sanitizeUrl(url) + " aborted (" + ms() + "ms)");
+        } else {
+          dfail("net", method + " " + sanitizeUrl(url) + " failed (" + ms() + "ms): " + String((err && err.message) || err).slice(0, 140));
+        }
+        throw err;
+      });
+    }
+    wrapped.__novaWrapped = true;
+    window.fetch = wrapped;
+  })();
+
+  window.addEventListener("error", function (e) {
+    dfail("app", "Uncaught: " + (e.message || "unknown error"));
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e.reason;
+    dfail("app", "Unhandled rejection: " + (r && r.message ? r.message : String(r)));
+  });
+
   /* ---------- state ---------- */
 
   var HOUR = 3600 * 1000;
@@ -1064,6 +1284,7 @@
     renderMessages();
     showDock();
     scrollBottom();
+    dnote("chat", "Opened " + getChat(id).title);
     if (window.innerWidth <= 768) document.body.classList.remove("nav-open");
   }
 
@@ -1074,6 +1295,7 @@
     messagesEl.innerHTML = "";
     showEmpty();
     autogrow();
+    dnote("chat", "New chat started");
     syncSend();
     if (window.innerWidth <= 768) document.body.classList.remove("nav-open");
     if (window.innerWidth > 768) input.focus();
@@ -1276,6 +1498,7 @@
       refreshIcons();
       if (isNearBottom()) scrollBottom();
     }
+    if (failed) dfail("chat", sentence);
     if (failed && s.text !== sentence) toast(sentence);
     renderList();
   }
@@ -1320,6 +1543,7 @@
 
     var t = getTarget();
     if (t && t.missingKey) {
+      dwarn("provider", "Missing key for " + t.provider.label + ", chat not sent");
       toast("Add a key to " + t.provider.label + " first.");
       openSettings("providers");
       return;
@@ -1328,8 +1552,10 @@
       chat.model = providerDisplay(t.provider);
       chat.providerId = t.provider.id;
       save();
+      dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
       streamLive(chat, t.provider, t.model, historyFor(chat.messages), null);
     } else {
+      dnote("chat", "Chat via demo replies");
       streamAssistant(chat, generateReply(text));
     }
   }
@@ -1407,7 +1633,8 @@
       if (stream) return;
       var t = getTarget();
       if (t && t.missingKey) {
-        toast("Add a key to " + t.provider.label + " first.");
+        dwarn("provider", "Missing key for " + t.provider.label + ", chat not sent");
+      toast("Add a key to " + t.provider.label + " first.");
         openSettings("providers");
         return;
       }
@@ -1526,6 +1753,7 @@
       save();
       syncModelLabel();
       renderModelMenu();
+      dnote("provider", "Switched to demo replies");
       hidePop();
       return;
     }
@@ -1539,6 +1767,7 @@
     syncModelLabel();
     renderModelMenu();
     renderProviders();
+    dnote("provider", "Now using " + providerDisplay(p));
     hidePop();
   });
 
@@ -1658,6 +1887,7 @@
     }
     save();
     renderList();
+    dnote("chat", "Deleted " + removed.title);
     toast("Chat deleted", "Undo", function () {
       state.chats.splice(Math.min(idx, state.chats.length), 0, removed);
       save();
@@ -1810,6 +2040,7 @@
     document.documentElement.setAttribute("data-theme", theme);
     save();
     syncSettingsUI();
+    dnote("app", "Theme: " + theme);
   }
 
   $("themeSeg").addEventListener("click", function (e) {
@@ -1845,6 +2076,7 @@
     a.click();
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    dnote("app", "Chats exported");
     toast("Chats exported");
   });
 
@@ -1924,6 +2156,7 @@
           renderProviders();
           renderModelMenu();
           syncModelLabel();
+          dnote("provider", "Now using " + p.label);
           toast("Now using " + p.label);
         });
         row.appendChild(use);
@@ -2172,11 +2405,13 @@
         dl.appendChild(opt);
       });
       setStatus($("pfModelStatus"), "It serves " + found.length + ". Pick three from the list.");
+      dnote("provider", "Check models: " + found.length + " served");
     }, function (err) {
       edBusy = false;
       $("pfCheck").disabled = false;
       $("pfSave").disabled = false;
       setStatus($("pfModelStatus"), fetchSentence(err), { error: true });
+      dfail("provider", "Check models failed: " + fetchSentence(err));
     });
   });
 
@@ -2214,6 +2449,7 @@
           $("pfCheck").disabled = false;
           $("pfSave").disabled = false;
           setStatus($("pfStatus"), "Model " + (i + 1) + " failed. " + problem, { error: true });
+          dfail("provider", "Model " + (i + 1) + " failed: " + problem);
           return;
         }
         i++;
@@ -2257,6 +2493,7 @@
       renderProviders();
       renderModelMenu();
       syncModelLabel();
+      dnote("provider", "Saved " + label + " (" + models.length + " models, active: " + models[formSlot()] + ")");
       closeModal(providerModal);
       toast("Provider saved");
     }
@@ -2284,6 +2521,7 @@
       renderProviders();
       renderModelMenu();
       syncModelLabel();
+      dnote("provider", "Removed " + edEditing.label);
       closeModal(providerModal);
       toast("Provider removed");
     }, 1450);
@@ -2365,6 +2603,7 @@
     autogrow();
     syncSend();
     refreshIcons();
+    dnote("app", "Ready. " + state.providers.length + " providers, " + state.chats.length + " chats, " + state.settings.theme + " theme.");
   }
 
   if (document.readyState === "loading") {

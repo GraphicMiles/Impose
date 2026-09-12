@@ -169,3 +169,9 @@ curl https://BOX/v1/chat/completions -H "Authorization: Bearer KEY" \
   you avoid burning them overnight.
 - DuckDuckGo HTML parsing is best effort and datacenter IPs get
   throttled first; that is what the chain and the keyed providers are for.
+
+## Hosting the relay on Render
+
+The relay deploys from the repo root `render.yaml` Blueprint alongside
+the static chat UI. See
+[RENDER_SETUP.md](../RENDER_SETUP.md) for the full walkthrough.

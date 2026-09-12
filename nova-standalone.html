@@ -1218,6 +1218,67 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 #modelMenu { min-width: 250px; max-width: min(340px, calc(100vw - 24px)); }
 .pop-model strong, .pop-model em { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ---------- debug panel (edge tab, bottom sheet) ---------- */
+
+.debug-tab {
+  position: fixed;
+  right: 0;
+  bottom: 30dvh;
+  z-index: 96;
+  width: 30px;
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--pop);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 999px 0 0 999px;
+  color: var(--text-3);
+  transition: transform 160ms var(--ease-out), background-color 140ms ease, color 140ms ease;
+}
+.debug-tab:hover { color: var(--text); }
+.debug-tab:active { transform: scale(0.94); }
+.debug-tab .lucide, .debug-tab i[data-lucide] { width: 14px; height: 14px; }
+.debug-tab.bad { background: var(--text); border-color: var(--text); color: var(--bg); }
+.debug-tab-count { font-size: 10px; font-weight: 700; line-height: 1; }
+
+.debug-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 95;
+  height: min(52dvh, 600px);
+  background: var(--pop);
+  border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  transform: translateY(103%);
+  transition: transform 320ms var(--ease-drawer);
+}
+.debug-panel.open { transform: none; }
+.debug-inner { max-width: 880px; margin: 0 auto; height: 100%; display: flex; flex-direction: column; padding: 0 16px; }
+.debug-head { display: flex; align-items: center; gap: 8px; padding: 14px 4px 10px; }
+.debug-head strong { font-size: 15px; font-weight: 600; }
+.debug-count { font-size: 12px; color: var(--text-3); flex: 1; }
+.debug-head-btns { display: flex; gap: 2px; }
+.debug-seg { padding-bottom: 8px; }
+.debug-seg .seg { margin-bottom: 0; }
+.debug-list { flex: 1; overflow-y: auto; padding: 2px 2px 16px; }
+.debug-empty { text-align: center; color: var(--text-3); font-size: 13px; padding: 26px 0; margin: 0; }
+.debug-row { padding: 7px 10px; border-radius: 10px; margin-bottom: 3px; cursor: pointer; transition: background-color 120ms ease; }
+.debug-row:hover { background: var(--hover); }
+.debug-row.bad { background: var(--hover); }
+.debug-meta { display: flex; align-items: center; gap: 8px; }
+.debug-clock { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; color: var(--text-3); }
+.debug-where { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; color: var(--text-2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.debug-row.bad .debug-where, .debug-row.warn .debug-where { color: var(--text); }
+.debug-pill { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: var(--text); color: var(--bg); }
+.debug-row.warn .debug-pill { background: var(--press); color: var(--text); }
+.debug-what { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.45; color: var(--text-2); overflow-wrap: break-word; margin-top: 3px; }
+.debug-row.bad .debug-what { color: var(--text); font-weight: 600; }
+
 </style>
 <script>
 try {
@@ -1553,6 +1614,31 @@ try {
   </div>
 </div>
 
+<button id="debugTab" class="debug-tab" title="Open the debug log" aria-label="Open the debug log">
+  <i data-lucide="bug"></i>
+  <span class="debug-tab-count" id="debugTabCount" hidden></span>
+</button>
+<section id="debugPanel" class="debug-panel" aria-label="Debug log" hidden>
+  <div class="debug-inner">
+    <div class="debug-head">
+      <strong>Debug log</strong>
+      <span class="debug-count" id="debugCount"></span>
+      <div class="debug-head-btns">
+        <button class="icon-btn sm" id="debugCopy" title="Copy the log" aria-label="Copy the log"><i data-lucide="copy"></i></button>
+        <button class="icon-btn sm" id="debugClear" title="Clear the log" aria-label="Clear the log"><i data-lucide="trash-2"></i></button>
+        <button class="icon-btn sm" id="debugClose" title="Close the debug log" aria-label="Close the debug log"><i data-lucide="chevron-down"></i></button>
+      </div>
+    </div>
+    <div class="debug-seg">
+      <div class="seg" id="debugSeg" role="group" aria-label="Filter the log">
+        <button type="button" data-df="all" aria-pressed="true">Everything</button>
+        <button type="button" data-df="errors" aria-pressed="false">Errors</button>
+      </div>
+    </div>
+    <div class="debug-list" id="debugList"></div>
+  </div>
+</section>
+
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
 <noscript><p style="padding:24px;font-family:sans-serif">Nova needs JavaScript to run.</p></noscript>
@@ -1739,6 +1825,226 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       catch (e) { /* sandboxed iframe: keep everything in memory */ }
     }
   };
+
+  /* ---------- debug log (edge tab, bottom sheet) ----------
+     Every network request is logged automatically (keys in URLs are
+     redacted). App events and failures are logged at their call sites.
+     Newest first, 500 lines max, like Luna's panel. */
+
+  var debugLog = [];
+  var debugErrorsOnly = false;
+  var debugCopiedFlash = false;
+  var DEBUG_MAX = 500;
+
+  function debugClock(d) {
+    function pad(n, w) { n = String(n); while (n.length < w) n = "0" + n; return n; }
+    try {
+      return pad(d.getHours(), 2) + ":" + pad(d.getMinutes(), 2) + ":" + pad(d.getSeconds(), 2) + "." + pad(d.getMilliseconds(), 3);
+    } catch (e) { return ""; }
+  }
+
+  function debugPlain(e) {
+    function pad(s, w) { s = String(s); while (s.length < w) s += " "; return s; }
+    return debugClock(e.t) + "  " + pad(e.level.toUpperCase(), 5) + " " + pad(e.where, 10) + " " + e.what;
+  }
+
+  function dlog(level, where, what) {
+    if (level !== "error" && level !== "warn") level = "info";
+    debugLog.unshift({ t: new Date(), level: level, where: String(where), what: String(what).replace(/\n/g, " ").trim() });
+    if (debugLog.length > DEBUG_MAX) debugLog.length = DEBUG_MAX;
+    if (!$("debugPanel").hidden && (!debugErrorsOnly || level === "error")) {
+      prependDebugRow(debugLog[0]);
+    }
+    syncDebugChrome();
+  }
+
+  function dnote(where, what) { dlog("info", where, what); }
+  function dwarn(where, what) { dlog("warn", where, what); }
+  function dfail(where, what) { dlog("error", where, what); }
+
+  function sanitizeUrl(url) {
+    return String(url || "").replace(/([?&](key|api_key|token|auth|secret)=)[^&]*/gi, "$1…");
+  }
+
+  function debugRow(entry) {
+    var row = document.createElement("div");
+    row.className = "debug-row" + (entry.level === "error" ? " bad" : entry.level === "warn" ? " warn" : "");
+    row.title = "Click to copy this line";
+    var meta = document.createElement("div");
+    meta.className = "debug-meta";
+    var clock = document.createElement("span");
+    clock.className = "debug-clock";
+    clock.textContent = debugClock(entry.t);
+    var where = document.createElement("span");
+    where.className = "debug-where";
+    where.textContent = entry.where;
+    meta.appendChild(clock);
+    meta.appendChild(where);
+    if (entry.level !== "info") {
+      var pill = document.createElement("span");
+      pill.className = "debug-pill";
+      pill.textContent = entry.level === "error" ? "ERROR" : "WARN";
+      meta.appendChild(pill);
+    }
+    var what = document.createElement("div");
+    what.className = "debug-what";
+    what.textContent = entry.what;
+    row.appendChild(meta);
+    row.appendChild(what);
+    row.addEventListener("click", function () {
+      copyText(debugPlain(entry), "Line copied");
+    });
+    return row;
+  }
+
+  function prependDebugRow(entry) {
+    var list = $("debugList");
+    var empty = list.querySelector(".debug-empty");
+    if (empty) empty.remove();
+    list.insertBefore(debugRow(entry), list.firstChild);
+    while (list.children.length > DEBUG_MAX) list.lastChild.remove();
+  }
+
+  function renderDebugList() {
+    var list = $("debugList");
+    list.innerHTML = "";
+    var shown = 0;
+    debugLog.forEach(function (entry) {
+      if (debugErrorsOnly && entry.level !== "error") return;
+      list.appendChild(debugRow(entry));
+      shown++;
+    });
+    if (!shown) {
+      var p = document.createElement("p");
+      p.className = "debug-empty";
+      p.textContent = debugErrorsOnly ? "Nothing has failed." : "Nothing logged yet.";
+      list.appendChild(p);
+    }
+    list.scrollTop = 0;
+  }
+
+  function syncDebugChrome() {
+    var errors = 0;
+    debugLog.forEach(function (e) { if (e.level === "error") errors++; });
+    var tab = $("debugTab");
+    tab.classList.toggle("bad", errors > 0);
+    var count = $("debugTabCount");
+    count.hidden = errors === 0;
+    count.textContent = errors > 99 ? "99" : String(errors);
+    var shown = debugErrorsOnly ? errors : debugLog.length;
+    $("debugCount").textContent = debugCopiedFlash ? "Copied" : shown + (shown === 1 ? " line" : " lines");
+  }
+
+  function openDebug() {
+    renderDebugList();
+    syncDebugChrome();
+    var panel = $("debugPanel");
+    panel.hidden = false;
+    void panel.offsetWidth;
+    panel.classList.add("open");
+    $("debugTab").hidden = true;
+  }
+
+  function closeDebug() {
+    var panel = $("debugPanel");
+    panel.classList.remove("open");
+    $("debugTab").hidden = false;
+    setTimeout(function () {
+      if (!panel.classList.contains("open")) panel.hidden = true;
+    }, 320);
+  }
+
+  function copySilent(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {}, function () { copyFallback(text); });
+    } else {
+      copyFallback(text);
+    }
+  }
+
+  function copyFallback(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* noop */ }
+    ta.remove();
+  }
+
+  $("debugTab").addEventListener("click", openDebug);
+  $("debugClose").addEventListener("click", closeDebug);
+
+  $("debugSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-df]");
+    if (!b) return;
+    debugErrorsOnly = b.dataset.df === "errors";
+    $("debugSeg").querySelectorAll("button").forEach(function (x) {
+      x.setAttribute("aria-pressed", x === b ? "true" : "false");
+    });
+    renderDebugList();
+    syncDebugChrome();
+  });
+
+  $("debugClear").addEventListener("click", function () {
+    debugLog.length = 0;
+    renderDebugList();
+    syncDebugChrome();
+  });
+
+  $("debugCopy").addEventListener("click", function () {
+    var lines = debugLog.filter(function (e) { return !debugErrorsOnly || e.level === "error"; });
+    copySilent(lines.map(debugPlain).join("\n") || "Debug log is empty.");
+    debugCopiedFlash = true;
+    syncDebugChrome();
+    $("debugCopy").innerHTML = '<i data-lucide="check"></i>';
+    refreshIcons();
+    setTimeout(function () {
+      debugCopiedFlash = false;
+      syncDebugChrome();
+      var btn = $("debugCopy");
+      if (btn) { btn.innerHTML = '<i data-lucide="copy"></i>'; refreshIcons(); }
+    }, 1400);
+  });
+
+  /* Log every network request the app makes. Keys in URLs are redacted. */
+  (function wrapFetch() {
+    if (!window.fetch || window.fetch.__novaWrapped) return;
+    var nativeFetch = window.fetch.bind(window);
+    function wrapped(input, opts) {
+      var url = typeof input === "string" ? input : (input && input.url) || "";
+      var method = (opts && opts.method) || (input && input.method) || "GET";
+      var t0 = (window.performance && performance.now()) || Date.now();
+      function ms() {
+        var now = (window.performance && performance.now()) || Date.now();
+        return Math.round(now - t0);
+      }
+      return nativeFetch(input, opts).then(function (res) {
+        var line = method + " " + sanitizeUrl(url) + " -> " + res.status + " (" + ms() + "ms)";
+        if (res.ok) dnote("net", line);
+        else dfail("net", line);
+        return res;
+      }, function (err) {
+        if (err && err.name === "AbortError") {
+          dwarn("net", method + " " + sanitizeUrl(url) + " aborted (" + ms() + "ms)");
+        } else {
+          dfail("net", method + " " + sanitizeUrl(url) + " failed (" + ms() + "ms): " + String((err && err.message) || err).slice(0, 140));
+        }
+        throw err;
+      });
+    }
+    wrapped.__novaWrapped = true;
+    window.fetch = wrapped;
+  })();
+
+  window.addEventListener("error", function (e) {
+    dfail("app", "Uncaught: " + (e.message || "unknown error"));
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e.reason;
+    dfail("app", "Unhandled rejection: " + (r && r.message ? r.message : String(r)));
+  });
 
   /* ---------- state ---------- */
 
@@ -2638,6 +2944,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     renderMessages();
     showDock();
     scrollBottom();
+    dnote("chat", "Opened " + getChat(id).title);
     if (window.innerWidth <= 768) document.body.classList.remove("nav-open");
   }
 
@@ -2648,6 +2955,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     messagesEl.innerHTML = "";
     showEmpty();
     autogrow();
+    dnote("chat", "New chat started");
     syncSend();
     if (window.innerWidth <= 768) document.body.classList.remove("nav-open");
     if (window.innerWidth > 768) input.focus();
@@ -2850,6 +3158,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       refreshIcons();
       if (isNearBottom()) scrollBottom();
     }
+    if (failed) dfail("chat", sentence);
     if (failed && s.text !== sentence) toast(sentence);
     renderList();
   }
@@ -2894,6 +3203,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
     var t = getTarget();
     if (t && t.missingKey) {
+      dwarn("provider", "Missing key for " + t.provider.label + ", chat not sent");
       toast("Add a key to " + t.provider.label + " first.");
       openSettings("providers");
       return;
@@ -2902,8 +3212,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       chat.model = providerDisplay(t.provider);
       chat.providerId = t.provider.id;
       save();
+      dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
       streamLive(chat, t.provider, t.model, historyFor(chat.messages), null);
     } else {
+      dnote("chat", "Chat via demo replies");
       streamAssistant(chat, generateReply(text));
     }
   }
@@ -2981,7 +3293,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       if (stream) return;
       var t = getTarget();
       if (t && t.missingKey) {
-        toast("Add a key to " + t.provider.label + " first.");
+        dwarn("provider", "Missing key for " + t.provider.label + ", chat not sent");
+      toast("Add a key to " + t.provider.label + " first.");
         openSettings("providers");
         return;
       }
@@ -3100,6 +3413,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       save();
       syncModelLabel();
       renderModelMenu();
+      dnote("provider", "Switched to demo replies");
       hidePop();
       return;
     }
@@ -3113,6 +3427,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     syncModelLabel();
     renderModelMenu();
     renderProviders();
+    dnote("provider", "Now using " + providerDisplay(p));
     hidePop();
   });
 
@@ -3232,6 +3547,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     }
     save();
     renderList();
+    dnote("chat", "Deleted " + removed.title);
     toast("Chat deleted", "Undo", function () {
       state.chats.splice(Math.min(idx, state.chats.length), 0, removed);
       save();
@@ -3384,6 +3700,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     document.documentElement.setAttribute("data-theme", theme);
     save();
     syncSettingsUI();
+    dnote("app", "Theme: " + theme);
   }
 
   $("themeSeg").addEventListener("click", function (e) {
@@ -3419,6 +3736,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     a.click();
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    dnote("app", "Chats exported");
     toast("Chats exported");
   });
 
@@ -3498,6 +3816,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           renderProviders();
           renderModelMenu();
           syncModelLabel();
+          dnote("provider", "Now using " + p.label);
           toast("Now using " + p.label);
         });
         row.appendChild(use);
@@ -3746,11 +4065,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         dl.appendChild(opt);
       });
       setStatus($("pfModelStatus"), "It serves " + found.length + ". Pick three from the list.");
+      dnote("provider", "Check models: " + found.length + " served");
     }, function (err) {
       edBusy = false;
       $("pfCheck").disabled = false;
       $("pfSave").disabled = false;
       setStatus($("pfModelStatus"), fetchSentence(err), { error: true });
+      dfail("provider", "Check models failed: " + fetchSentence(err));
     });
   });
 
@@ -3788,6 +4109,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           $("pfCheck").disabled = false;
           $("pfSave").disabled = false;
           setStatus($("pfStatus"), "Model " + (i + 1) + " failed. " + problem, { error: true });
+          dfail("provider", "Model " + (i + 1) + " failed: " + problem);
           return;
         }
         i++;
@@ -3831,6 +4153,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       renderProviders();
       renderModelMenu();
       syncModelLabel();
+      dnote("provider", "Saved " + label + " (" + models.length + " models, active: " + models[formSlot()] + ")");
       closeModal(providerModal);
       toast("Provider saved");
     }
@@ -3858,6 +4181,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       renderProviders();
       renderModelMenu();
       syncModelLabel();
+      dnote("provider", "Removed " + edEditing.label);
       closeModal(providerModal);
       toast("Provider removed");
     }, 1450);
@@ -3939,6 +4263,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     autogrow();
     syncSend();
     refreshIcons();
+    dnote("app", "Ready. " + state.providers.length + " providers, " + state.chats.length + " chats, " + state.settings.theme + " theme.");
   }
 
   if (document.readyState === "loading") {

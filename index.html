@@ -342,6 +342,31 @@ try {
   </div>
 </div>
 
+<button id="debugTab" class="debug-tab" title="Open the debug log" aria-label="Open the debug log">
+  <i data-lucide="bug"></i>
+  <span class="debug-tab-count" id="debugTabCount" hidden></span>
+</button>
+<section id="debugPanel" class="debug-panel" aria-label="Debug log" hidden>
+  <div class="debug-inner">
+    <div class="debug-head">
+      <strong>Debug log</strong>
+      <span class="debug-count" id="debugCount"></span>
+      <div class="debug-head-btns">
+        <button class="icon-btn sm" id="debugCopy" title="Copy the log" aria-label="Copy the log"><i data-lucide="copy"></i></button>
+        <button class="icon-btn sm" id="debugClear" title="Clear the log" aria-label="Clear the log"><i data-lucide="trash-2"></i></button>
+        <button class="icon-btn sm" id="debugClose" title="Close the debug log" aria-label="Close the debug log"><i data-lucide="chevron-down"></i></button>
+      </div>
+    </div>
+    <div class="debug-seg">
+      <div class="seg" id="debugSeg" role="group" aria-label="Filter the log">
+        <button type="button" data-df="all" aria-pressed="true">Everything</button>
+        <button type="button" data-df="errors" aria-pressed="false">Errors</button>
+      </div>
+    </div>
+    <div class="debug-list" id="debugList"></div>
+  </div>
+</section>
+
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
 <noscript><p style="padding:24px;font-family:sans-serif">Nova needs JavaScript to run.</p></noscript>

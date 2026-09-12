@@ -107,3 +107,10 @@ Notes:
 - Request shapes live in `streamChat`, `listModels`, and `probeModel`
   in `app.js`. A new shape is a new branch in each.
 - Themes are CSS variable blocks at the top of `styles.css`.
+
+## Hosting on Render
+
+The chat UI is a static site and the relay is a small Python service.
+Both deploy from this repo with one Blueprint file. See
+[RENDER_SETUP.md](RENDER_SETUP.md) for the full walkthrough: Blueprint
+deploy, env vars, keep-awake, and troubleshooting.
