@@ -32,7 +32,8 @@
     head.setAttribute("type", "button");
     head.setAttribute("aria-expanded", "true");
     head.innerHTML =
-      '<span class="trace-glyph">' + icon(opts.icon || "sparkle") + "</span>" +
+      '<span class="trace-glyph">' + icon(opts.icon || "sparkle") +
+      '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></span>' + "</span>" +
       '<span class="trace-status">' + esc(opts.active || "Thinking") + "</span>" +
       '<span class="trace-time"></span>' +
       '<span class="trace-chev">' + icon("chevron-down") + "</span>";
@@ -266,7 +267,7 @@
     row.innerHTML = '<div class="demo-note">Sample run with sample data.</div><div class="msg-body"></div>';
     root.appendChild(row);
     var body = row.querySelector(".msg-body");
-    body.innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
+    body.innerHTML = "";
     helpers.refreshIcons();
     helpers.pin();
 
