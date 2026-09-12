@@ -1,7 +1,7 @@
-/* Nova app shell cache. Navigations stay fresh from the network with an
+/* Impose app shell cache. Navigations stay fresh from the network with an
    offline fallback; versioned static assets are served from the cache. */
 
-var CACHE = "nova-shell-v3";
+var CACHE = "impose-shell-v1";
 var SHELL = [
   "./",
   "./index.html",
@@ -9,7 +9,7 @@ var SHELL = [
   "./agent/trace.css",
   "./lucide.min.js",
   "./anime.min.js",
-  "./og-image.png",
+  "./og-image.jpg",
   "./agent/trace.js",
   "./agent/harness.js",
   "./app.js",

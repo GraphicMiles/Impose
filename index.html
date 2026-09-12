@@ -3,22 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Nova</title>
-<meta name="description" content="Nova chat client. Bring your own key and chat with any provider.">
+<title>Impose</title>
+<meta name="description" content="Impose chat client. Bring your own key and chat with any provider.">
 <link rel="canonical" href="https://impose-web.onrender.com/">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Nova">
-<meta property="og:title" content="Nova">
-<meta property="og:description" content="Nova chat client. Bring your own key and chat with any provider.">
+<meta property="og:site_name" content="Impose">
+<meta property="og:title" content="Impose">
+<meta property="og:description" content="Impose chat client. Bring your own key and chat with any provider.">
 <meta property="og:url" content="https://impose-web.onrender.com/">
-<meta property="og:image" content="https://impose-web.onrender.com/og-image.png">
+<meta property="og:image" content="https://impose-web.onrender.com/og-image.jpg">
+<meta property="og:image:secure_url" content="https://impose-web.onrender.com/og-image.jpg">
+<meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Nova: bring your own key and chat with any provider.">
+<meta property="og:image:alt" content="Impose: bring your own key and chat with any provider.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Nova">
-<meta name="twitter:description" content="Nova chat client. Bring your own key and chat with any provider.">
-<meta name="twitter:image" content="https://impose-web.onrender.com/og-image.png">
+<meta name="twitter:title" content="Impose">
+<meta name="twitter:description" content="Impose chat client. Bring your own key and chat with any provider.">
+<meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta name="color-scheme" content="dark light">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-apple.png">
@@ -31,7 +33,7 @@
 <link rel="stylesheet" href="./agent/trace.css">
 <script>
 try {
-  var saved = JSON.parse(localStorage.getItem("nova.clone.v1") || "{}");
+  var saved = JSON.parse(localStorage.getItem("impose.clone.v1") || "{}");
   var theme = (saved.settings && saved.settings.theme) || "dark";
   document.documentElement.setAttribute("data-theme", theme);
 } catch (err) {
@@ -149,7 +151,7 @@ try {
   <input type="file" id="filePicker" hidden multiple>
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
-    <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Nova"></textarea>
+    <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Impose"></textarea>
     <div class="composer-row">
       <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
         <i data-lucide="plus"></i>
@@ -170,7 +172,7 @@ try {
       </button>
     </div>
   </div>
-  <p class="disclaimer">Nova can make mistakes. Check important info.</p>
+  <p class="disclaimer">Impose can make mistakes. Check important info.</p>
 </div>
 
 <div class="pop" id="modelMenu" role="menu" aria-label="Choose model" hidden>
@@ -218,7 +220,7 @@ try {
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
   <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
   <button class="pop-item danger" id="acctWipe" role="menuitem"><i data-lucide="trash-2"></i><span>Delete all chats</span></button>
-  <p class="acct-foot">Nova 1.2 · Keys and chats stay in this browser.</p>
+  <p class="acct-foot">Impose 1.2 · Keys and chats stay in this browser.</p>
 </div>
 
 <div class="overlay" id="palette" hidden>
@@ -291,7 +293,7 @@ try {
             <button class="btn" id="exportBtn"><i data-lucide="download"></i><span>Export</span></button>
           </div>
           <div class="setting-row">
-            <div class="setting-text"><strong>Import backup</strong><span>Restore a Nova JSON export</span></div>
+            <div class="setting-text"><strong>Import backup</strong><span>Restore a Impose JSON export</span></div>
             <button class="btn" id="importBtn"><i data-lucide="upload"></i><span>Import</span></button>
           </div>
           <input type="file" id="importPicker" accept="application/json,.json" hidden>
@@ -300,7 +302,7 @@ try {
             <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
           </div>
         </section>
-        <p class="version">Nova 1.2. Keys and chats stay in this browser.</p>
+        <p class="version">Impose 1.2. Keys and chats stay in this browser.</p>
       </div>
     </div>
   </div>
@@ -374,7 +376,7 @@ try {
           </div>
           <div class="field">
             <label class="flabel" for="pfHeaders">Extra headers</label>
-            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Nova" spellcheck="false"></textarea>
+            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Impose" spellcheck="false"></textarea>
             <p class="fhelp">One per line, written as Name: value.</p>
           </div>
           <p class="flabel gap">Relay</p>
@@ -472,10 +474,10 @@ try {
     <div class="settings-body">
       <div class="ext-status" id="extStatus">
         <span class="ext-dot lg off" id="extDotLg"></span>
-        <div class="ext-status-text"><strong id="extStatusTitle">Extension not connected</strong><span id="extStatusSub">Install the Nova bridge to act in your tabs.</span></div>
+        <div class="ext-status-text"><strong id="extStatusTitle">Extension not connected</strong><span id="extStatusSub">Install the Impose bridge to act in your tabs.</span></div>
         <button class="btn small" id="extPingBtn" type="button"><i data-lucide="plug"></i><span>Retry</span></button>
       </div>
-      <div id="extSetup" class="pane-note">Load the companion extension once: open chrome://extensions, turn on Developer mode, Load unpacked, and pick the extension folder from the Nova repo. Then press Retry. You log in on the sites themselves; the bridge never sees passwords.</div>
+      <div id="extSetup" class="pane-note">Load the companion extension once: open chrome://extensions, turn on Developer mode, Load unpacked, and pick the extension folder from the Impose repo. Then press Retry. You log in on the sites themselves; the bridge never sees passwords.</div>
       <div id="extMain" hidden>
         <div class="field">
           <label class="flabel" for="extTabs">X tab</label>
@@ -498,7 +500,7 @@ try {
           <label class="flabel" for="extInstr">Instruction for the draft</label>
           <input type="text" class="text-input" id="extInstr" placeholder="e.g. accept politely and ask for Thursday" autocomplete="off">
         </div>
-        <button class="btn small" id="extDraftBtn" type="button"><i data-lucide="bot"></i><span>Draft with Nova</span></button>
+        <button class="btn small" id="extDraftBtn" type="button"><i data-lucide="bot"></i><span>Draft with Impose</span></button>
         <div class="field">
           <label class="flabel" for="extReply">Reply to send</label>
           <textarea class="text-input mono text-area" id="extReply" rows="3" placeholder="The exact text that will be sent."></textarea>
@@ -534,7 +536,7 @@ try {
 
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<noscript><p style="padding:24px;font-family:sans-serif">Nova needs JavaScript to run.</p></noscript>
+<noscript><p style="padding:24px;font-family:sans-serif">Impose needs JavaScript to run.</p></noscript>
 <script src="./lucide.min.js"></script>
 <script src="./anime.min.js"></script>
 <script src="./agent/trace.js"></script>
