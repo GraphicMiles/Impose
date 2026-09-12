@@ -32,6 +32,13 @@ Rebuild with:
 python3 build_inline.py
 ```
 
+## Backend (self hosted)
+
+`backend/` holds the control plane adopted from Luna: a Lightning GPU box
+gateway (auth, generation proxy, web search, llama watchdog) plus an
+optional always-on relay with wake on chat and idle auto stop. See
+`backend/README.md` for the architecture and setup.
+
 ## Providers
 
 Settings has a Providers tab. Adding one works like this:
