@@ -43,6 +43,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from relay.search import SearchFailed, engine_search
+from relay.images import ImagesFailed, engine_images
 
 BASE_DIR = Path(os.environ.get("CP_DIR", str(Path(__file__).resolve().parent)))
 ENV_FILE = BASE_DIR / ".env"
@@ -440,6 +441,38 @@ async def search_proxy(request: Request):
                                    language=str(language or "en"),
                                    region=region)
     except SearchFailed as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.api_route("/v1/images", methods=["GET", "POST"])
+async def images_proxy(request: Request):
+    """Keyless image search for the agent (Bing Images, DDG Images, Openverse)."""
+    _authed(request)
+    if _rate_hit("images", _client_ip(request), 60, 60.0):
+        raise HTTPException(status_code=429, detail="image search rate limit reached; wait a minute")
+    if request.method == "POST":
+        try:
+            data = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="body must be JSON")
+        query = str(data.get("query", ""))
+        limit = data.get("limit", 8)
+    else:
+        q = request.query_params
+        query = str(q.get("query", "") or q.get("q", ""))
+        limit = q.get("limit", 8)
+    query = query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    if len(query) > 500:
+        raise HTTPException(status_code=400, detail="query is too long (max 500 chars)")
+    try:
+        limit = max(1, min(20, int(limit)))
+    except Exception:
+        raise HTTPException(status_code=400, detail="limit must be 1..20")
+    try:
+        return await engine_images(query, limit=limit)
+    except ImagesFailed as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 
