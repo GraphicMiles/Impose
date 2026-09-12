@@ -19,7 +19,13 @@ try {
 }
 </script>
 </head>
-<body class="nav-open">
+<body>
+<script>
+/* Drawer state before first paint, so the sidebar never flashes. */
+try {
+  if (window.innerWidth > 768) document.body.classList.add("nav-open");
+} catch (err) { /* init in app.js re-decides below */ }
+</script>
 
 <div class="app" id="app">
   <div class="backdrop" id="backdrop" aria-hidden="true"></div>
