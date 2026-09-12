@@ -1266,9 +1266,9 @@
     kind = kind || "info";
     while (toastsEl.children.length >= 3) {
       var oldest = toastsEl.children[0];
-      if (oldest && oldest._dismiss) oldest._dismiss();
-      else if (oldest) oldest.remove();
-      else break;
+      if (!oldest) break;
+      if (oldest._dismiss) oldest._dismiss();
+      oldest.remove();
     }
     var el = document.createElement("div");
     el.className = "toast " + kind;
@@ -4403,6 +4403,299 @@
     copyText(d.subject + "\n\n" + d.body, "Feedback copied to clipboard");
   });
 
+  /* ---------- agent actions via the companion extension ---------- */
+
+  var EXT_TIMEOUT = 25000;
+  var extSeq = 0;
+  var extPending = {};
+  var ext = { connected: false, version: "", tabs: [], tabId: 0, threadUrl: "", snapshot: "", log: [] };
+
+  try {
+    var savedActions = JSON.parse(localStorage.getItem("nova.actions.v1") || "[]");
+    if (Array.isArray(savedActions)) ext.log = savedActions.slice(-30);
+  } catch (e) { ext.log = []; }
+
+  function extSaveLog() {
+    try { localStorage.setItem("nova.actions.v1", JSON.stringify(ext.log.slice(-30))); } catch (e) { /* noop */ }
+  }
+
+  function renderExtLog() {
+    var box = $("extLog");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!ext.log.length) { box.textContent = "No actions yet."; return; }
+    ext.log.slice(-8).reverse().forEach(function (e) {
+      var d = document.createElement("div");
+      d.className = "al";
+      var t = new Date(e.ts || Date.now());
+      var s = document.createElement("strong");
+      s.textContent = (e.ok === false ? "\u2717 " : "\u2713 ") + e.action + " \u00b7 " +
+        ("0" + t.getHours()).slice(-2) + ":" + ("0" + t.getMinutes()).slice(-2) + " ";
+      var sp = document.createElement("span");
+      sp.textContent = e.detail || "";
+      d.appendChild(s);
+      d.appendChild(sp);
+      box.appendChild(d);
+    });
+  }
+
+  function extLog(action, detail, ok) {
+    ext.log.push({ ts: Date.now(), action: action, detail: String(detail || "").slice(0, 200), ok: ok !== false });
+    ext.log = ext.log.slice(-30);
+    extSaveLog();
+    renderExtLog();
+  }
+
+  window.addEventListener("message", function (e) {
+    if (e.origin !== location.origin) return;
+    var m = e.data;
+    if (!m || m.src !== "nova-ext" || !m.id || !extPending[m.id]) return;
+    var p = extPending[m.id];
+    delete extPending[m.id];
+    clearTimeout(p.timer);
+    if (m.ok) p.resolve(("result" in m) ? m.result : m);
+    else p.reject(new Error(m.error || "Extension error."));
+  });
+
+  function extSend(method, params) {
+    return new Promise(function (resolve, reject) {
+      var id = "x" + (++extSeq);
+      var timer = setTimeout(function () {
+        delete extPending[id];
+        reject(new Error("Extension did not answer. Is it installed and enabled?"));
+      }, EXT_TIMEOUT);
+      if (timer.unref) { try { timer.unref(); } catch (e) { /* browsers lack unref */ } }
+      extPending[id] = { resolve: resolve, reject: reject, timer: timer };
+      window.postMessage({ src: "nova-page", id: id, method: method, params: params || {} }, location.origin);
+    });
+  }
+
+  function setExtStatus(connected, title, sub) {
+    ext.connected = connected;
+    $("extDot").hidden = !connected;
+    $("extDotLg").classList.toggle("off", !connected);
+    $("extStatusTitle").textContent = title;
+    $("extStatusSub").textContent = sub;
+    $("extMain").hidden = !connected;
+    $("extSetup").hidden = connected;
+  }
+
+  function extPing(silent) {
+    return extSend("ping").then(function (r) {
+      ext.version = (r && r.version) || "";
+      setExtStatus(true, "Extension connected", "Bridge v" + ext.version + " \u00b7 protocol 1");
+      return true;
+    }, function (err) {
+      setExtStatus(false, "Extension not connected",
+        silent ? "Install the Nova bridge to act in your tabs." : String((err && err.message) || err));
+      return false;
+    });
+  }
+
+  function setExtBusy(busy) {
+    ["extTabsBtn", "extReadBtn", "extThreadsBtn", "extProbeBtn", "extDraftBtn", "extSendBtn"].forEach(function (id) {
+      var b = $(id);
+      if (b) b.disabled = busy;
+    });
+  }
+
+  function refreshExtTabs() {
+    setExtBusy(true);
+    extSend("tabs.list").then(function (r) {
+      setExtBusy(false);
+      ext.tabs = (r && r.tabs) || [];
+      var sel = $("extTabs");
+      sel.innerHTML = "";
+      if (!ext.tabs.length) {
+        sel.appendChild(new Option("No X tabs open", ""));
+        ext.tabId = 0;
+        toast("Open x.com in a tab first, then press Tabs.");
+        return;
+      }
+      ext.tabs.forEach(function (t) {
+        sel.appendChild(new Option(String(t.title || t.url || "X tab").slice(0, 60), String(t.tabId)));
+      });
+      if (!ext.tabs.some(function (t) { return t.tabId === ext.tabId; })) ext.tabId = ext.tabs[0].tabId;
+      sel.value = String(ext.tabId);
+    }, function (err) {
+      setExtBusy(false);
+      toast.error("Tab list failed: " + err.message);
+    });
+  }
+
+  function needTab() {
+    if (ext.tabId) return true;
+    toast("Pick an X tab first.");
+    return false;
+  }
+
+  function extRead() {
+    if (!needTab()) return;
+    setExtBusy(true);
+    extSend("snapshot", { tabId: ext.tabId }).then(function (r) {
+      setExtBusy(false);
+      ext.snapshot = (r && r.text) || "";
+      $("extSnap").textContent = ext.snapshot || "(the page returned no text)";
+      $("extSnapWrap").open = true;
+      extLog("read", (r && r.url) || "tab", true);
+      dnote("ext", "Snapshot read from tab " + ext.tabId);
+    }, function (err) {
+      setExtBusy(false);
+      toast.error("Read failed: " + err.message);
+      extLog("read", err.message, false);
+    });
+  }
+
+  function extThreads() {
+    if (!needTab()) return;
+    setExtBusy(true);
+    extSend("dm.list", { tabId: ext.tabId }).then(function (r) {
+      setExtBusy(false);
+      var box = $("extThreads");
+      box.innerHTML = "";
+      var list = (r && r.threads) || [];
+      if (!list.length) {
+        box.textContent = "No threads found. Open x.com/messages in that tab first.";
+        return;
+      }
+      list.forEach(function (th) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "thread-row" + (th.url === ext.threadUrl ? " chosen" : "");
+        var s = document.createElement("strong");
+        s.textContent = th.name || "(no name)";
+        var sp = document.createElement("span");
+        sp.textContent = th.snippet || "";
+        b.appendChild(s);
+        b.appendChild(sp);
+        b.addEventListener("click", function () {
+          ext.threadUrl = th.url;
+          $("extTarget").textContent = "Target thread: " + th.url;
+          var rows = box.querySelectorAll(".thread-row");
+          for (var i = 0; i < rows.length; i++) rows[i].classList.toggle("chosen", rows[i] === b);
+        });
+        box.appendChild(b);
+      });
+      extLog("threads", list.length + " found", true);
+    }, function (err) {
+      setExtBusy(false);
+      toast.error("Threads failed: " + err.message);
+      extLog("threads", err.message, false);
+    });
+  }
+
+  function extProbe() {
+    if (!needTab()) return;
+    setExtBusy(true);
+    extSend("probe", { tabId: ext.tabId }).then(function (r) {
+      setExtBusy(false);
+      r = r || {};
+      if (r.loggedOut) {
+        toast("That tab is logged out. Log in to X there first.");
+        extLog("probe", "logged out", false);
+        return;
+      }
+      var bits = "composer " + (r.composer ? "seen" : "missing") + ", send " +
+        (r.send ? "seen" : "missing") + ", " + (r.threads || 0) + " threads";
+      toast("Page check: " + bits + ".");
+      dnote("ext", "Probe tab " + ext.tabId + ": " + bits);
+      extLog("probe", bits, !!(r.composer && r.send));
+    }, function (err) {
+      setExtBusy(false);
+      toast.error("Check failed: " + err.message);
+      extLog("probe", err.message, false);
+    });
+  }
+
+  function extDraft() {
+    var t = getTarget();
+    if (!t) { toast("Add a provider first: drafting needs a model."); return; }
+    if (!ext.snapshot) { toast("Read the page first so Nova can see the conversation."); return; }
+    var instr = $("extInstr").value.trim() || "Reply helpfully and briefly.";
+    setExtBusy(true);
+    extLog("draft", instr, true);
+    completeOnce(t.provider, t.model, [{ role: "user", content:
+      "You are helping reply to a DM conversation on X. Read the conversation, follow the instruction, " +
+      "and output ONLY the reply text: no quotes, no commentary, no placeholders.\n\nConversation:\n" +
+      ext.snapshot.slice(0, 3500) + "\n\nInstruction: " + instr }]).then(function (text) {
+      setExtBusy(false);
+      $("extReply").value = String(text || "").trim();
+      if (!$("extReply").value) toast.error("The draft came back empty. Try again.");
+    }, function (err) {
+      setExtBusy(false);
+      toast.error("Draft failed: " + String((err && err.message) || err));
+    });
+  }
+
+  var sendArmed = false;
+  var sendArmTimer = 0;
+  function disarmSend() {
+    sendArmed = false;
+    clearTimeout(sendArmTimer);
+    var btn = $("extSendBtn");
+    btn.classList.remove("armed");
+    btn.querySelector("span").textContent = "Send via extension";
+  }
+
+  function extSendReply() {
+    var text = $("extReply").value.trim();
+    if (!text) { toast("Write the reply first."); return; }
+    if (!needTab()) return;
+    if (!sendArmed) {
+      sendArmed = true;
+      var btn = $("extSendBtn");
+      btn.classList.add("armed");
+      btn.querySelector("span").textContent = "Tap again to send";
+      clearTimeout(sendArmTimer);
+      sendArmTimer = setTimeout(disarmSend, 6000);
+      toast("Review the exact text above, then tap again to send.");
+      return;
+    }
+    disarmSend();
+    setExtBusy(true);
+    extLog("send", (ext.threadUrl || "current thread") + " \u00b7 " + text.slice(0, 80), true);
+    extSend("dm.send", { tabId: ext.tabId, threadUrl: ext.threadUrl || undefined, text: text }).then(function (r) {
+      setExtBusy(false);
+      if (r && r.sent) {
+        toast.success("Sent via the extension.");
+        dnote("ext", "dm.send ok");
+        $("extReply").value = "";
+      } else {
+        var why = (r && r.error) || "unknown reason";
+        toast.error("Not sent: " + why);
+        extLog("send", "failed: " + why, false);
+      }
+    }, function (err) {
+      setExtBusy(false);
+      toast.error("Send failed: " + err.message);
+      extLog("send", err.message, false);
+    });
+  }
+
+  var actionsModal = $("actionsModal");
+  function openActions() {
+    renderExtLog();
+    openModal(actionsModal);
+    extPing(true).then(function (ok) { if (ok) refreshExtTabs(); });
+  }
+  $("actionsBtn").addEventListener("click", openActions);
+  $("actionsClose").addEventListener("click", function () { closeModal(actionsModal); });
+  actionsModal.addEventListener("pointerdown", function (e) {
+    if (e.target === actionsModal) closeModal(actionsModal);
+  });
+  $("extPingBtn").addEventListener("click", function () {
+    extPing(false).then(function (ok) { if (ok) refreshExtTabs(); });
+  });
+  $("extTabsBtn").addEventListener("click", refreshExtTabs);
+  $("extTabs").addEventListener("change", function () { ext.tabId = +$("extTabs").value || 0; });
+  $("extReadBtn").addEventListener("click", extRead);
+  $("extThreadsBtn").addEventListener("click", extThreads);
+  $("extProbeBtn").addEventListener("click", extProbe);
+  $("extDraftBtn").addEventListener("click", extDraft);
+  $("extSendBtn").addEventListener("click", extSendReply);
+  renderExtLog();
+  extPing(true);
+
   function doExportJSON() {
     var blob = new Blob([JSON.stringify({ chats: state.chats, folders: state.folders }, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
@@ -5014,6 +5307,7 @@
       if (!searchModal.hidden) { closeModal(searchModal); return; }
       if (!settingsModal.hidden) { closeModal(settingsModal); return; }
       if (!feedbackModal.hidden) { closeModal(feedbackModal); return; }
+      if (!actionsModal.hidden) { closeModal(actionsModal); return; }
     }
   });
 
