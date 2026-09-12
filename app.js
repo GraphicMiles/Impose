@@ -1004,7 +1004,7 @@
   function inlineMd(s) {
     var t = escapeHtml(s);
     var stash = [];
-    function hold(html) { stash.push(html); return "" + (stash.length - 1) + ""; }
+    function hold(html) { stash.push(html); return "\u0000" + (stash.length - 1) + "\u0000"; }
     t = t.replace(/`([^`\n]+?)`/g, function (m, g) { return hold('<code class="md-code">' + g + "</code>"); });
     t = t.replace(/\[([^\]]+?)\]\((https?:[^)\s]+)\)/g, function (m, g1, g2) {
       return hold('<a href="' + g2 + '" target="_blank" rel="noopener">' + g1 + "</a>");
@@ -1012,7 +1012,7 @@
     t = t.replace(/\*\*([^*]+?)\*\*/g, "<strong>$1</strong>");
     t = t.replace(/(^|\W)\*([^*\n]+?)\*/g, "$1<em>$2</em>");
     t = t.replace(/(^|\W)_([^_\n]+?)_/g, "$1<em>$2</em>");
-    t = t.replace(/(\d+)/g, function (m, g) { return stash[+g]; });
+    t = t.replace(/\u0000(\d+)\u0000/g, function (m, g) { return stash[+g]; });
     return t;
   }
 
@@ -1710,7 +1710,6 @@
     if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
     if (!cfg.key) return Promise.reject(new Error("Add the relay key in the provider editor under Advanced, Relay."));
     var url = stripSlash(cfg.url) + "/v1/search";
-    var t0 = (window.performance && performance.now()) || Date.now();
     var opts = {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
@@ -1718,8 +1717,6 @@
     };
     if (signal) opts.signal = signal;
     return fetch(url, opts).then(function (res) {
-      var now = (window.performance && performance.now()) || Date.now();
-      dnote("net", "POST " + sanitizeUrl(url) + " -> " + res.status + " (" + Math.round(now - t0) + "ms)");
       if (res.status === 401) throw new Error("That relay key was rejected. Check it on the relay dashboard.");
       return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
         throw new Error("The search came back unreadable.");
@@ -1870,11 +1867,11 @@
       chat.model = providerDisplay(t.provider);
       chat.providerId = t.provider.id;
       save();
-      dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
       if (state.settings.searchMode && window.NovaHarness) {
         dnote("chat", "Research via " + providerDisplay(t.provider));
         streamResearched(chat, t.provider, t.model, text);
       } else {
+        dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
         streamLive(chat, t.provider, t.model, historyFor(chat.messages), null);
       }
     } else {
