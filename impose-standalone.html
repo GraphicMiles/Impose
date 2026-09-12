@@ -813,9 +813,16 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
 #searchModal .search-sheet { transform: none; transition: none; }
 .search-sheet { max-width: 620px; }
 
+/* A centered sheet is a flex item, and flex items refuse to shrink below
+   their content by default. One wide child (a 100% width select, say)
+   could push the whole sheet past the phone viewport, cut on both sides.
+   Shrink is now allowed, and rows keep their wide children in check. */
+.overlay.center > .sheet { min-width: 0; }
+.setting-row select.text-input { width: auto; flex: 0 1 170px; min-width: 110px; }
+
 /* Settings is rare, so it gets the standard modal entrance. */
 .settings-sheet {
-  max-width: 520px;
+  max-width: min(520px, 100%);
   max-height: min(84dvh, 720px);
   display: flex;
   flex-direction: column;
@@ -1057,6 +1064,10 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
 
   .share-btn span { display: none; }
   .share-btn { padding: 8px; }
+  .settings-tabs { overflow-x: auto; scrollbar-width: none; }
+  .settings-tabs::-webkit-scrollbar { display: none; }
+  .settings-tabs button { flex: none; }
+  .settings-body { padding: 6px 14px 16px; }
   .bubble { max-width: 88%; }
   .overlay { padding: 8vh 12px 12px; }
   .overlay.center { padding: 12px; }
@@ -1287,7 +1298,7 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
   position: fixed;
   right: 0;
   bottom: 30dvh;
-  z-index: 96;
+  z-index: 85; /* under the modals (90+); the open panel itself is 120 */
   width: 30px;
   padding: 10px 0;
   display: flex;
@@ -1835,8 +1846,8 @@ table.usage tfoot td { font-weight: 600; border-bottom: 0; }
   margin-left: 4px;
 }
 
-.price-row { display: flex; gap: 10px; }
-.price-row .field { flex: 1; }
+.price-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.price-row .field { flex: 1 1 150px; }
 select.sel { appearance: auto; }
 
 </style>
