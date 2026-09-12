@@ -121,6 +121,9 @@ input, textarea {
 
 [hidden] { display: none !important; }
 
+/* No tap flash on touch surfaces; press feedback comes from :active states. */
+* { -webkit-tap-highlight-color: transparent; }
+
 /* Lucide icons inherit size from context. The <i> tags hold layout
    before the library swaps them, so nothing jumps. */
 i[data-lucide] {
