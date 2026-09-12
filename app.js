@@ -855,7 +855,7 @@
 
   /* One request sent server to server through the relay, for providers that
      block browsers. Replies arrive whole: no streaming on this path. */
-  function relayFetchReq(req, method, bodyObj, signal, depth) {
+  function relayFetchReq(req, method, bodyObj, signal, depth, hooks) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
     if (!cfg.key) return Promise.reject(new Error("Add the relay key in the provider editor under Advanced, Relay."));
@@ -908,10 +908,11 @@
          request once more. depth keeps a wake loop from ever going infinite. */
       if (env.status === 503 && /waking/i.test(bodyText) && !depth) {
         dnote("relay", "Model is waking; waiting for the gateway");
+        if (hooks && hooks.onWaking) { try { hooks.onWaking(); } catch (e) { /* ui only */ } }
         return waitRelayWake(cfg, signal).then(function (up) {
           if (!up) throw new Error("The model is still waking up. It usually takes 1 to 3 minutes. Try again in a moment.");
           dnote("relay", "Gateway is up; sending again");
-          return relayFetchReq(req, method, bodyObj, signal, 1);
+          return relayFetchReq(req, method, bodyObj, signal, 1, hooks);
         });
       }
       return {
@@ -982,7 +983,8 @@
       if (F) F.applyGenParams(body, "openai", opts.genParams);
     }
     req.headers["Content-Type"] = "application/json";
-    return relayFetchReq(req, "POST", body, signal).then(function (res) {
+    var hooks = (opts && opts.onStage) ? { onWaking: function () { try { opts.onStage("waking"); } catch (e) { /* ui only */ } } } : null;
+    return relayFetchReq(req, "POST", body, signal, 0, hooks).then(function (res) {
       return throwIfHttpError(provider, model, res).then(function () { return res.json(); });
     }).then(function (d) {
       if (opts.usage) { /* usage capture stays ahead of the reveal */
@@ -1185,11 +1187,15 @@
     if (!cfg || !cfg.url || !cfg.key) return streamChatAttempt(provider, model, history, signal, onDelta, onThink, opts);
     var streamed = false;
     var watched = onDelta ? function (c) { streamed = true; onDelta(c); } : null;
+    function stage(name) {
+      if (opts.onStage) { try { opts.onStage(name); } catch (e) { /* ui only */ } }
+    }
     return streamChatAttempt(provider, model, history, signal, watched, onThink, opts).catch(function (err) {
       var blocked = err && err.name !== "AbortError" &&
         (err.name === "TypeError" || /firewall|blocked the browser|\(403\)/i.test(String(err.message || "")));
       if (!blocked || streamed || (signal && signal.aborted)) throw err;
       dnote("chat", "Direct call to " + (provider.label || provider.baseUrl) + " was blocked. Retrying through the relay.");
+      stage("relay");
       var viaRelay = Object.assign({}, provider, { useRelay: true });
       var streamed2 = false;
       var watched2 = onDelta ? function (c) { streamed2 = true; onDelta(c); } : null;
@@ -1199,6 +1205,7 @@
         var walled = err2 && /provider's firewall/i.test(String(err2.message || ""));
         if (!walled || streamed2 || streamed || (signal && signal.aborted)) throw err2;
         dnote("chat", "The relay is blocked as well. Trying the relay's own model.");
+        stage("gateway");
         var gw = {
           id: "__relaygw", label: "Relay gateway", kind: "openai",
           baseUrl: stripSlash(cfg.url) + "/v1", apiKey: cfg.key,
@@ -2343,11 +2350,13 @@
   }
 
   function restoreTrace(row, msg) {
-    if (!window.ImposeTrace || !msg || !msg.sources || !msg.sources.length) return;
+    if (!window.ImposeTrace || !msg) return;
     if (row.querySelector(".agent-trace")) return;
-    var rows = msg.sources.map(function (s, i) {
+    var hasSources = msg.sources && msg.sources.length;
+    if (!hasSources && !msg.trace) return;
+    var rows = hasSources ? msg.sources.map(function (s, i) {
       return { primary: s.title || s.url, secondary: hostOf(s.url), href: s.url, si: i + 1 };
-    });
+    }) : [];
     var snap = msg.trace
       ? { status: msg.trace.status, secs: msg.trace.secs, query: msg.trace.query, rows: rows }
       : {
@@ -2673,11 +2682,23 @@
       if (oldActions) oldActions.remove();
       var oldPanel = row.querySelector(".sources");
       if (oldPanel) oldPanel.remove();
+      var oldTrace = row.querySelector(".agent-trace");
+      if (oldTrace) oldTrace.remove();
       row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
     }
 
     setStreamingUI(true);
     if (isNearBottom()) scrollBottom();
+
+    /* Every chat gets the thinking trace, not just deep search: the pipeline
+       can legitimately take a while (blocked provider, relay hop, waking the
+       gateway model) and a bare pixel grid hides all of it. */
+    var trace = window.ImposeTrace ? window.ImposeTrace.mountTrace(row, { active: "Thinking" }) : null;
+    refreshIcons();
+    var tickTimer = trace ? setInterval(function () { trace.setElapsed(); }, 100) : 0;
+    var slowTimer = setTimeout(function () {
+      if (stream === s && row.isConnected && trace) trace.setStatus("Still working. The provider may be waking.");
+    }, 14000);
 
     var s = {
       live: true,
@@ -2696,7 +2717,10 @@
       model: model,
       viaRelay: !!(provider && provider.useRelay),
       retried: !!retried,
-      usage: {}
+      usage: {},
+      trace: trace,
+      tickTimer: tickTimer,
+      slowTimer: slowTimer
     };
     stream = s;
 
@@ -2720,7 +2744,20 @@
     var liveOpts = {
       genParams: chat && chat.params,
       system: getSystemMsg(chat),
-      usage: s.usage
+      usage: s.usage,
+      onStage: function (stage) {
+        if (!trace || stream !== s) return;
+        if (stage === "relay") {
+          s.stageLabel = "relay";
+          trace.addRow({ primary: "Provider blocked the app", secondary: "retrying via the relay" });
+        } else if (stage === "gateway") {
+          s.stageLabel = "Relay gateway";
+          trace.addRow({ primary: "Provider unreachable", secondary: "using the relay model" });
+        } else if (stage === "waking") {
+          trace.setStatus("Waking the relay model");
+          trace.addRow({ primary: "Model offline", secondary: "waking takes 1 to 3 minutes" });
+        }
+      }
     };
     streamChat(provider, model, history, s.controller ? s.controller.signal : undefined, function (chunk) {
       if (stream !== s) return;
@@ -2734,8 +2771,10 @@
       s.dirty = true;
       if (!s.raf) s.raf = requestAnimationFrame(renderFrame);
     }, liveOpts).then(function () {
+      settleLiveTrace(s, false, null);
       finishLive(s, false, null);
     }, function (err) {
+      settleLiveTrace(s, true, err);
       /* Failover: one automatic retry on the next usable provider. */
       var backup = (!err || err.name !== "AbortError") && !s.retried && state.settings.failover
         ? pickBackup(provider && provider.id) : null;
@@ -2763,6 +2802,27 @@
         (p.authStyle === "none" || String(p.apiKey || "").trim());
     });
     return candidates.length ? { provider: candidates[0], model: activeModelOf(candidates[0]), label: providerDisplay(candidates[0]) } : null;
+  }
+
+  function settleLiveTrace(s, failed, err) {
+    if (s.tickTimer) clearInterval(s.tickTimer);
+    if (s.slowTimer) clearTimeout(s.slowTimer);
+    if (!s.trace) return;
+    var chat = getChat(s.chatId);
+    var msg = chat && chat.messages[s.index];
+    if (failed && err && err.name !== "AbortError") {
+      s.trace.settle("Failed");
+    } else if (failed) {
+      s.trace.settle("Stopped");
+    } else if (s.stageLabel) {
+      s.trace.settle("Answered via " + s.stageLabel);
+      if (msg && !(msg.trace && msg.trace.status)) {
+        msg.trace = { status: "Answered via " + s.stageLabel,
+          secs: Math.max(1, Math.round((Date.now() - (s.t0 || Date.now())) / 1000)), query: null };
+      }
+    } else {
+      s.trace.settle("Thought for");
+    }
   }
 
   function finishLive(s, failed, err) {
