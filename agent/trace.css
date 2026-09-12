@@ -449,3 +449,9 @@ html.reduce-motion .trace-head:not(.working) .trace-status {
 .trace-ring { width: 12px; height: 12px; flex: none; margin: 0 1px; border-radius: 50%; border: 1.5px solid var(--border); border-top-color: var(--text-2); animation: trace-spin 700ms linear infinite; }
 @keyframes trace-settled { from { opacity: 0; } to { opacity: 1; } }
 .trace-head:not(.working) .trace-status { animation: trace-settled 350ms ease-out both; }
+
+/* the working loader lives in the header glyph, not the body */
+
+.trace-glyph .dots { display: none; padding: 0; vertical-align: baseline; }
+.trace-head.working .trace-glyph .dots { display: inline-grid; }
+.trace-head.working .trace-glyph svg { display: none; }

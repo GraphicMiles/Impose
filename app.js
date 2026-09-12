@@ -2238,7 +2238,7 @@
       row = document.createElement("div");
       row.className = "msg assistant";
       row.dataset.i = idx;
-      row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></div>';
+      row.innerHTML = '<div class="msg-body"></div>';
       messagesEl.appendChild(row);
     } else {
       idx = replaceIdx;
@@ -2252,7 +2252,7 @@
       if (oldActions) oldActions.remove();
       var oldPanel = row.querySelector(".sources");
       if (oldPanel) oldPanel.remove();
-      row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
+      row.querySelector(".msg-body").innerHTML = "";
     }
     var trace = window.NovaTrace.mountTrace(row, { active: "Thinking" });
     refreshIcons();
@@ -2315,7 +2315,7 @@
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
         trace.settle(ev.text);
-        if (s.body.isConnected) s.body.innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
+        if (s.body.isConnected) s.body.innerHTML = "";
       }
       refreshIcons();
       if (isNearBottom()) scrollBottom();
