@@ -14,11 +14,12 @@ lucide = (ROOT / "lucide.min.js").read_text(encoding="utf-8")
 anime = (ROOT / "anime.min.js").read_text(encoding="utf-8")
 trace_js = (ROOT / "agent" / "trace.js").read_text(encoding="utf-8")
 harness = (ROOT / "agent" / "harness.js").read_text(encoding="utf-8")
+features = (ROOT / "agent" / "features.js").read_text(encoding="utf-8")
 app = (ROOT / "app.js").read_text(encoding="utf-8")
 
 for name, blob in (("styles.css", css), ("agent/trace.css", trace_css),
                    ("lucide.min.js", lucide), ("anime.min.js", anime), ("agent/trace.js", trace_js),
-                   ("agent/harness.js", harness),
+                   ("agent/harness.js", harness), ("agent/features.js", features),
                    ("app.js", app)):
     if "</script" in blob.lower():
         raise SystemExit("Refusing to inline %s: it contains a closing script tag." % name)
@@ -51,6 +52,11 @@ html = html.replace(
 html = html.replace(
     '<script src="./agent/harness.js"></script>',
     "<script>\n" + harness + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./agent/features.js"></script>',
+    "<script>\n" + features + "\n</script>",
     1,
 )
 html = html.replace(

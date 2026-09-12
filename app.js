@@ -28,6 +28,13 @@
   }
   var SYS_MSG = "You are Impose, a helpful assistant.";
 
+  /* Base persona + per chat instructions + memory, assembled once per send. */
+  function getSystemMsg(chat) {
+    var mem = state.memories || [];
+    if (window.ImposeFeatures) return window.ImposeFeatures.buildSystem(SYS_MSG, chat && chat.params && chat.params.system, mem);
+    return SYS_MSG;
+  }
+
   /* ---------- canned replies (demo mode, no provider set) ---------- */
 
   var REPLIES = {
@@ -482,7 +489,8 @@
   }
 
   function defaultSettings() {
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "", searchMode: false, displayName: "You" };
+    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "", searchMode: false, displayName: "You",
+      redactPII: false, followupsSmart: true, autoName: true, retentionDays: 0, failover: true };
   }
 
   function loadState() {
@@ -500,6 +508,14 @@
           });
           if (!Array.isArray(parsed.folders)) parsed.folders = [];
           if (!Array.isArray(parsed.outbox)) parsed.outbox = [];
+          if (!Array.isArray(parsed.library)) parsed.library = [];
+          if (!Array.isArray(parsed.memories)) parsed.memories = [];
+          parsed.chats.forEach(function (c) {
+            if (c.params) {
+              c.params = { system: String(c.params.system || ""), temperature: c.params.temperature, topP: c.params.topP, maxTokens: c.params.maxTokens };
+              if (!c.params.system && c.params.temperature == null && c.params.topP == null && c.params.maxTokens == null) delete c.params;
+            }
+          });
           parsed.chats.forEach(function (c) {
             if (!Array.isArray(c.excluded)) c.excluded = [];
             (c.messages || []).forEach(function (m) {
@@ -513,7 +529,7 @@
         }
       } catch (e) { /* fall through to seed */ }
     }
-    return { chats: seedChats(), providers: [], folders: [], outbox: [], settings: defaultSettings() };
+    return { chats: seedChats(), providers: [], folders: [], outbox: [], library: [], memories: [], settings: defaultSettings() };
   }
 
   var state = loadState();
@@ -527,7 +543,7 @@
   var quotaTrimming = false;
 
   function payloadJson() {
-    return JSON.stringify({ chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, settings: state.settings });
+    return JSON.stringify({ chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, library: state.library || [], memories: state.memories || [], settings: state.settings });
   }
 
   /* Quota rescue: photos are the only heavy part of the store, so drop them
@@ -941,27 +957,38 @@
   }
 
   /* The relay path never streams: one whole reply per request. */
-  function unstreamedChat(provider, model, history, signal, onDelta) {
+  function unstreamedChat(provider, model, history, signal, onDelta, opts) {
+    opts = opts || {};
+    var F = window.ImposeFeatures;
+    var sys = opts.system || SYS_MSG;
     var req, body;
     if (provider.kind === "anthropic") {
       req = buildRequest(provider, "/messages");
-      body = { model: model, max_tokens: 1024, system: SYS_MSG, messages: history, stream: false };
+      body = { model: model, max_tokens: 1024, system: sys, messages: history, stream: false };
+      if (F) F.applyGenParams(body, "anthropic", opts.genParams);
     } else if (provider.kind === "gemini") {
       req = buildRequest(provider, "/models/" + encodeURIComponent(model) + ":generateContent");
       body = {
-        systemInstruction: { parts: [{ text: SYS_MSG }] },
+        systemInstruction: { parts: [{ text: sys }] },
         contents: history.map(function (m) {
           return { role: m.role === "assistant" ? "model" : "user", parts: geminiParts(m.content) };
         })
       };
+      if (F) F.applyGenParams(body, "gemini", opts.genParams);
     } else {
       req = buildRequest(provider, "/chat/completions");
-      body = { model: model, messages: [{ role: "system", content: SYS_MSG }].concat(history), stream: false };
+      body = { model: model, messages: [{ role: "system", content: sys }].concat(history), stream: false };
+      if (F) F.applyGenParams(body, "openai", opts.genParams);
     }
     req.headers["Content-Type"] = "application/json";
     return relayFetchReq(req, "POST", body, signal).then(function (res) {
       return throwIfHttpError(provider, model, res).then(function () { return res.json(); });
     }).then(function (d) {
+      if (opts.usage) {
+        if (provider.kind === "anthropic" && d.usage) { opts.usage.toksIn = d.usage.input_tokens; opts.usage.toksOut = d.usage.output_tokens; }
+        else if (provider.kind === "openai" && d.usage) { opts.usage.toksIn = d.usage.prompt_tokens; opts.usage.toksOut = d.usage.completion_tokens; }
+        else if (provider.kind === "gemini" && d.usageMetadata) { opts.usage.toksIn = d.usageMetadata.promptTokenCount; opts.usage.toksOut = d.usageMetadata.candidatesTokenCount; }
+      }
       var text = "";
       var think = "";
       if (provider.kind === "anthropic") {
@@ -1108,17 +1135,28 @@
     return pump();
   }
 
-  function streamChat(provider, model, history, signal, onDelta, onThink) {
-    if (provider && provider.useRelay) return unstreamedChat(provider, model, history, signal, onDelta);
+  /* opts: { genParams, system, usage } where usage is filled in place
+     {toksIn, toksOut} when the provider reports real counts. */
+  function streamChat(provider, model, history, signal, onDelta, onThink, opts) {
+    opts = opts || {};
+    var F = window.ImposeFeatures;
+    if (provider && provider.useRelay) return unstreamedChat(provider, model, history, signal, onDelta, opts);
+    var sys = opts.system || SYS_MSG;
     var req, body;
     if (provider.kind === "anthropic") {
       req = buildRequest(provider, "/messages");
       req.headers["Content-Type"] = "application/json";
-      body = { model: model, max_tokens: 1024, system: SYS_MSG, messages: history, stream: true };
+      body = { model: model, max_tokens: 1024, system: sys, messages: history, stream: true };
+      if (F) F.applyGenParams(body, "anthropic", opts.genParams);
       return fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body), signal: signal })
         .then(function (res) {
           return throwIfHttpError(provider, model, res).then(function () {
             return readSSE(res, function (d) {
+              if (opts.usage && d.type === "message_start" && d.message && d.message.usage) {
+                opts.usage.toksIn = d.message.usage.input_tokens;
+              } else if (opts.usage && d.type === "message_delta" && d.usage) {
+                opts.usage.toksOut = d.usage.output_tokens;
+              }
               if (d.type === "content_block_delta" && d.delta && d.delta.type === "text_delta" && d.delta.text) {
                 onDelta(d.delta.text);
               } else if (onThink && d.type === "content_block_delta" && d.delta && d.delta.type === "thinking_delta" && d.delta.thinking) {
@@ -1132,15 +1170,20 @@
       req = buildRequest(provider, "/models/" + encodeURIComponent(model) + ":streamGenerateContent", { alt: "sse" });
       req.headers["Content-Type"] = "application/json";
       body = {
-        systemInstruction: { parts: [{ text: SYS_MSG }] },
+        systemInstruction: { parts: [{ text: sys }] },
         contents: history.map(function (m) {
           return { role: m.role === "assistant" ? "model" : "user", parts: geminiParts(m.content) };
         })
       };
+      if (F) F.applyGenParams(body, "gemini", opts.genParams);
       return fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body), signal: signal })
         .then(function (res) {
           return throwIfHttpError(provider, model, res).then(function () {
             return readSSE(res, function (d) {
+              if (opts.usage && d.usageMetadata) {
+                opts.usage.toksIn = d.usageMetadata.promptTokenCount;
+                opts.usage.toksOut = d.usageMetadata.candidatesTokenCount;
+              }
               (d.candidates || []).forEach(function (c) {
                 var parts = (c.content && c.content.parts) || [];
                 parts.forEach(function (part) {
@@ -1169,6 +1212,10 @@
                complete one. */
             if (d && d.error && d.error.type === "impose_truncated_stream") {
               throw new Error("The reply stream ended early, so part of the answer may be missing.");
+            }
+            if (opts.usage && d.usage && d.usage.completion_tokens != null) {
+              opts.usage.toksIn = d.usage.prompt_tokens;
+              opts.usage.toksOut = d.usage.completion_tokens;
             }
             var choice = d.choices && d.choices[0];
             var delta = choice && (choice.delta || choice.message);
@@ -1954,25 +2001,35 @@
   function statsHtml(msg) {
     if (!msg.stats || msg.stats.ms == null) return "";
     var secs = Math.max(1, Math.round(msg.stats.ms / 1000));
-    var toks = msg.stats.toks > 0 ? " · ≈" + msg.stats.toks + " tok" : "";
-    return '<span class="msg-stats">' + secs + "s" + toks + "</span>";
+    var bits = [secs + "s"];
+    if (msg.stats.toks > 0) bits.push("≈" + msg.stats.toks + " tok");
+    if (msg.stats.cost > 0) bits.push("$" + (msg.stats.cost >= 1 ? msg.stats.cost.toFixed(2) : msg.stats.cost.toFixed(4)));
+    if (msg.via) bits.push(msg.via);
+    return '<span class="msg-stats">' + bits.join(" · ") + "</span>";
   }
 
   function actionsHtml(msg, fresh) {
     msg = ensureVariants(msg || { content: "" });
     var pager = "";
     if (msg.variants.length > 1) {
-      pager = '<span class="pager">' +
+      var meta = Array.isArray(msg.variantsMeta) ? msg.variantsMeta[msg.vi] : null;
+      var mm = meta && meta.model ? ' title="' + escapeHtml(meta.model) + '"' : "";
+      pager = '<span class="pager"' + mm + ">" +
         '<button type="button" data-act="prev" title="Previous version" aria-label="Previous version"><i data-lucide="chevron-left"></i></button>' +
         "<span>" + (msg.vi + 1) + "/" + msg.variants.length + "</span>" +
         '<button type="button" data-act="next" title="Next version" aria-label="Next version"><i data-lucide="chevron-right"></i></button>' +
         "</span>";
     }
+    var retryAs = state.providers.length > 1
+      ? '<button type="button" data-act="retryas" title="Regenerate with another model" aria-label="Regenerate with another model"><i data-lucide="shuffle"></i></button>'
+      : "";
     return '<div class="msg-actions' + (fresh ? " fresh" : "") + '">' +
       '<button type="button" data-act="copy" title="Copy" aria-label="Copy"><i data-lucide="copy"></i></button>' +
       rateBtn("like", msg.rating, "Good response", "Good response", "thumbs-up") +
       rateBtn("dislike", msg.rating, "Bad response", "Bad response", "thumbs-down") +
       '<button type="button" data-act="retry" title="Regenerate" aria-label="Regenerate"><i data-lucide="rotate-ccw"></i></button>' +
+      retryAs +
+      '<button type="button" data-act="editasst" title="Edit reply" aria-label="Edit reply"><i data-lucide="pencil"></i></button>' +
       '<button type="button" data-act="speak" title="Read aloud" aria-label="Read aloud"><i data-lucide="volume-2"></i></button>' +
       sourcesToggleHtml(msg) + pager + statsHtml(msg) +
       "</div>";
@@ -2397,11 +2454,17 @@
     });
   }
 
-  function historyFor(messages, kind) {
+  function historyFor(messages, kind, model) {
     kind = kind || "openai";
-    return messages
-      .filter(function (m) { return String(m.content || "").trim() !== "" || (m.images && m.images.length); })
-      .slice(-30)
+    var F = window.ImposeFeatures;
+    var msgs = messages;
+    if (F) {
+      /* Token aware trim against the model window, instead of a blind last 30. */
+      msgs = F.trimHistory(messages, kind, Math.floor(F.modelContext(model) * 0.5));
+    } else {
+      msgs = messages.filter(function (m) { return String(m.content || "").trim() !== "" || (m.images && m.images.length); }).slice(-30);
+    }
+    return msgs
       .map(function (m) {
         if (!m.images || !m.images.length || m.role !== "user") return { role: m.role, content: m.content };
         var parts = [{ type: "text", text: m.content || "" }];
@@ -2420,8 +2483,9 @@
       });
   }
 
-  /* replaceIdx null appends a fresh answer, otherwise regenerates in place. */
-  function streamLive(chat, provider, model, history, replaceIdx) {
+  /* replaceIdx null appends a fresh answer, otherwise regenerates in place.
+     retried marks a failover attempt so a bad provider cannot loop forever. */
+  function streamLive(chat, provider, model, history, replaceIdx, retried) {
     var idx, row;
     if (replaceIdx == null) {
       idx = chat.messages.length;
@@ -2462,7 +2526,9 @@
       t0: Date.now(),
       provider: provider,
       model: model,
-      viaRelay: !!(provider && provider.useRelay)
+      viaRelay: !!(provider && provider.useRelay),
+      retried: !!retried,
+      usage: {}
     };
     stream = s;
 
@@ -2483,6 +2549,11 @@
       if (stick) scrollBottom();
     }
 
+    var liveOpts = {
+      genParams: chat && chat.params,
+      system: getSystemMsg(chat),
+      usage: s.usage
+    };
     streamChat(provider, model, history, s.controller ? s.controller.signal : undefined, function (chunk) {
       if (stream !== s) return;
       s.text += chunk;
@@ -2494,11 +2565,35 @@
       if (!s.thinkTouched) s.thinkOpen = true;
       s.dirty = true;
       if (!s.raf) s.raf = requestAnimationFrame(renderFrame);
-    }).then(function () {
+    }, liveOpts).then(function () {
       finishLive(s, false, null);
     }, function (err) {
+      /* Failover: one automatic retry on the next usable provider. */
+      var backup = (!err || err.name !== "AbortError") && !s.retried && state.settings.failover
+        ? pickBackup(provider && provider.id) : null;
+      if (backup) {
+        dnote("chat", "Failover to " + backup.label + " after " + (provider ? provider.label : "failure"));
+        toast("Provider failed. Retrying with " + backup.label + ".");
+        var idxKeep = s.index;
+        var rowKeep = s.row;
+        if (stream === s) stream = null;
+        setStreamingUI(true);
+        rowKeep.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
+        var hist2 = historyFor(chat.messages.slice(0, idxKeep), backup.kind, backup.model);
+        streamLive(chat, backup.provider, backup.model, hist2, idxKeep, true);
+        return;
+      }
       finishLive(s, true, err);
     });
+  }
+
+  /* The next provider in the list that has a model and can actually run. */
+  function pickBackup(excludeId) {
+    var candidates = state.providers.filter(function (p) {
+      return p.id !== excludeId && activeModelOf(p) &&
+        (p.authStyle === "none" || String(p.apiKey || "").trim());
+    });
+    return candidates.length ? { provider: candidates[0], model: activeModelOf(candidates[0]), label: providerDisplay(candidates[0]) } : null;
   }
 
   function finishLive(s, failed, err) {
@@ -2532,7 +2627,22 @@
     if (msg) {
       msg.content = s.text;
       msg.error = failed ? sentence : null;
-      msg.stats = { ms: Date.now() - (s.t0 || Date.now()), toks: Math.round(s.text.length / 4) };
+      var stats = { ms: Date.now() - (s.t0 || Date.now()), toks: Math.round(s.text.length / 4) };
+      var u = s.usage || {};
+      if (u.toksOut > 0 || u.toksIn > 0) {
+        stats.toks = (u.toksIn || 0) + (u.toksOut || 0);
+        stats.toksIn = u.toksIn || 0;
+        stats.toksOut = u.toksOut || 0;
+        var pr = s.provider || {};
+        var pin = isFinite(+pr.priceIn) ? +pr.priceIn : null;
+        var pout = isFinite(+pr.priceOut) ? +pr.priceOut : null;
+        if (pin != null || pout != null) {
+          stats.cost = (pin != null ? (u.toksIn || 0) / 1e6 * pin : 0) + (pout != null ? (u.toksOut || 0) / 1e6 * pout : 0);
+        }
+      }
+      msg.stats = stats;
+      msg.via = s.provider ? providerDisplay(s.provider) : null;
+      if (s.stopped && !failed && s.text) msg.stopped = true; else msg.stopped = null;
       if (msg.variants) msg.variants[msg.vi] = s.text;
       chat.updatedAt = Date.now();
       save();
@@ -2555,9 +2665,33 @@
       maybeRetitle(chat, s.provider, s.model);
     }
     if (!failed && !s.stopped && msg) showFollowups(chat, msg);
+    if (!failed && !s.stopped && msg) maybeSmartFollowups(chat, msg);
     if (awayBase !== -1) updateJumpPill();
     renderList();
     drainNext();
+  }
+
+  /* Model generated follow ups, cached on the message. Falls back to the
+     canned bank silently when the model is out of ideas or money. */
+  function maybeSmartFollowups(chat, msg) {
+    if (!state.settings.followupsSmart) return;
+    if (!msg || msg.suggested || msg.suggesting) return;
+    var t = getTarget();
+    if (!t || String(msg.content || "").length < 40) return;
+    msg.suggesting = true;
+    completeOnce(t.provider, t.model, [{ role: "user", content:
+      window.ImposeFeatures.followUpPrompt(prevUserText(chat, chat.messages.indexOf(msg)), String(msg.content).slice(0, 600)) }])
+      .then(function (out) {
+        msg.suggesting = false;
+        var lines = window.ImposeFeatures.parseFollowUps(out);
+        if (!lines.length) return;
+        msg.suggested = lines;
+        save();
+        if (getChat(activeId) === chat && !stream &&
+            chat.messages[chat.messages.length - 1] === msg) {
+          showFollowups(chat, msg);
+        }
+      }, function () { msg.suggesting = false; });
   }
 
   function clearTraceDemo() {
@@ -2832,6 +2966,25 @@
     clearTraceDemo();
     stopSpeak();
     if (!text) return;
+    /* "remember that ..." stores a fact for future chats before anything
+       else happens. The message still goes to the model. */
+    if (/^remember /i.test(text) && window.ImposeFeatures) {
+      var fact = window.ImposeFeatures.memoryFromText(text);
+      if (fact) {
+        state.memories = window.ImposeFeatures.dedupeMemory(state.memories, fact);
+        save();
+        renderMemory();
+        toast("Remembered. Manage memories in Settings.");
+      }
+    }
+    /* Optional redaction before anything leaves the device. */
+    if (state.settings.redactPII && window.ImposeFeatures) {
+      var red = window.ImposeFeatures.redactPII(text);
+      if (red.text !== text) {
+        text = red.text;
+        toast.warn("Redacted before send: " + red.found.join(", "));
+      }
+    }
     if (typeof navigator.onLine === "boolean" && !navigator.onLine) {
       state.outbox.push(text);
       save();
@@ -2863,9 +3016,13 @@
     chat.messages.push({ role: "user", content: text, ts: Date.now() });
     if (pendingImages.length) {
       chat.messages[chat.messages.length - 1].images = pendingImages.map(function (p) { return p.url; });
+      var vt = getTarget();
+      if (!vt) toast("Demo replies cannot see your images. Only the text was sent.");
+      else if (window.ImposeFeatures && !window.ImposeFeatures.visionCapable(vt.model)) {
+        toast.warn(vt.model + " may not see images. A vision model would.");
+      }
       pendingImages = [];
       renderAttachPreview();
-      if (!getTarget()) toast("Demo replies cannot see your images. Only the text was sent.");
     }
     chat.updatedAt = Date.now();
     save();
@@ -2902,10 +3059,10 @@
     renderMessages();
   }
 
-  function routeSend(chat, text, replaceIdx) {
+  function routeSend(chat, text, replaceIdx, override) {
     clearFollowups();
     stopSpeak();
-    var t = getTarget();
+    var t = override ? { provider: override, model: activeModelOf(override) } : getTarget();
     if (t && t.missingKey) {
       dwarn("provider", "Missing key for " + t.provider.label + ", chat not sent");
       if (replaceIdx != null) abortReplace(chat, replaceIdx);
@@ -2922,7 +3079,7 @@
         streamResearched(chat, t.provider, t.model, text, replaceIdx);
       } else {
         dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
-        var hist = replaceIdx == null ? historyFor(chat.messages, t.provider.kind) : historyFor(chat.messages.slice(0, replaceIdx), t.provider.kind);
+        var hist = replaceIdx == null ? historyFor(chat.messages, t.provider.kind, t.model) : historyFor(chat.messages.slice(0, replaceIdx), t.provider.kind, t.model);
         streamLive(chat, t.provider, t.model, hist, replaceIdx);
       }
     } else {
@@ -3083,6 +3240,7 @@
   }
 
   function maybeRetitle(chat, provider, model) {
+    if (!state.settings.autoName) return;
     if (!chat || chat.customTitle || titling[chat.id] || !provider || !model) return;
     if (chat.messages.length !== 2) return;
     var first = chat.messages[0];
@@ -3257,15 +3415,21 @@
   });
   chatScroll.addEventListener("scroll", hideCiteCard, { passive: true });
 
-  function prepRegen(chat, msg) {
+  function prepRegen(chat, msg, nextModel) {
     ensureVariants(msg);
+    if (!Array.isArray(msg.variantsMeta)) {
+      msg.variantsMeta = msg.variants.map(function () { return null; });
+    }
+    while (msg.variantsMeta.length < msg.variants.length) msg.variantsMeta.push(null);
     msg.vi = msg.variants.length;
     msg.variants.push("");
+    msg.variantsMeta.push({ model: nextModel || chat.model || "" });
     msg.content = "";
     msg.error = null;
     msg.rating = null;
     msg.stats = null;
     msg.sources = null;
+    msg.stopped = null;
     chat.updatedAt = Date.now();
     save();
   }
@@ -3335,16 +3499,25 @@
     h.className = "followups-head";
     h.textContent = "Follow-ups";
     wrap.appendChild(h);
-    followupsFor(userText, msg.content).forEach(function (s, i) {
+    var picks = Array.isArray(msg.suggested) && msg.suggested.length
+      ? msg.suggested.slice(0, 3)
+      : followupsFor(userText, msg.content);
+    if (msg.stopped) {
+      picks = ["Continue where you stopped"].concat(picks.slice(0, 2));
+    }
+    picks.forEach(function (s, i) {
+      var prompt = s === "Continue where you stopped"
+        ? "Continue exactly where you stopped. Do not repeat what you already wrote."
+        : s;
       var b = document.createElement("button");
       b.type = "button";
       b.className = "followup";
-      b.innerHTML = '<i data-lucide="corner-up-left"></i>';
+      b.innerHTML = '<i data-lucide="' + (s === "Continue where you stopped" ? "play" : "corner-up-left") + '"></i>';
       var sp = document.createElement("span");
       sp.textContent = s;
       b.appendChild(sp);
       b.style.setProperty("--d", (i * 90) + "ms");
-      b.addEventListener("click", function () { send(s); });
+      b.addEventListener("click", function () { send(prompt); });
       wrap.appendChild(b);
     });
     row.appendChild(wrap);
@@ -3423,7 +3596,11 @@
       { icon: "moon", title: "Appearance", hint: "Next theme", run: function () { var n = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length]; applyTheme(n); } },
       { icon: "settings", title: "Settings", hint: "General", run: function () { openSettings("general"); } },
       { icon: "cpu", title: "Providers", hint: "Keys and models", run: function () { openSettings("providers"); } },
-      { icon: "download", title: "Export chats", hint: "JSON backup", run: function () { doExportJSON(); } }
+      { icon: "download", title: "Export chats", hint: "JSON backup", run: function () { doExportJSON(); } },
+      { icon: "book-marked", title: "Prompt library", hint: "Save and reuse prompts", run: function () { openSettings("prompts"); } },
+      { icon: "bar-chart-3", title: "Usage", hint: "Replies, tokens, cost", run: function () { openSettings("usage"); } },
+      { icon: "sliders-horizontal", title: "Chat settings", hint: "System prompt and sampling", run: function () { $("chatParamsBtn").click(); } },
+      { icon: "keyboard", title: "Keyboard shortcuts", hint: "The full list", run: function () { openShortcuts(); } }
     ];
   }
 
@@ -3690,8 +3867,89 @@
         prepRegen(chat, msg);
         routeSend(chat, prevUserText(chat, idx), idx);
       });
+    } else if (act === "retryas") {
+      if (stream || regenBusy) return;
+      renderRetryMenu(chat, msg, idx, row, btn);
+    } else if (act === "editasst") {
+      if (stream) return;
+      startEditAssistant(chat, row, idx, msg);
     }
   });
+
+  /* Regenerate with a different model: a small menu of the other providers. */
+  function renderRetryMenu(chat, msg, idx, row, trigger) {
+    var list = $("retryMenuList");
+    if (!list) return;
+    list.innerHTML = "";
+    var current = msg.variantsMeta && msg.variantsMeta[msg.variantsMeta.length - 1];
+    state.providers.forEach(function (p) {
+      if (!activeModelOf(p)) return;
+      if (current && current.model === providerDisplay(p)) return;
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "pop-item";
+      b.setAttribute("role", "menuitem");
+      b.innerHTML = '<i data-lucide="cpu"></i><span></span><em></em>';
+      b.querySelector("span").textContent = p.label;
+      b.querySelector("em").textContent = activeModelOf(p);
+      b.addEventListener("click", function () {
+        hidePop(true);
+        if (stream || regenBusy) return;
+        var model = activeModelOf(p);
+        fadeRegen(row, function () {
+          prepRegen(chat, msg, providerDisplay(p));
+          routeSend(chat, prevUserText(chat, idx), idx, p);
+        });
+      });
+      list.appendChild(b);
+    });
+    if (!list.children.length) {
+      var p0 = document.createElement("p");
+      p0.className = "search-empty";
+      p0.textContent = "No other providers are ready.";
+      list.appendChild(p0);
+    }
+    refreshIcons();
+    showPop($("retryMenu"), trigger, { side: "top", align: "start" });
+  }
+
+  /* Fix or adjust an assistant reply in place. Saved as the active variant. */
+  function startEditAssistant(chat, row, idx, msg) {
+    var body = row.querySelector(".msg-body");
+    if (!body || row.querySelector(".edit-box")) return;
+    var box = document.createElement("div");
+    box.className = "edit-box";
+    box.innerHTML = '<textarea aria-label="Edit reply"></textarea><div class="edit-row"><button type="button" class="btn small" data-e="cancel">Cancel</button><button type="button" class="btn small primary" data-e="save">Save</button></div>';
+    var ta = box.querySelector("textarea");
+    ta.value = msg.content || "";
+    body.replaceWith(box);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    function grow() { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 300) + "px"; }
+    ta.addEventListener("input", grow);
+    grow();
+    function commit() {
+      var v = ta.value.trim();
+      if (v && v !== msg.content) {
+        ensureVariants(msg);
+        msg.variants[msg.vi] = v;
+        msg.content = v;
+        chat.updatedAt = Date.now();
+        save();
+      }
+      renderMessages();
+    }
+    box.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-e]");
+      if (!b) return;
+      if (b.dataset.e === "save") commit();
+      else renderMessages();
+    });
+    ta.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+      if (e.key === "Escape") renderMessages();
+    });
+  }
 
   /* ---------- composer ---------- */
 
@@ -3704,12 +3962,42 @@
     var el = $("tokEst");
     var chars = input.value.length;
     var imgs = pendingImages.length;
-    if (!chars && !imgs) { el.hidden = true; return; }
-    var est = Math.round(chars / 4) + imgs * 1000;
-    el.hidden = false;
-    el.textContent = "\u2248" + (est >= 1000 ? (est / 1000).toFixed(1) + "k" : est);
-    el.classList.toggle("large", est > 30000);
-    el.title = est > 30000 ? "Large message. Some models may refuse it." : "Estimated tokens";
+    if (!chars && !imgs) { el.hidden = true; } else {
+      var est = Math.round(chars / 4) + imgs * 1000;
+      el.hidden = false;
+      el.textContent = "\u2248" + (est >= 1000 ? (est / 1000).toFixed(1) + "k" : est);
+      el.classList.toggle("large", est > 30000);
+      el.title = est > 30000 ? "Large message. Some models may refuse it." : "Estimated tokens";
+    }
+    updateCtxMeter();
+  }
+
+  /* Thin meter under the composer: how much of the model window the next
+     request would take, history included. */
+  function updateCtxMeter() {
+    var wrap = $("ctxMeter");
+    if (!wrap) return;
+    var F = window.ImposeFeatures;
+    var t = getTarget();
+    var chat = getChat(activeId);
+    if (!F || !t || !chat || (!chat.messages.length && !input.value)) { wrap.hidden = true; return; }
+    var hist = historyFor(chat.messages, t.provider.kind || "openai", t.model);
+    var used = 600; /* system prompt, roughly */
+    hist.forEach(function (m) {
+      used += F.estimateTokens(typeof m.content === "string" ? m.content : "", m.images);
+    });
+    used += F.estimateTokens(input.value, pendingImages);
+    var ctx = F.modelContext(t.model);
+    var pct = Math.min(100, Math.round(used / ctx * 100));
+    wrap.hidden = pct < 4;
+    var fill = wrap.querySelector(".ctx-fill");
+    if (fill) {
+      fill.style.width = pct + "%";
+      wrap.classList.toggle("warn", pct >= 60 && pct < 85);
+      wrap.classList.toggle("danger", pct >= 85);
+    }
+    wrap.title = "About " + (used >= 1000 ? (used / 1000).toFixed(1) + "k" : used) + " of " +
+      (ctx >= 1000 ? (ctx / 1000) + "k" : ctx) + " tokens (" + pct + "%)";
   }
 
   var sendWasDisabled = true;
@@ -3732,9 +4020,22 @@
     updateTokEst();
   }
 
-  input.addEventListener("input", function () { autogrow(); syncSend(); });
+  input.addEventListener("input", function () { autogrow(); syncSend(); updateSlashPop(); });
 
   input.addEventListener("keydown", function (e) {
+    if (slashActive()) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        slashHot = e.key === "ArrowDown"
+          ? (slashHot + 1) % slashItems.length
+          : (slashHot - 1 + slashItems.length) % slashItems.length;
+        var rows = $("slashList").querySelectorAll(".slash-row");
+        rows.forEach(function (r, k) { r.classList.toggle("hot", k === slashHot); });
+        return;
+      }
+      if (e.key === "Enter") { e.preventDefault(); pickSlash(slashHot); return; }
+      if (e.key === "Escape") { hideSlash(); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       if (state.settings.enterToSend) {
         e.preventDefault();
@@ -4169,12 +4470,12 @@
     var reads = files.map(function (f) {
       if (/^image\//.test(f.type || "")) return downscaleImage(f);
       return new Promise(function (resolve) {
-        if (f.size > 100 * 1024) { resolve({ name: f.name, error: "over 100KB" }); return; }
+        if (f.size > 200 * 1024) { resolve({ name: f.name, error: "over 200KB" }); return; }
         var r = new FileReader();
         r.onload = function () {
           var text = String(r.result || "");
           if (/\u0000/.test(text)) resolve({ name: f.name, error: "not a text file" });
-          else resolve({ name: f.name, text: text.slice(0, 100 * 1024), truncated: text.length >= 100 * 1024 && f.size > text.length });
+          else resolve({ name: f.name, text: text.slice(0, 200 * 1024), truncated: text.length >= 200 * 1024 && f.size > text.length });
         };
         r.onerror = function () { resolve({ name: f.name, error: "unreadable" }); };
         r.readAsText(f);
@@ -4192,7 +4493,7 @@
       renderAttachPreview();
       if (ok.length) {
         var block = ok.map(function (o) {
-          var head = "File: " + o.name + (o.truncated ? " (first 100KB)" : "");
+          var head = "File: " + o.name + (o.truncated ? " (first 200KB)" : "");
           return head + "\n```\n" + o.text.trim() + "\n```";
         }).join("\n\n");
         input.value = (input.value ? input.value.replace(/\s+$/, "") + "\n\n" : "") + block;
@@ -4520,6 +4821,10 @@
     });
     $("tglEnter").setAttribute("aria-checked", state.settings.enterToSend ? "true" : "false");
     $("tglChips").setAttribute("aria-checked", state.settings.showChips ? "true" : "false");
+    $("tglRedact").setAttribute("aria-checked", state.settings.redactPII ? "true" : "false");
+    $("tglFollow").setAttribute("aria-checked", state.settings.followupsSmart ? "true" : "false");
+    $("tglAutoName").setAttribute("aria-checked", state.settings.autoName ? "true" : "false");
+    $("retentionSel").value = String(state.settings.retentionDays || 0);
   }
 
   function switchTab(name) {
@@ -4531,6 +4836,9 @@
     panes.forEach(function (p) {
       p.hidden = p.dataset.pane !== name;
     });
+    if (name === "usage") renderUsage();
+    if (name === "prompts") renderLibrary();
+    if (name === "providers") renderRelayCard();
   }
 
   function openSettings(tab) {
@@ -4570,6 +4878,34 @@
 
   wireToggle("tglEnter", "enterToSend");
   wireToggle("tglChips", "showChips", applyChipsVisibility);
+  wireToggle("tglRedact", "redactPII");
+  wireToggle("tglFollow", "followupsSmart");
+  wireToggle("tglAutoName", "autoName");
+
+  $("retentionSel").addEventListener("change", function () {
+    var days = +$("retentionSel").value || 0;
+    state.settings.retentionDays = days;
+    save();
+    if (days > 0) applyRetention(true);
+    dnote("app", "Retention set to " + (days || "off"));
+  });
+
+  /* Delete chats older than the retention window. Pinned chats survive. */
+  function applyRetention(manual) {
+    var days = +state.settings.retentionDays || 0;
+    if (!days) return;
+    var out = window.ImposeFeatures.pruneChats(state.chats, days);
+    if (out.removed.length) {
+      state.chats = out.kept;
+      if (activeId && !getChat(activeId)) { activeId = null; showEmpty(); }
+      save();
+      renderList();
+      toast(out.removed.length + " chat" + (out.removed.length === 1 ? "" : "s") + " removed by the " + days + " day retention rule.");
+      dnote("app", "Retention removed " + out.removed.length + " chats");
+    } else if (manual) {
+      toast("Nothing older than " + days + " days to remove.");
+    }
+  }
 
   $("searchBtn").addEventListener("click", function () {
     state.settings.searchMode = !state.settings.searchMode;
@@ -4968,15 +5304,10 @@
   $("exportBtn").addEventListener("click", doExportJSON);
 
   $("importBtn").addEventListener("click", function () { $("importPicker").click(); });
-  $("importPicker").addEventListener("change", function () {
-    var f = $("importPicker").files && $("importPicker").files[0];
-    $("importPicker").value = "";
-    if (!f) return;
-    var r = new FileReader();
-    r.onload = function () {
-      try {
-        var data = JSON.parse(String(r.result || ""));
-        if (!data || !Array.isArray(data.chats)) throw new Error("bad file");
+  var pendingEnc = null;
+
+  function applyImportData(data) {
+    if (!data || !Array.isArray(data.chats)) throw new Error("bad file");
         var have = {};
         state.chats.forEach(function (c) { have[c.id] = true; });
         var added = 0;
@@ -5011,18 +5342,98 @@
             }
           });
         }
-        state.chats.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
-        save();
-        renderList();
-        toast.success(added === 1 ? "Imported 1 chat." : "Imported " + added + " chats.");
-        if (droppedImages) toast.warn(droppedImages + " attached image" + (droppedImages === 1 ? "" : "s") + " skipped: not valid image data.");
-        dnote("app", "Imported " + added + " chats, skipped " + droppedImages + " bad images");
-      } catch (e) {
-        toast.error("That file is not a Impose backup.");
+    state.chats.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+    save();
+    renderList();
+    toast.success(added === 1 ? "Imported 1 chat." : "Imported " + added + " chats.");
+    if (droppedImages) toast.warn(droppedImages + " attached image" + (droppedImages === 1 ? "" : "s") + " skipped: not valid image data.");
+    dnote("app", "Imported " + added + " chats, skipped " + droppedImages + " bad images");
+    return added;
+  }
+
+  $("importPicker").addEventListener("change", function () {
+    var f = $("importPicker").files && $("importPicker").files[0];
+    $("importPicker").value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      var data;
+      try { data = JSON.parse(String(r.result || "")); }
+      catch (e) { toast.error("That file is not a Impose backup."); return; }
+      if (data && data.format === "impose-encrypted-v1") {
+        pendingEnc = data;
+        openEncModal("decrypt");
+        return;
       }
+      try { applyImportData(data); }
+      catch (e) { toast.error("That file is not a Impose backup."); }
     };
     r.readAsText(f);
   });
+
+  /* ---------- encrypted backup ---------- */
+
+  function openEncModal(mode) {
+    $("encTitle").textContent = mode === "decrypt" ? "Unlock encrypted backup" : "Create encrypted backup";
+    $("encPass").value = "";
+    $("encPass2").value = "";
+    $("encPass2Row").hidden = mode === "decrypt";
+    $("encGo").textContent = mode === "decrypt" ? "Import" : "Export";
+    $("encStatus").textContent = "";
+    $("encModal").__mode = mode;
+    openModal($("encModal"));
+    setTimeout(function () { $("encPass").focus(); }, 200);
+  }
+
+  $("encExportBtn").addEventListener("click", function () { openEncModal("encrypt"); });
+  $("encCancel").addEventListener("click", function () { closeModal($("encModal")); });
+  $("encGo").addEventListener("click", function () {
+    var mode = $("encModal").__mode;
+    var pass = $("encPass").value;
+    var st = $("encStatus");
+    if (mode === "encrypt" && $("encPass2").value !== pass) {
+      st.textContent = "The two passphrases do not match.";
+      return;
+    }
+    if (mode === "encrypt" && pass.length < 8) {
+      st.textContent = "Use a passphrase of at least 8 characters. There is no recovery without it.";
+      return;
+    }
+    st.textContent = "Working...";
+    var promise;
+    if (mode === "encrypt") {
+      promise = window.ImposeFeatures.encryptExport(
+        { chats: state.chats, folders: state.folders, library: state.library || [], memories: state.memories || [] }, pass
+      ).then(function (blob) {
+        downloadBlob(new Blob([JSON.stringify(blob, null, 2)], { type: "application/json" }), "impose-chats-encrypted.json");
+        closeModal($("encModal"));
+        toast.success("Encrypted backup downloaded. The passphrase is not stored anywhere.");
+      });
+    } else {
+      promise = window.ImposeFeatures.decryptExport(pendingEnc, pass).then(function (data) {
+        closeModal($("encModal"));
+        pendingEnc = null;
+        return applyImportData(data);
+      });
+    }
+    promise.then(null, function (err) {
+      st.textContent = String((err && err.message) || err).indexOf("decrypt") > -1 || /bad|Malformed|not an encrypted/i.test(String(err))
+        ? "Wrong passphrase or damaged file."
+        : String((err && err.message) || err);
+      dfail("crypto", String((err && err.message) || err));
+    });
+  });
+
+  function downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
 
   /* hold to delete: press and hold 1.4s to confirm */
 
@@ -5190,6 +5601,8 @@
     $("pfRelayKey").value = state.settings.relayKey || "";
     $("pfAuthName").value = existing ? (existing.authName || defaultAuthName(edKind, edAuth)) : defaultAuthName(edKind, edAuth);
     $("pfHeaders").value = existing ? writeHeaders(existing.headers) : "";
+    $("pfPriceIn").value = existing && existing.priceIn !== "" && existing.priceIn != null ? existing.priceIn : "";
+    $("pfPriceOut").value = existing && existing.priceOut !== "" && existing.priceOut != null ? existing.priceOut : "";
     $("pfAdvanced").hidden = true;
     $("pfAdvancedToggle").setAttribute("aria-expanded", "false");
     setStatus($("pfModelStatus"), "");
@@ -5464,6 +5877,8 @@
         edEditing.headers = like.headers;
         edEditing.model = model;
         edEditing.useRelay = like.useRelay;
+        edEditing.priceIn = parseFloat($("pfPriceIn").value) || "";
+        edEditing.priceOut = parseFloat($("pfPriceOut").value) || "";
       } else {
         var p = {
           id: uid(),
@@ -5475,7 +5890,9 @@
           authName: like.authName,
           headers: like.headers,
           model: model,
-          useRelay: like.useRelay
+          useRelay: like.useRelay,
+          priceIn: parseFloat($("pfPriceIn").value) || "",
+          priceOut: parseFloat($("pfPriceOut").value) || ""
         };
         state.providers.push(p);
         if (!state.settings.activeProviderId) state.settings.activeProviderId = p.id;
@@ -5582,6 +5999,354 @@
     if (openPop) hidePop(true);
   });
 
+  /* ---------- conversation memory ---------- */
+
+  function renderMemory() {
+    var box = $("memoryList");
+    if (!box) return;
+    box.innerHTML = "";
+    var mems = state.memories || [];
+    if (!mems.length) {
+      var p = document.createElement("p");
+      p.className = "pane-note";
+      p.textContent = 'Nothing yet. Type "remember that ..." in a chat to store a fact.';
+      box.appendChild(p);
+      return;
+    }
+    mems.slice().reverse().forEach(function (m) {
+      var row = document.createElement("div");
+      row.className = "mem-row";
+      var t = document.createElement("span");
+      t.textContent = m.text;
+      var x = document.createElement("button");
+      x.type = "button";
+      x.className = "icon-btn sm";
+      x.setAttribute("aria-label", "Forget this");
+      x.title = "Forget";
+      x.innerHTML = '<i data-lucide="x"></i>';
+      x.addEventListener("click", function () {
+        state.memories = state.memories.filter(function (g) { return g.id !== m.id; });
+        save();
+        renderMemory();
+      });
+      row.appendChild(t);
+      row.appendChild(x);
+      box.appendChild(row);
+    });
+    refreshIcons();
+  }
+
+  function addMemoryFromInput() {
+    var v = $("memoryInput").value.trim();
+    if (!v) return;
+    var fact = window.ImposeFeatures.memoryFromText(v) || v.slice(0, 160);
+    state.memories = window.ImposeFeatures.dedupeMemory(state.memories, fact);
+    save();
+    $("memoryInput").value = "";
+    renderMemory();
+    toast("Remembered.");
+  }
+  $("memoryAddBtn").addEventListener("click", addMemoryFromInput);
+  $("memoryInput").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); addMemoryFromInput(); }
+  });
+
+  /* ---------- prompt library + slash insert ---------- */
+
+  function renderLibrary() {
+    var box = $("libList");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!(state.library || []).length) {
+      var p = document.createElement("p");
+      p.className = "pane-note";
+      p.textContent = "Save prompts you reuse. {{name}} becomes a fill in slot. Type / in the composer to insert.";
+      box.appendChild(p);
+    }
+    (state.library || []).forEach(function (item) {
+      var row = document.createElement("div");
+      row.className = "lib-row";
+      var txt = document.createElement("div");
+      txt.className = "lib-text";
+      var st = document.createElement("strong");
+      st.textContent = item.title;
+      var em = document.createElement("em");
+      em.textContent = item.body.replace(/\s+/g, " ").slice(0, 90);
+      txt.appendChild(st);
+      txt.appendChild(em);
+      var ins = document.createElement("button");
+      ins.type = "button";
+      ins.className = "pill-btn";
+      ins.textContent = "Insert";
+      ins.addEventListener("click", function () { insertPrompt(item.body); });
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "icon-btn sm";
+      del.title = "Delete prompt";
+      del.setAttribute("aria-label", "Delete " + item.title);
+      del.innerHTML = '<i data-lucide="trash-2"></i>';
+      del.addEventListener("click", function () {
+        state.library = state.library.filter(function (g) { return g.id !== item.id; });
+        save();
+        renderLibrary();
+        toast("Prompt deleted");
+      });
+      row.appendChild(txt);
+      row.appendChild(ins);
+      row.appendChild(del);
+      box.appendChild(row);
+    });
+    refreshIcons();
+  }
+
+  function insertPrompt(body) {
+    closeModal(settingsModal);
+    input.value = window.ImposeFeatures.applyTemplate(body);
+    autogrow();
+    syncSend();
+    input.focus();
+    var vars = window.ImposeFeatures.extractVars(body);
+    if (vars.length) toast("Fill the " + vars.map(function (v) { return "{{" + v + "}}"; }).join(" ") + " slots before sending.");
+  }
+
+  $("libSaveBtn").addEventListener("click", function () {
+    var title = $("libTitle").value.trim().slice(0, 60);
+    var body = $("libBody").value.trim();
+    if (!title || !body) { toast.warn("Give the prompt a title and a body."); return; }
+    state.library = state.library || [];
+    state.library.push({ id: uid(), title: title, body: body });
+    save();
+    $("libTitle").value = "";
+    $("libBody").value = "";
+    renderLibrary();
+    toast.success("Prompt saved. Type / to use it.");
+  });
+
+  /* Slash popup: type / at the start of the composer to pick a prompt. */
+  var slashItems = [];
+  var slashHot = 0;
+
+  function slashActive() { return slashItems.length > 0; }
+
+  function updateSlashPop() {
+    var m = /^\/([a-z0-9_-]*)$/i.exec(input.value);
+    var pop = $("slashPop");
+    if (!m || !(state.library || []).length) { hideSlash(); return; }
+    var q = m[1].toLowerCase();
+    slashItems = state.library.filter(function (it) {
+      return !q || it.title.toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 6);
+    if (!slashItems.length) { hideSlash(); return; }
+    slashHot = 0;
+    var box = $("slashList");
+    box.innerHTML = "";
+    slashItems.forEach(function (it, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "slash-row" + (i === slashHot ? " hot" : "");
+      var st = document.createElement("strong");
+      st.textContent = "/" + it.title;
+      var em = document.createElement("em");
+      em.textContent = it.body.replace(/\s+/g, " ").slice(0, 60);
+      b.appendChild(st);
+      b.appendChild(em);
+      b.addEventListener("click", function () { pickSlash(i); });
+      box.appendChild(b);
+    });
+    pop.hidden = false;
+  }
+
+  function hideSlash() {
+    slashItems = [];
+    var pop = $("slashPop");
+    if (pop) pop.hidden = true;
+  }
+
+  function pickSlash(i) {
+    var it = slashItems[i];
+    hideSlash();
+    if (!it) return;
+    input.value = window.ImposeFeatures.applyTemplate(it.body);
+    autogrow();
+    syncSend();
+    input.focus();
+    var vars = window.ImposeFeatures.extractVars(it.body);
+    if (vars.length) toast("Fill the " + vars.map(function (v) { return "{{" + v + "}}"; }).join(" ") + " slots before sending.");
+  }
+
+  /* ---------- usage dashboard ---------- */
+
+  function renderUsage() {
+    var box = $("usageTable");
+    if (!box) return;
+    var rows = window.ImposeFeatures.aggregateUsage(state.chats, state.providers);
+    box.innerHTML = "";
+    if (!rows.length) {
+      var p = document.createElement("p");
+      p.className = "pane-note";
+      p.textContent = "No replies yet. Usage shows up here once you chat with a provider.";
+      box.appendChild(p);
+      return;
+    }
+    var totalMsgs = 0, totalToks = 0, totalCost = 0;
+    var html = '<table class="usage"><thead><tr><th>Provider</th><th>Replies</th><th>≈tok</th><th>Est. cost</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      totalMsgs += r.msgs;
+      totalToks += r.toks;
+      totalCost += r.cost;
+      html += "<tr><td>" + escapeHtml(r.label) + "</td><td>" + r.msgs + "</td><td>" +
+        (r.toks >= 1000 ? (r.toks / 1000).toFixed(1) + "k" : r.toks) + "</td><td>" +
+        (r.priced ? "$" + (r.cost >= 1 ? r.cost.toFixed(2) : r.cost.toFixed(4)) : "set prices") + "</td></tr>";
+    });
+    html += '</tbody><tfoot><tr><td>All</td><td>' + totalMsgs + "</td><td>" +
+      (totalToks >= 1000 ? (totalToks / 1000).toFixed(1) + "k" : totalToks) + "</td><td>" +
+      "$" + (totalCost >= 1 ? totalCost.toFixed(2) : totalCost.toFixed(4)) + "</td></tr></tfoot></table>" +
+      '<p class="pane-note">Costs estimate from the per million prices you set on a provider. Providers without prices show the token count only.</p>';
+    box.innerHTML = html;
+  }
+
+  /* ---------- relay status card ---------- */
+
+  var relayCardBusy = false;
+
+  function renderRelayCard() {
+    var card = $("relayCard");
+    if (!card || relayCardBusy) return;
+    var cfg = relayCfg();
+    var dot = card.querySelector(".relay-dot");
+    var title = card.querySelector(".relay-title");
+    var sub = card.querySelector(".relay-sub");
+    var wake = $("relayWakeBtn");
+    if (!cfg.url) {
+      dot.className = "relay-dot off";
+      title.textContent = "No relay connected";
+      sub.textContent = "Set one under Advanced in any provider to unlock keyless search and server side requests.";
+      wake.hidden = true;
+      return;
+    }
+    wake.hidden = false;
+    dot.className = "relay-dot busy";
+    title.textContent = "Checking the relay...";
+    sub.textContent = stripSlash(cfg.url);
+    var opts = { headers: { "Authorization": "Bearer " + cfg.key }, signal: withTimeout(9000) };
+    fetch(stripSlash(cfg.url) + "/admin/status", opts).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (d) {
+      var out = window.ImposeFeatures.formatRelayStatus(d);
+      dot.className = "relay-dot " + (out.up ? "ok" : "bad");
+      title.textContent = out.text;
+      sub.textContent = stripSlash(cfg.url);
+    }, function () {
+      dot.className = "relay-dot bad";
+      title.textContent = "Relay unreachable";
+      sub.textContent = stripSlash(cfg.url);
+    });
+  }
+
+  $("relayRefreshBtn").addEventListener("click", renderRelayCard);
+  $("relayWakeBtn").addEventListener("click", function () {
+    var cfg = relayCfg();
+    if (!cfg.url) { toast("Set a relay first."); return; }
+    toast("Waking the model in the background.");
+    fetch(stripSlash(cfg.url) + "/admin/wake-llm?background=1", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + cfg.key },
+      signal: withTimeout(9000)
+    }).then(function (r) {
+      return r.json();
+    }).then(function (d) {
+      toast(d && d.llm_up ? "The model is already up." : "Waking. First reply lands in 1 to 3 minutes.");
+      renderRelayCard();
+    }, function () { toast.error("Could not reach the relay."); });
+  });
+
+  /* ---------- per chat generation settings ---------- */
+
+  $("chatParamsBtn").addEventListener("click", function () {
+    var chat = getChat(activeId);
+    if (!chat) { toast("Send a message first. Chat settings live with a chat."); return; }
+    var pr = chat.params || {};
+    $("cpSystem").value = pr.system || "";
+    $("cpTemp").value = pr.temperature == null ? "" : pr.temperature;
+    $("cpTopP").value = pr.topP == null ? "" : pr.topP;
+    $("cpMaxTok").value = pr.maxTokens == null ? "" : pr.maxTokens;
+    openModal($("chatParamsModal"));
+    setTimeout(function () { $("cpSystem").focus(); }, 200);
+  });
+  $("cpCancel").addEventListener("click", function () { closeModal($("chatParamsModal")); });
+  $("chatParamsModal").addEventListener("pointerdown", function (e) {
+    if (e.target === $("chatParamsModal")) closeModal($("chatParamsModal"));
+  });
+  $("cpReset").addEventListener("click", function () {
+    var chat = getChat(activeId);
+    if (chat) { delete chat.params; save(); }
+    $("cpSystem").value = "";
+    $("cpTemp").value = "";
+    $("cpTopP").value = "";
+    $("cpMaxTok").value = "";
+    toast("Chat settings reset to defaults.");
+  });
+  $("cpSave").addEventListener("click", function () {
+    var chat = getChat(activeId);
+    if (!chat) { closeModal($("chatParamsModal")); return; }
+    var F = window.ImposeFeatures;
+    var params = {
+      system: $("cpSystem").value.trim().slice(0, 2000),
+      temperature: F.clampParam($("cpTemp").value, 0, 2),
+      topP: F.clampParam($("cpTopP").value, 0, 1),
+      maxTokens: $("cpMaxTok").value ? Math.max(1, Math.floor(+$("cpMaxTok").value) || 0) || null : null
+    };
+    if (!params.system && params.temperature == null && params.topP == null && params.maxTokens == null) {
+      delete chat.params;
+    } else {
+      chat.params = params;
+    }
+    save();
+    closeModal($("chatParamsModal"));
+    toast.success("Chat settings saved for this chat only.");
+  });
+
+  /* ---------- keyboard shortcuts overlay ---------- */
+
+  function openShortcuts() { openModal($("shortcutsModal")); }
+  $("shortcutsClose").addEventListener("click", function () { closeModal($("shortcutsModal")); });
+  $("shortcutsModal").addEventListener("pointerdown", function (e) {
+    if (e.target === $("shortcutsModal")) closeModal($("shortcutsModal"));
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
+    var el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+    e.preventDefault();
+    openShortcuts();
+  });
+
+  /* ---------- share as web page + duplicate chat ---------- */
+
+  $("shareHtmlItem").addEventListener("click", function () {
+    var id = itemMenuId;
+    hidePop(true);
+    var chat = id && getChat(id);
+    if (!chat) return;
+    var html = window.ImposeFeatures.shareChatHtml(chat);
+    var base = chat.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "chat";
+    downloadBlob(new Blob([html], { type: "text/html" }), base + ".html");
+    toast.success("Shared as a read only web page.");
+  });
+
+  $("dupItem").addEventListener("click", function () {
+    var id = itemMenuId;
+    hidePop(true);
+    var chat = id && getChat(id);
+    if (!chat) return;
+    var copy = window.ImposeFeatures.duplicateChat(chat, uid());
+    state.chats.unshift(copy);
+    save();
+    renderList();
+    toast.success("Chat duplicated. Branch away.");
+  });
+
   /* ---------- init ---------- */
 
   var deferredInstall = null;
@@ -5622,6 +6387,8 @@
     syncSearchBtn();
     syncAvatars();
     updateBanners();
+    renderMemory();
+    applyRetention(false);
     window.addEventListener("online", function () { updateBanners(); drainNext(); });
     window.addEventListener("offline", function () { updateBanners(); });
     drainNext();

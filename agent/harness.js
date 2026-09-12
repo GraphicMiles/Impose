@@ -120,16 +120,41 @@
             deps.emit({ t: "source", title: r.title || r.url, sub: domainOf(r.url), href: r.url });
           });
           if (results.length > 5) deps.emit({ t: "more", n: results.length - 5 });
-          deps.emit({ t: "settle", text: "Searched the web" });
-          var lines = results.map(function (r, i) {
-            return "[" + (i + 1) + "] " + (r.title || r.url) + "\n" + r.url + "\n" + (r.snippet || "");
-          }).join("\n\n");
-          var system = "You are Impose, a helpful assistant. Use the evidence below when it answers the question, " +
-            "and cite sources by number like [1]. If the evidence is off topic or too thin, say the search missed " +
-            "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
-            "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
-          return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + lines, deps.onDelta, deps.onThink).then(function () {
-            return { sources: results, provider: out.provider };
+          var readFn = typeof deps.read === "function" ? deps.read : null;
+          var reading = readFn
+            ? Promise.all(results.slice(0, 2).map(function (r) {
+                deps.emit({ t: "reading", title: r.title || r.url });
+                return Promise.resolve().then(function () { return readFn(r.url); }).then(function (page) {
+                  if (!page) return null;
+                  if (typeof page === "string") return { url: r.url, title: r.title || r.url, text: page };
+                  return { url: r.url, title: page.title || r.title || r.url, text: page.text || "" };
+                }, function () { return null; });
+              }))
+            : Promise.resolve([]);
+          return reading.then(function (pages) {
+            var lines = results.map(function (r, i) {
+              return "[" + (i + 1) + "] " + (r.title || r.url) + "\n" + r.url + "\n" + (r.snippet || "");
+            });
+            var pageBlocks = [];
+            var pageBudget = 9000;
+            pages.forEach(function (pg) {
+              if (!pg || !pg.text || pageBudget <= 0) return;
+              var body = String(pg.text).slice(0, Math.min(4500, pageBudget));
+              pageBudget -= body.length;
+              pageBlocks.push("[" + (results.indexOf(results.filter(function (x) { return x.url === pg.url; })[0]) + 1) + "] " +
+                pg.title + "\n" + pg.url + "\n" + body);
+            });
+            var evidence = lines.join("\n\n");
+            if (pageBlocks.length) evidence += "\n\nPage contents:\n\n" + pageBlocks.join("\n\n");
+            deps.emit({ t: "settle", text: "Searched the web" });
+            var system = "You are Impose, a helpful assistant. Use the evidence below when it answers the question, " +
+              "and cite sources by number like [1]. Page contents, when present, outrank the short snippets. " +
+              "If the evidence is off topic or too thin, say the search missed " +
+              "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
+              "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
+            return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + evidence, deps.onDelta, deps.onThink).then(function () {
+              return { sources: results, provider: out.provider, read: pages.filter(Boolean).length };
+            });
           });
         });
       });

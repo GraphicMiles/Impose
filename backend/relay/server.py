@@ -552,6 +552,100 @@ async def fetch_proxy(request: Request):
             "body": r.text}
 
 
+# --------------------------------------------------------------------------- #
+# page reader: turn a URL into plain text the agent can reason over
+# --------------------------------------------------------------------------- #
+
+_IGNORE_TAGS = ("script", "style", "noscript", "template", "svg", "iframe")
+
+
+def html_to_text(html: str, cap: int = 12000) -> dict:
+    """HTML to readable text: scripts and styles out, main content in,
+    original spacing approximated. Pure function so it is easy to test."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html or "", "html.parser")
+    title = " ".join(soup.title.string.split()) if (soup.title and soup.title.string) else ""
+    for tag in soup.find_all(_IGNORE_TAGS):
+        tag.decompose()
+    for block in soup.find_all(["p", "div", "section", "article", "li", "tr",
+                                "h1", "h2", "h3", "h4", "h5", "h6", "br"]):
+        block.append("\n")
+    text = soup.get_text(" ")
+    lines = []
+    for line in text.splitlines():
+        line = " ".join(line.split())
+        if line:
+            lines.append(line)
+        elif lines and lines[-1] != "":
+            lines.append("")
+    out = "\n".join(lines).strip()
+    if len(out) > cap:
+        out = out[:cap] + "\n..."
+    return {"title": title[:300], "text": out}
+
+
+@app.post("/v1/read")
+async def read_proxy(request: Request):
+    """Fetch a page (same SSRF rules as /v1/fetch) and return its text so
+    the research agent can read a cited source, not just its snippet."""
+    _authed(request)
+    if _rate_hit("read", _client_ip(request), 60, 60.0):
+        raise HTTPException(status_code=429, detail="read rate limit reached; wait a minute")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    url = str(data.get("url", ""))
+    try:
+        parts = urlparse(url)
+        scheme, user, host = parts.scheme, parts.username, parts.hostname
+    except Exception:
+        raise HTTPException(status_code=400, detail="bad URL")
+    if scheme not in ("http", "https") or user or not host:
+        raise HTTPException(status_code=400, detail="URL must be http(s) with no credentials")
+    ips = _resolve_public_ips(host)
+    if not ips:
+        raise HTTPException(status_code=400, detail="private or unresolvable host")
+    # Manual redirect hops: every hop is SSRF checked again. Auto follow
+    # would let a public page bounce us straight at an inside address.
+    r = None
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+            for _hop in range(4):
+                infos = _resolve_public_ips(host)
+                if not infos:
+                    raise HTTPException(status_code=400, detail="redirect landed on a private host")
+                ip = infos[0]
+                pinned_netloc = f"[{ip}]" if ":" in ip else ip
+                if parts.port:
+                    pinned_netloc += f":{parts.port}"
+                pinned_url = urlunparse(parts._replace(netloc=pinned_netloc))
+                r = await client.get(pinned_url, headers={"Host": parts.netloc,
+                                                          "User-Agent": "Mozilla/5.0 (compatible; ImposeAgent/1.0)"},
+                                     extensions={"sni_hostname": host} if parts.scheme == "https" else {})
+                if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
+                    parts = urlparse(r.headers["location"])
+                    scheme, user, host = parts.scheme, parts.username, parts.hostname
+                    if scheme not in ("http", "https") or user or not host:
+                        raise HTTPException(status_code=400, detail="redirect to a bad URL")
+                    continue
+                break
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=502, detail="target timed out")
+    except Exception:
+        raise HTTPException(status_code=502, detail="target unreachable")
+    ctype = r.headers.get("content-type", "")
+    if len(r.content) > _FETCH_BODY_CAP:
+        raise HTTPException(status_code=502, detail="target response too large")
+    if "html" not in ctype and "text" not in ctype and ctype:
+        return {"url": url, "status": r.status_code, "title": "", "text": "",
+                "note": "the page is not text (" + ctype.split(";")[0] + ")"}
+    page = html_to_text(r.text)
+    return {"url": url, "status": r.status_code, "title": page["title"], "text": page["text"]}
+
+
 @app.get("/admin/status")
 def admin_status(request: Request):
     _authed(request)

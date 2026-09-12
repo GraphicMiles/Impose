@@ -1704,6 +1704,129 @@ details.snap pre { margin: 8px 0 2px; max-height: 180px; overflow: auto; font-si
 .paste-title { font-size: 14px; margin: 0 0 8px; }
 #extPasteDraft, #extPasteCopy { margin-bottom: 12px; }
 
+
+/* ---------- feature kit: meter, slash, library, usage, relay, memory ---------- */
+
+.ctx-meter {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-soft);
+  margin: 0 16px 6px;
+  overflow: hidden;
+}
+.ctx-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--text-3);
+  transition: width var(--dur-2) var(--ease-out);
+}
+.ctx-meter.warn .ctx-fill { background: var(--warn); }
+.ctx-meter.danger .ctx-fill { background: var(--danger); }
+
+.slash-pop {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(100% + 8px);
+  max-height: 280px;
+  overflow: auto;
+}
+.composer-block { position: relative; }
+.slash-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+.slash-row:hover, .slash-row.hot { background: var(--hover); }
+.slash-row strong { display: block; font-size: 13px; font-weight: 600; }
+.slash-row em { display: block; font-style: normal; font-size: 12px; color: var(--text-3); }
+
+.mem-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.mem-row span { flex: 1; font-size: 13px; }
+.mem-add { display: flex; gap: 8px; margin-top: 10px; }
+.mem-add .text-input { flex: 1; }
+
+.lib-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.lib-text { flex: 1; min-width: 0; }
+.lib-text strong { display: block; font-size: 13px; }
+.lib-text em { display: block; font-style: normal; font-size: 12px; color: var(--text-3); }
+.lib-form { display: grid; gap: 8px; margin-top: 12px; }
+
+table.usage {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.usage th, table.usage td {
+  text-align: left;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+table.usage th { color: var(--text-3); font-weight: 500; font-size: 12px; }
+table.usage tfoot td { font-weight: 600; border-bottom: 0; }
+
+.relay-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+.relay-text { flex: 1; min-width: 0; }
+.relay-title { display: block; font-size: 13px; }
+.relay-sub { display: block; font-style: normal; font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.relay-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.relay-dot.ok { background: var(--ok); }
+.relay-dot.bad { background: var(--danger); }
+.relay-dot.off { background: var(--text-3); }
+.relay-dot.busy { background: var(--warn); }
+
+.pager-model { font-size: 11px; color: var(--text-3); }
+
+.kbd-list { display: grid; gap: 6px; }
+.kbd-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+.kbd-row kbd {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+  margin-left: 4px;
+}
+
+.price-row { display: flex; gap: 10px; }
+.price-row .field { flex: 1; }
+select.sel { appearance: auto; }
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -2306,6 +2429,9 @@ try {
         </button>
       </div>
       <div class="top-right">
+        <button class="icon-btn" id="chatParamsBtn" title="Chat settings" aria-label="Chat settings">
+          <i data-lucide="sliders-horizontal"></i>
+        </button>
         <button class="icon-btn" id="actionsBtn" title="Agent actions" aria-label="Agent actions">
           <i data-lucide="puzzle"></i>
           <span class="ext-dot" id="extDot" hidden></span>
@@ -2355,7 +2481,8 @@ try {
   <input type="file" id="filePicker" hidden multiple>
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
-    <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Impose"></textarea>
+    <textarea id="input" rows="1" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
+    <div class="ctx-meter" id="ctxMeter" hidden><span class="ctx-fill"></span></div>
     <div class="composer-row">
       <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
         <i data-lucide="plus"></i>
@@ -2377,6 +2504,10 @@ try {
     </div>
   </div>
   <p class="disclaimer">Impose can make mistakes. Check important info.</p>
+  <div class="pop pop-sm slash-pop" id="slashPop" role="listbox" aria-label="Saved prompts" hidden>
+    <p class="pop-label">Saved prompts</p>
+    <div id="slashList"></div>
+  </div>
 </div>
 
 <div class="pop" id="modelMenu" role="menu" aria-label="Choose model" hidden>
@@ -2397,6 +2528,12 @@ try {
   </button>
   <button class="pop-item" id="exportMdItem" role="menuitem">
     <i data-lucide="file-text"></i><span>Export Markdown</span>
+  </button>
+  <button class="pop-item" id="shareHtmlItem" role="menuitem">
+    <i data-lucide="globe"></i><span>Share as web page</span>
+  </button>
+  <button class="pop-item" id="dupItem" role="menuitem">
+    <i data-lucide="copy"></i><span>Duplicate chat</span>
   </button>
   <button class="pop-item danger" id="deleteItem" role="menuitem">
     <i data-lucide="trash-2"></i><span>Delete</span>
@@ -2460,6 +2597,8 @@ try {
     <div class="settings-tabs" role="tablist" aria-label="Settings sections">
       <button type="button" data-stab="general" role="tab" aria-selected="true">General</button>
       <button type="button" data-stab="providers" role="tab" aria-selected="false">Providers</button>
+      <button type="button" data-stab="prompts" role="tab" aria-selected="false">Prompts</button>
+      <button type="button" data-stab="usage" role="tab" aria-selected="false">Usage</button>
       <button type="button" data-stab="data" role="tab" aria-selected="false">Data</button>
     </div>
     <div class="settings-body">
@@ -2482,12 +2621,53 @@ try {
             <div class="setting-text"><strong>Show suggestions</strong><span>Starter ideas on new chats</span></div>
             <button class="toggle" id="tglChips" role="switch" aria-checked="true" aria-label="Show suggestions"><span class="knob"></span></button>
           </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Smart follow ups</strong><span>Model suggested next messages</span></div>
+            <button class="toggle" id="tglFollow" role="switch" aria-checked="true" aria-label="Smart follow ups"><span class="knob"></span></button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Name chats automatically</strong><span>One small request names new chats</span></div>
+            <button class="toggle" id="tglAutoName" role="switch" aria-checked="true" aria-label="Name chats automatically"><span class="knob"></span></button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Redact personal info</strong><span>Emails, phones, cards, BVN and NIN masked before send</span></div>
+            <button class="toggle" id="tglRedact" role="switch" aria-checked="false" aria-label="Redact personal info"><span class="knob"></span></button>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h3>Memory</h3>
+          <div id="memoryList" class="mem-list"></div>
+          <div class="mem-add">
+            <input type="text" class="text-input" id="memoryInput" placeholder="Add a fact, e.g. Prefers replies in English" autocomplete="off" maxlength="160">
+            <button class="btn" id="memoryAddBtn" type="button"><i data-lucide="plus"></i><span>Add</span></button>
+          </div>
+          <p class="fhelp">Remembered facts are injected into every chat. Nothing leaves this browser until you send a message.</p>
         </section>
       </div>
       <div data-pane="providers" hidden>
+        <div class="relay-card" id="relayCard">
+          <span class="relay-dot off" aria-hidden="true"></span>
+          <span class="relay-text"><strong class="relay-title">No relay connected</strong><em class="relay-sub"></em></span>
+          <button class="icon-btn sm" id="relayRefreshBtn" title="Recheck" aria-label="Recheck the relay"><i data-lucide="rotate-ccw"></i></button>
+          <button class="btn small" id="relayWakeBtn" hidden><i data-lucide="sun"></i><span>Wake</span></button>
+        </div>
         <div id="providerList"></div>
         <button class="btn wide" id="addProviderBtn" type="button"><i data-lucide="plus"></i><span>Add a provider</span></button>
         <p class="pane-note" id="providerNote"></p>
+      </div>
+      <div data-pane="prompts" hidden>
+        <div id="libList"></div>
+        <section class="settings-section">
+          <h3>New prompt</h3>
+          <div class="lib-form">
+            <input type="text" class="text-input" id="libTitle" placeholder="Title, e.g. Invoice follow up" maxlength="60" autocomplete="off">
+            <textarea class="text-input text-area" id="libBody" rows="4" placeholder="Write a firm but polite follow up email to {{client}} about {{topic}}. {{slots}} become fill in fields." spellcheck="false"></textarea>
+            <button class="btn" id="libSaveBtn" type="button"><i data-lucide="plus"></i><span>Save prompt</span></button>
+          </div>
+        </section>
+      </div>
+      <div data-pane="usage" hidden>
+        <div id="usageTable"></div>
       </div>
       <div data-pane="data" hidden>
         <section class="settings-section">
@@ -2501,6 +2681,19 @@ try {
             <button class="btn" id="importBtn"><i data-lucide="upload"></i><span>Import</span></button>
           </div>
           <input type="file" id="importPicker" accept="application/json,.json" hidden>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Encrypted backup</strong><span>Passphrase protected, AES-GCM. No recovery without the passphrase</span></div>
+            <button class="btn" id="encExportBtn"><i data-lucide="lock"></i><span>Export</span></button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Keep chats for</strong><span>Older chats delete themselves. Pinned chats stay</span></div>
+            <select class="text-input sel" id="retentionSel" aria-label="Keep chats for">
+              <option value="0">Forever</option>
+              <option value="365">1 year</option>
+              <option value="90">90 days</option>
+              <option value="30">30 days</option>
+            </select>
+          </div>
           <div class="setting-row">
             <div class="setting-text"><strong>Delete all chats</strong><span>Press and hold to confirm</span></div>
             <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
@@ -2583,6 +2776,17 @@ try {
             <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Impose" spellcheck="false"></textarea>
             <p class="fhelp">One per line, written as Name: value.</p>
           </div>
+          <p class="flabel gap">Prices, per million tokens (optional, for cost estimates)</p>
+          <div class="price-row">
+            <div class="field">
+              <label class="flabel" for="pfPriceIn">Input $</label>
+              <input type="number" class="text-input mono" id="pfPriceIn" min="0" step="0.01" placeholder="e.g. 2.50" autocomplete="off">
+            </div>
+            <div class="field">
+              <label class="flabel" for="pfPriceOut">Output $</label>
+              <input type="number" class="text-input mono" id="pfPriceOut" min="0" step="0.01" placeholder="e.g. 10.00" autocomplete="off">
+            </div>
+          </div>
           <p class="flabel gap">Relay</p>
           <div class="setting-row">
             <div class="setting-text"><strong>Send through my relay</strong><span>For providers that block browsers. Replies arrive whole, not streamed.</span></div>
@@ -2605,6 +2809,97 @@ try {
           <button class="btn primary grow" id="pfSave" type="button"><i data-lucide="check"></i><span>Save</span></button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="pop pop-sm" id="retryMenu" role="menu" aria-label="Regenerate with another model" hidden>
+  <p class="pop-label">Regenerate with</p>
+  <div id="retryMenuList"></div>
+</div>
+
+<div class="overlay center" id="chatParamsModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Chat settings">
+    <div class="settings-head">
+      <h2>Chat settings</h2>
+      <button class="icon-btn" id="cpCancel" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <p class="pane-note">These apply to the current chat only.</p>
+      <div class="field">
+        <label class="flabel" for="cpSystem">Standing instructions</label>
+        <textarea class="text-input mono text-area" id="cpSystem" rows="3" placeholder="e.g. Answer in short paragraphs. You are a Lagos travel planner." spellcheck="false"></textarea>
+      </div>
+      <div class="price-row">
+        <div class="field">
+          <label class="flabel" for="cpTemp">Temperature (0 to 2)</label>
+          <input type="number" class="text-input mono" id="cpTemp" min="0" max="2" step="0.1" placeholder="default" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="flabel" for="cpTopP">Top P (0 to 1)</label>
+          <input type="number" class="text-input mono" id="cpTopP" min="0" max="1" step="0.05" placeholder="default" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="flabel" for="cpMaxTok">Max reply tokens</label>
+          <input type="number" class="text-input mono" id="cpMaxTok" min="1" step="64" placeholder="default" autocomplete="off">
+        </div>
+      </div>
+      <div class="editor-foot">
+        <button class="btn" id="cpReset" type="button"><i data-lucide="rotate-ccw"></i><span>Reset</span></button>
+        <button class="btn primary grow" id="cpSave" type="button"><i data-lucide="check"></i><span>Save</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay center" id="encModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Encrypted backup">
+    <div class="settings-head">
+      <h2 id="encTitle">Create encrypted backup</h2>
+      <button class="icon-btn" id="encCancel" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div class="field">
+        <label class="flabel" for="encPass">Passphrase</label>
+        <input type="password" class="text-input mono" id="encPass" autocomplete="new-password" spellcheck="false">
+      </div>
+      <div class="field" id="encPass2Row">
+        <label class="flabel" for="encPass2">Repeat the passphrase</label>
+        <input type="password" class="text-input mono" id="encPass2" autocomplete="new-password" spellcheck="false">
+      </div>
+      <p class="status-line" id="encStatus" aria-live="polite"></p>
+      <div class="editor-foot">
+        <button class="btn primary grow" id="encGo" type="button"><span>Export</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay center" id="shortcutsModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div class="settings-head">
+      <h2>Keyboard shortcuts</h2>
+      <button class="icon-btn" id="shortcutsClose" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div class="kbd-list">
+        <div class="kbd-row"><span>Search chats</span><kbd>Ctrl</kbd><kbd>K</kbd></div>
+        <div class="kbd-row"><span>Command palette</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>P</kbd></div>
+        <div class="kbd-row"><span>New chat</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>O</kbd></div>
+        <div class="kbd-row"><span>Saved prompts in the composer</span><kbd>/</kbd></div>
+        <div class="kbd-row"><span>This list</span><kbd>?</kbd></div>
+        <div class="kbd-row"><span>Send message</span><kbd>Enter</kbd></div>
+        <div class="kbd-row"><span>New line</span><kbd>Shift</kbd><kbd>Enter</kbd></div>
+        <div class="kbd-row"><span>Edit a reply, save it</span><kbd>Ctrl</kbd><kbd>Enter</kbd></div>
+        <div class="kbd-row"><span>Close menus and dialogs</span><kbd>Esc</kbd></div>
+      </div>
+      <p class="pane-note">On macOS use Cmd where it says Ctrl.</p>
     </div>
   </div>
 </div>
@@ -3299,16 +3594,41 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             deps.emit({ t: "source", title: r.title || r.url, sub: domainOf(r.url), href: r.url });
           });
           if (results.length > 5) deps.emit({ t: "more", n: results.length - 5 });
-          deps.emit({ t: "settle", text: "Searched the web" });
-          var lines = results.map(function (r, i) {
-            return "[" + (i + 1) + "] " + (r.title || r.url) + "\n" + r.url + "\n" + (r.snippet || "");
-          }).join("\n\n");
-          var system = "You are Impose, a helpful assistant. Use the evidence below when it answers the question, " +
-            "and cite sources by number like [1]. If the evidence is off topic or too thin, say the search missed " +
-            "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
-            "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
-          return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + lines, deps.onDelta, deps.onThink).then(function () {
-            return { sources: results, provider: out.provider };
+          var readFn = typeof deps.read === "function" ? deps.read : null;
+          var reading = readFn
+            ? Promise.all(results.slice(0, 2).map(function (r) {
+                deps.emit({ t: "reading", title: r.title || r.url });
+                return Promise.resolve().then(function () { return readFn(r.url); }).then(function (page) {
+                  if (!page) return null;
+                  if (typeof page === "string") return { url: r.url, title: r.title || r.url, text: page };
+                  return { url: r.url, title: page.title || r.title || r.url, text: page.text || "" };
+                }, function () { return null; });
+              }))
+            : Promise.resolve([]);
+          return reading.then(function (pages) {
+            var lines = results.map(function (r, i) {
+              return "[" + (i + 1) + "] " + (r.title || r.url) + "\n" + r.url + "\n" + (r.snippet || "");
+            });
+            var pageBlocks = [];
+            var pageBudget = 9000;
+            pages.forEach(function (pg) {
+              if (!pg || !pg.text || pageBudget <= 0) return;
+              var body = String(pg.text).slice(0, Math.min(4500, pageBudget));
+              pageBudget -= body.length;
+              pageBlocks.push("[" + (results.indexOf(results.filter(function (x) { return x.url === pg.url; })[0]) + 1) + "] " +
+                pg.title + "\n" + pg.url + "\n" + body);
+            });
+            var evidence = lines.join("\n\n");
+            if (pageBlocks.length) evidence += "\n\nPage contents:\n\n" + pageBlocks.join("\n\n");
+            deps.emit({ t: "settle", text: "Searched the web" });
+            var system = "You are Impose, a helpful assistant. Use the evidence below when it answers the question, " +
+              "and cite sources by number like [1]. Page contents, when present, outrank the short snippets. " +
+              "If the evidence is off topic or too thin, say the search missed " +
+              "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
+              "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
+            return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + evidence, deps.onDelta, deps.onThink).then(function () {
+              return { sources: results, provider: out.provider, read: pages.filter(Boolean).length };
+            });
           });
         });
       });
@@ -3348,6 +3668,409 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
 </script>
 <script>
+/* Impose feature kit: the pure logic behind the smarter-chat features.
+   No DOM here. The app injects storage, providers, and fetch; tests run
+   this file directly under node. Same UMD shape as harness.js. */
+(function () {
+  "use strict";
+
+  /* ---------- tokens and context ---------- */
+
+  /* ~4 chars per token is the classic estimate; close enough for meters. */
+  function estimateTokens(text, images) {
+    var n = Math.ceil(String(text || "").length / 4);
+    var imgs = images && images.length ? images.length : 0;
+    return n + imgs * 1000;
+  }
+
+  /* Context windows by model family. Conservative defaults; the point is
+     trimming before a 400, not squeezing the last page in. */
+  function modelContext(model) {
+    var m = String(model || "").toLowerCase();
+    if (/gpt-5|gpt-4\.1|gpt-4o|o1|o3|o4/.test(m)) return 128000;
+    if (/claude|sonnet|opus|haiku/.test(m)) return 200000;
+    if (/gemini/.test(m)) return /1\.5|2\.0|2\.5/.test(m) ? 1000000 : 32000;
+    if (/grok/.test(m)) return 131072;
+    if (/deepseek/.test(m)) return 64000;
+    if (/qwen|llama|mixtral|mistral/.test(m)) return 32000;
+    return 16384;
+  }
+
+  /* Keep the newest turns that fit a token budget. Always keeps at least
+     the last two messages, and never counts a lone image as skippable. */
+  function trimHistory(messages, kind, budgetTokens) {
+    var msgs = (messages || []).filter(function (m) {
+      return m && (String(m.content || "").trim() !== "" || (m.images && m.images.length));
+    });
+    var budget = Math.max(1000, budgetTokens | 0);
+    var out = [];
+    var used = 0;
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      var t = estimateTokens(typeof msgs[i].content === "string" ? msgs[i].content : "", msgs[i].images);
+      if (used + t > budget && out.length >= 2) break;
+      used += t;
+      out.unshift(msgs[i]);
+    }
+    return out.slice(-60);
+  }
+
+  /* ---------- generation params ---------- */
+
+  function clampParam(v, lo, hi) {
+    var n = Number(v);
+    if (!isFinite(n)) return null;
+    if (n < lo) n = lo;
+    if (n > hi) n = hi;
+    return n;
+  }
+
+  /* Apply the per chat overrides to a request body, per request shape.
+     Only fields the user actually set are touched. */
+  function applyGenParams(body, kind, params) {
+    if (!params) return body;
+    var temp = params.temperature == null ? null : clampParam(params.temperature, 0, 2);
+    var topP = params.topP == null ? null : clampParam(params.topP, 0, 1);
+    var maxTok = params.maxTokens == null ? null : Math.max(1, Math.floor(Number(params.maxTokens) || 0)) || null;
+    if (kind === "openai") {
+      if (temp != null) body.temperature = temp;
+      if (topP != null) body.top_p = topP;
+      if (maxTok != null) body.max_tokens = maxTok;
+    } else if (kind === "anthropic") {
+      if (temp != null) body.temperature = temp;
+      if (topP != null) body.top_p = topP;
+      if (maxTok != null) body.max_tokens = maxTok; /* required field: 1024 when unset */
+    } else if (kind === "gemini") {
+      var cfg = {};
+      if (temp != null) cfg.temperature = temp;
+      if (topP != null) cfg.topP = topP;
+      if (maxTok != null) cfg.maxOutputTokens = maxTok;
+      if (Object.keys(cfg).length) body.generationConfig = cfg;
+    }
+    return body;
+  }
+
+  /* ---------- system prompt assembly ---------- */
+
+  function memoryBlock(memories, cap) {
+    var list = (memories || []).slice(-8);
+    if (!list.length) return "";
+    var lines = [];
+    var used = 0;
+    for (var i = 0; i < list.length; i++) {
+      var t = String(list[i].text || "").trim().slice(0, 160);
+      if (!t) continue;
+      if (used + t.length > (cap || 1000)) break;
+      used += t.length;
+      lines.push("- " + t);
+    }
+    return lines.length ? "\n\nThings to remember about the user:\n" + lines.join("\n") : "";
+  }
+
+  function buildSystem(base, chatSystem, memories) {
+    var out = String(base || "");
+    var extra = String(chatSystem || "").trim();
+    if (extra) out += "\n\nThe user set these standing instructions for this chat: " + extra;
+    out += memoryBlock(memories);
+    return out;
+  }
+
+  /* ---------- vision ---------- */
+
+  function visionCapable(model) {
+    var m = String(model || "").toLowerCase();
+    return /gpt-4|gpt-5|o3|o4|chatgpt|claude|gemini|pixtral|vision|vl|llava|multimodal|omni/.test(m);
+  }
+
+  /* ---------- PII redaction ---------- */
+
+  function luhn_ok(digits) {
+    var s = String(digits);
+    if (!/^\d+$/.test(s)) return false;
+    var sum = 0;
+    var alt = false;
+    for (var i = s.length - 1; i >= 0; i--) {
+      var d = +s[i];
+      if (alt) { d *= 2; if (d > 9) d -= 9; }
+      sum += d;
+      alt = !alt;
+    }
+    return sum % 10 === 0;
+  }
+
+  /* Masks personal identifiers before a message leaves the device.
+     Conservative on purpose: it is worse to mangle a legitimate number
+     than to miss one. Each pattern gets its own replacer so capture group
+     positions never blur. Returns the new text and what it changed. */
+  function redactPII(text) {
+    var t = String(text || "");
+    var found = [];
+    /* emails */
+    t = t.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, function (m) {
+      found.push("email");
+      return "[email]";
+    });
+    /* cards: 13 to 19 digits with spaces or dashes, Luhn checked */
+    t = t.replace(/\b(?:\d[ -]?){13,19}\b/g, function (m) {
+      if (!luhn_ok(m.replace(/[ -]/g, ""))) return m;
+      found.push("card");
+      return "[card]";
+    });
+    /* BVN and NIN: the keyword names the 11 digit run, so only the digits go */
+    t = t.replace(/\b(?:bvn|bank verification number)[ \t.:]{0,3}\d{11}\b/gi, function (m) {
+      found.push("bvn");
+      return m.replace(/\d{11}/, "[bvn]");
+    });
+    t = t.replace(/\b(?:nin|national identification number)[ \t.:]{0,3}\d{11}\b/gi, function (m) {
+      found.push("nin");
+      return m.replace(/\d{11}/, "[nin]");
+    });
+    /* phones: Nigerian local (0801 234 5678) or international (+234...).
+       The prefix character is kept so spacing around the mask survives. */
+    t = t.replace(/(^|[^\w.])(\+?234[ -]?\d{3}[ -]?\d{3}[ -]?\d{3,4}|0[7-9][01]\d[ -]?\d{3}[ -]?\d{3,4})\b/g, function (m, pre) {
+      found.push("phone");
+      return pre + "[phone]";
+    });
+    return { text: t, found: found };
+  }
+
+  /* ---------- prompt library ---------- */
+
+  function extractVars(tpl) {
+    var out = [];
+    String(tpl || "").replace(/\{\{\s*([a-zA-Z0-9_ ]{1,30})\s*\}\}/g, function (m, name) {
+      var k = name.trim();
+      if (out.indexOf(k) === -1) out.push(k);
+      return m;
+    });
+    return out;
+  }
+
+  function applyTemplate(tpl, values) {
+    return String(tpl || "").replace(/\{\{\s*([a-zA-Z0-9_ ]{1,30})\s*\}\}/g, function (m, name) {
+      var k = name.trim();
+      return values && values[k] != null && String(values[k]).length ? String(values[k]) : m;
+    });
+  }
+
+  /* ---------- memory capture ---------- */
+
+  /* "remember that Ada lives in Yaba" stores the fact, not the command. */
+  function memoryFromText(text) {
+    var m = /^\s*(?:please\s+)?remember\s+(?:that\s+)?(.+)$/i.exec(String(text || ""));
+    if (!m) return null;
+    var fact = m[1].replace(/\s+/g, " ").trim().slice(0, 160);
+    if (fact.length < 3) return null;
+    return fact;
+  }
+
+  function dedupeMemory(memories, fact) {
+    var list = (memories || []).filter(function (m) {
+      return String(m.text || "").toLowerCase() !== fact.toLowerCase();
+    });
+    list.push({ id: "mem" + Date.now().toString(36), text: fact, ts: Date.now() });
+    return list.slice(-50);
+  }
+
+  /* ---------- follow ups ---------- */
+
+  function followUpPrompt(userText, answerText) {
+    return "Suggest exactly 3 short follow up messages the user of a chat app might send next. " +
+      "Each is one line, at most 6 words, no numbering, no quotes, no explanations. " +
+      "Reply with the 3 lines and nothing else.\n\n" +
+      "User asked: " + String(userText || "").slice(0, 300) + "\n" +
+      "Answer began: " + String(answerText || "").slice(0, 400);
+  }
+
+  function parseFollowUps(text) {
+    return String(text || "").split("\n")
+      .map(function (l) { return l.replace(/^[\s\d.):\-*]+/, "").trim(); })
+      .filter(function (l) { return l && l.length <= 60; })
+      .slice(0, 3);
+  }
+
+  /* ---------- usage and cost ---------- */
+
+  /* One row per provider that appears in chats, with message counts and
+     token sums from message stats. Cost only when the provider has prices
+     set (per million tokens, in and out). */
+  function aggregateUsage(chats, providers) {
+    var byId = {};
+    (providers || []).forEach(function (p) { byId[p.id] = p; });
+    var rows = {};
+    (chats || []).forEach(function (c) {
+      var p = byId[c.providerId];
+      var label = p ? p.label : (c.model || "Demo");
+      var priceIn = p && isFinite(+p.priceIn) ? +p.priceIn : null;
+      var priceOut = p && isFinite(+p.priceOut) ? +p.priceOut : null;
+      var row = rows[c.providerId || "demo"] ||
+        (rows[c.providerId || "demo"] = { label: label, msgs: 0, toks: 0, cost: 0, priced: priceIn != null || priceOut != null });
+      (c.messages || []).forEach(function (m) {
+        if (!m || m.role !== "assistant" || m.error) return;
+        if (!String(m.content || "").length) return;
+        row.msgs++;
+        var toks = m.stats && m.stats.toks > 0 ? m.stats.toks : 0;
+        row.toks += toks;
+        if (row.priced && m.stats) {
+          var tin = m.stats.toksIn != null ? m.stats.toksIn : Math.round(toks * 0.25);
+          var tout = m.stats.toksOut != null ? m.stats.toksOut : Math.round(toks * 0.75);
+          if (priceIn != null) row.cost += tin / 1e6 * priceIn;
+          if (priceOut != null) row.cost += tout / 1e6 * priceOut;
+        }
+      });
+    });
+    return Object.keys(rows).map(function (k) { return rows[k]; })
+      .sort(function (a, b) { return b.cost - a.cost || b.toks - a.toks; });
+  }
+
+  /* ---------- retention ---------- */
+
+  /* Deletes chats older than N days. Pinned chats and folders survive. */
+  function pruneChats(chats, days, now) {
+    if (!days || !(days > 0)) return { kept: chats || [], removed: [] };
+    var cutoff = (now || Date.now()) - days * 86400000;
+    var kept = [], removed = [];
+    (chats || []).forEach(function (c) {
+      var ts = c.updatedAt || c.createdAt || 0;
+      if (c.pinned || ts >= cutoff) kept.push(c);
+      else removed.push(c);
+    });
+    return { kept: kept, removed: removed };
+  }
+
+  /* ---------- encrypted backup (WebCrypto) ---------- */
+
+  var cryptoObj = (typeof globalThis !== "undefined" && globalThis.crypto) ? globalThis.crypto : null;
+
+  function b64(bytes) {
+    var s = "";
+    var u = new Uint8Array(bytes);
+    for (var i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
+    return btoa(s);
+  }
+  function unb64(s) {
+    var raw = atob(String(s || ""));
+    var u = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) u[i] = raw.charCodeAt(i);
+    return u;
+  }
+
+  async function deriveKey(passphrase, salt) {
+    var keyMat = await cryptoObj.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+    return cryptoObj.subtle.deriveKey(
+      { name: "PBKDF2", salt: salt, iterations: 200000, hash: "SHA-256" },
+      keyMat,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]);
+  }
+
+  /* File shape: {format:"impose-encrypted-v1", salt, iv, data} all base64.
+     The payload is the plain Impose export JSON. */
+  async function encryptExport(plainObj, passphrase) {
+    if (!cryptoObj || !cryptoObj.subtle) return Promise.reject(new Error("WebCrypto is not available in this browser."));
+    if (String(passphrase || "").length < 8) return Promise.reject(new Error("Use a passphrase of at least 8 characters."));
+    var salt = cryptoObj.getRandomValues(new Uint8Array(16));
+    var iv = cryptoObj.getRandomValues(new Uint8Array(12));
+    var key = await deriveKey(passphrase, salt);
+    var data = new TextEncoder().encode(JSON.stringify(plainObj));
+    var enc = await cryptoObj.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, data);
+    return { format: "impose-encrypted-v1", salt: b64(salt), iv: b64(iv), data: b64(enc) };
+  }
+
+  async function decryptExport(fileObj, passphrase) {
+    if (!cryptoObj || !cryptoObj.subtle) return Promise.reject(new Error("WebCrypto is not available in this browser."));
+    if (!fileObj || fileObj.format !== "impose-encrypted-v1") return Promise.reject(new Error("That file is not an encrypted Impose backup."));
+    var key = await deriveKey(passphrase, unb64(fileObj.salt));
+    var plain = await cryptoObj.subtle.decrypt({ name: "AES-GCM", iv: unb64(fileObj.iv) }, key, unb64(fileObj.data));
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
+
+  /* ---------- share as HTML ---------- */
+
+  function escHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  /* A self contained read only snapshot. No scripts, inline styles only. */
+  function shareChatHtml(chat) {
+    var title = String((chat && chat.title) || "Impose chat");
+    var rows = "";
+    ((chat && chat.messages) || []).forEach(function (m) {
+      if (!m) return;
+      var mine = m.role === "user";
+      rows += '<div class="m ' + (mine ? "u" : "a") + '"><span class="who">' + escHtml(mine ? "You" : "Impose") +
+        '</span><div class="b">' + escHtml(m.content || "").replace(/\n/g, "<br>") + "</div></div>";
+    });
+    return "<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\">" +
+      "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
+      "<title>" + escHtml(title) + "</title><style>" +
+      "body{margin:0;background:#212121;color:#ececec;font:15px/1.6 system-ui,sans-serif}" +
+      ".wrap{max-width:720px;margin:0 auto;padding:32px 16px}h1{font-size:19px}" +
+      ".m{margin:18px 0}.who{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8f8f8f;margin-bottom:6px}" +
+      ".u .b{background:#323232;border-radius:12px;padding:12px 16px;display:inline-block}" +
+      ".a .b{border-left:2px solid rgba(255,255,255,.2);padding:2px 0 2px 16px}" +
+      "</style></head><body><div class=\"wrap\"><h1>" + escHtml(title) + "</h1>" + rows +
+      "<p style=\"color:#8f8f8f;font-size:12px\">Shared from Impose. Read only snapshot.</p></div></body></html>";
+  }
+
+  /* ---------- relay status ---------- */
+
+  function formatRelayStatus(data) {
+    if (!data || typeof data !== "object") return { ok: false, text: "The relay did not answer." };
+    if (data.gateway_up === true) {
+      var idle = data.idle_minutes != null ? Math.round(data.idle_minutes) : null;
+      return { ok: true, up: true, text: "Gateway up" + (idle != null ? " · idle " + idle + "m" : "") };
+    }
+    if (data.wake_studio === false && data.note) return { ok: true, up: false, text: "Gateway down · wake disabled" };
+    return { ok: true, up: false, text: "Gateway down · set to wake on chat" };
+  }
+
+  /* ---------- misc helpers ---------- */
+
+  function duplicateChat(chat, newId) {
+    var copy = JSON.parse(JSON.stringify(chat));
+    copy.id = newId;
+    copy.title = String(chat.title || "Chat") + " (copy)";
+    copy.pinned = false;
+    copy.createdAt = Date.now();
+    copy.updatedAt = Date.now();
+    return copy;
+  }
+
+  var api = {
+    estimateTokens: estimateTokens,
+    modelContext: modelContext,
+    trimHistory: trimHistory,
+    clampParam: clampParam,
+    applyGenParams: applyGenParams,
+    memoryBlock: memoryBlock,
+    buildSystem: buildSystem,
+    visionCapable: visionCapable,
+    luhn_ok: luhn_ok,
+    redactPII: redactPII,
+    extractVars: extractVars,
+    applyTemplate: applyTemplate,
+    memoryFromText: memoryFromText,
+    dedupeMemory: dedupeMemory,
+    followUpPrompt: followUpPrompt,
+    parseFollowUps: parseFollowUps,
+    aggregateUsage: aggregateUsage,
+    pruneChats: pruneChats,
+    encryptExport: encryptExport,
+    decryptExport: decryptExport,
+    shareChatHtml: shareChatHtml,
+    escHtml: escHtml,
+    formatRelayStatus: formatRelayStatus,
+    duplicateChat: duplicateChat
+  };
+
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else (typeof globalThis !== "undefined" ? globalThis : window).ImposeFeatures = api;
+})();
+
+</script>
+<script>
 /* Impose chat client. Bring your own key: providers speak OpenAI style,
    Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
@@ -3377,6 +4100,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     for (var i = 0; i < els.length; i++) els[i].style.transition = "";
   }
   var SYS_MSG = "You are Impose, a helpful assistant.";
+
+  /* Base persona + per chat instructions + memory, assembled once per send. */
+  function getSystemMsg(chat) {
+    var mem = state.memories || [];
+    if (window.ImposeFeatures) return window.ImposeFeatures.buildSystem(SYS_MSG, chat && chat.params && chat.params.system, mem);
+    return SYS_MSG;
+  }
 
   /* ---------- canned replies (demo mode, no provider set) ---------- */
 
@@ -3832,7 +4562,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function defaultSettings() {
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "", searchMode: false, displayName: "You" };
+    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "", searchMode: false, displayName: "You",
+      redactPII: false, followupsSmart: true, autoName: true, retentionDays: 0, failover: true };
   }
 
   function loadState() {
@@ -3850,6 +4581,14 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           });
           if (!Array.isArray(parsed.folders)) parsed.folders = [];
           if (!Array.isArray(parsed.outbox)) parsed.outbox = [];
+          if (!Array.isArray(parsed.library)) parsed.library = [];
+          if (!Array.isArray(parsed.memories)) parsed.memories = [];
+          parsed.chats.forEach(function (c) {
+            if (c.params) {
+              c.params = { system: String(c.params.system || ""), temperature: c.params.temperature, topP: c.params.topP, maxTokens: c.params.maxTokens };
+              if (!c.params.system && c.params.temperature == null && c.params.topP == null && c.params.maxTokens == null) delete c.params;
+            }
+          });
           parsed.chats.forEach(function (c) {
             if (!Array.isArray(c.excluded)) c.excluded = [];
             (c.messages || []).forEach(function (m) {
@@ -3863,7 +4602,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         }
       } catch (e) { /* fall through to seed */ }
     }
-    return { chats: seedChats(), providers: [], folders: [], outbox: [], settings: defaultSettings() };
+    return { chats: seedChats(), providers: [], folders: [], outbox: [], library: [], memories: [], settings: defaultSettings() };
   }
 
   var state = loadState();
@@ -3877,7 +4616,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   var quotaTrimming = false;
 
   function payloadJson() {
-    return JSON.stringify({ chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, settings: state.settings });
+    return JSON.stringify({ chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, library: state.library || [], memories: state.memories || [], settings: state.settings });
   }
 
   /* Quota rescue: photos are the only heavy part of the store, so drop them
@@ -4291,27 +5030,38 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   /* The relay path never streams: one whole reply per request. */
-  function unstreamedChat(provider, model, history, signal, onDelta) {
+  function unstreamedChat(provider, model, history, signal, onDelta, opts) {
+    opts = opts || {};
+    var F = window.ImposeFeatures;
+    var sys = opts.system || SYS_MSG;
     var req, body;
     if (provider.kind === "anthropic") {
       req = buildRequest(provider, "/messages");
-      body = { model: model, max_tokens: 1024, system: SYS_MSG, messages: history, stream: false };
+      body = { model: model, max_tokens: 1024, system: sys, messages: history, stream: false };
+      if (F) F.applyGenParams(body, "anthropic", opts.genParams);
     } else if (provider.kind === "gemini") {
       req = buildRequest(provider, "/models/" + encodeURIComponent(model) + ":generateContent");
       body = {
-        systemInstruction: { parts: [{ text: SYS_MSG }] },
+        systemInstruction: { parts: [{ text: sys }] },
         contents: history.map(function (m) {
           return { role: m.role === "assistant" ? "model" : "user", parts: geminiParts(m.content) };
         })
       };
+      if (F) F.applyGenParams(body, "gemini", opts.genParams);
     } else {
       req = buildRequest(provider, "/chat/completions");
-      body = { model: model, messages: [{ role: "system", content: SYS_MSG }].concat(history), stream: false };
+      body = { model: model, messages: [{ role: "system", content: sys }].concat(history), stream: false };
+      if (F) F.applyGenParams(body, "openai", opts.genParams);
     }
     req.headers["Content-Type"] = "application/json";
     return relayFetchReq(req, "POST", body, signal).then(function (res) {
       return throwIfHttpError(provider, model, res).then(function () { return res.json(); });
     }).then(function (d) {
+      if (opts.usage) {
+        if (provider.kind === "anthropic" && d.usage) { opts.usage.toksIn = d.usage.input_tokens; opts.usage.toksOut = d.usage.output_tokens; }
+        else if (provider.kind === "openai" && d.usage) { opts.usage.toksIn = d.usage.prompt_tokens; opts.usage.toksOut = d.usage.completion_tokens; }
+        else if (provider.kind === "gemini" && d.usageMetadata) { opts.usage.toksIn = d.usageMetadata.promptTokenCount; opts.usage.toksOut = d.usageMetadata.candidatesTokenCount; }
+      }
       var text = "";
       var think = "";
       if (provider.kind === "anthropic") {
@@ -4458,17 +5208,28 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return pump();
   }
 
-  function streamChat(provider, model, history, signal, onDelta, onThink) {
-    if (provider && provider.useRelay) return unstreamedChat(provider, model, history, signal, onDelta);
+  /* opts: { genParams, system, usage } where usage is filled in place
+     {toksIn, toksOut} when the provider reports real counts. */
+  function streamChat(provider, model, history, signal, onDelta, onThink, opts) {
+    opts = opts || {};
+    var F = window.ImposeFeatures;
+    if (provider && provider.useRelay) return unstreamedChat(provider, model, history, signal, onDelta, opts);
+    var sys = opts.system || SYS_MSG;
     var req, body;
     if (provider.kind === "anthropic") {
       req = buildRequest(provider, "/messages");
       req.headers["Content-Type"] = "application/json";
-      body = { model: model, max_tokens: 1024, system: SYS_MSG, messages: history, stream: true };
+      body = { model: model, max_tokens: 1024, system: sys, messages: history, stream: true };
+      if (F) F.applyGenParams(body, "anthropic", opts.genParams);
       return fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body), signal: signal })
         .then(function (res) {
           return throwIfHttpError(provider, model, res).then(function () {
             return readSSE(res, function (d) {
+              if (opts.usage && d.type === "message_start" && d.message && d.message.usage) {
+                opts.usage.toksIn = d.message.usage.input_tokens;
+              } else if (opts.usage && d.type === "message_delta" && d.usage) {
+                opts.usage.toksOut = d.usage.output_tokens;
+              }
               if (d.type === "content_block_delta" && d.delta && d.delta.type === "text_delta" && d.delta.text) {
                 onDelta(d.delta.text);
               } else if (onThink && d.type === "content_block_delta" && d.delta && d.delta.type === "thinking_delta" && d.delta.thinking) {
@@ -4482,15 +5243,20 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       req = buildRequest(provider, "/models/" + encodeURIComponent(model) + ":streamGenerateContent", { alt: "sse" });
       req.headers["Content-Type"] = "application/json";
       body = {
-        systemInstruction: { parts: [{ text: SYS_MSG }] },
+        systemInstruction: { parts: [{ text: sys }] },
         contents: history.map(function (m) {
           return { role: m.role === "assistant" ? "model" : "user", parts: geminiParts(m.content) };
         })
       };
+      if (F) F.applyGenParams(body, "gemini", opts.genParams);
       return fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body), signal: signal })
         .then(function (res) {
           return throwIfHttpError(provider, model, res).then(function () {
             return readSSE(res, function (d) {
+              if (opts.usage && d.usageMetadata) {
+                opts.usage.toksIn = d.usageMetadata.promptTokenCount;
+                opts.usage.toksOut = d.usageMetadata.candidatesTokenCount;
+              }
               (d.candidates || []).forEach(function (c) {
                 var parts = (c.content && c.content.parts) || [];
                 parts.forEach(function (part) {
@@ -4519,6 +5285,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
                complete one. */
             if (d && d.error && d.error.type === "impose_truncated_stream") {
               throw new Error("The reply stream ended early, so part of the answer may be missing.");
+            }
+            if (opts.usage && d.usage && d.usage.completion_tokens != null) {
+              opts.usage.toksIn = d.usage.prompt_tokens;
+              opts.usage.toksOut = d.usage.completion_tokens;
             }
             var choice = d.choices && d.choices[0];
             var delta = choice && (choice.delta || choice.message);
@@ -5304,25 +6074,35 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   function statsHtml(msg) {
     if (!msg.stats || msg.stats.ms == null) return "";
     var secs = Math.max(1, Math.round(msg.stats.ms / 1000));
-    var toks = msg.stats.toks > 0 ? " · ≈" + msg.stats.toks + " tok" : "";
-    return '<span class="msg-stats">' + secs + "s" + toks + "</span>";
+    var bits = [secs + "s"];
+    if (msg.stats.toks > 0) bits.push("≈" + msg.stats.toks + " tok");
+    if (msg.stats.cost > 0) bits.push("$" + (msg.stats.cost >= 1 ? msg.stats.cost.toFixed(2) : msg.stats.cost.toFixed(4)));
+    if (msg.via) bits.push(msg.via);
+    return '<span class="msg-stats">' + bits.join(" · ") + "</span>";
   }
 
   function actionsHtml(msg, fresh) {
     msg = ensureVariants(msg || { content: "" });
     var pager = "";
     if (msg.variants.length > 1) {
-      pager = '<span class="pager">' +
+      var meta = Array.isArray(msg.variantsMeta) ? msg.variantsMeta[msg.vi] : null;
+      var mm = meta && meta.model ? ' title="' + escapeHtml(meta.model) + '"' : "";
+      pager = '<span class="pager"' + mm + ">" +
         '<button type="button" data-act="prev" title="Previous version" aria-label="Previous version"><i data-lucide="chevron-left"></i></button>' +
         "<span>" + (msg.vi + 1) + "/" + msg.variants.length + "</span>" +
         '<button type="button" data-act="next" title="Next version" aria-label="Next version"><i data-lucide="chevron-right"></i></button>' +
         "</span>";
     }
+    var retryAs = state.providers.length > 1
+      ? '<button type="button" data-act="retryas" title="Regenerate with another model" aria-label="Regenerate with another model"><i data-lucide="shuffle"></i></button>'
+      : "";
     return '<div class="msg-actions' + (fresh ? " fresh" : "") + '">' +
       '<button type="button" data-act="copy" title="Copy" aria-label="Copy"><i data-lucide="copy"></i></button>' +
       rateBtn("like", msg.rating, "Good response", "Good response", "thumbs-up") +
       rateBtn("dislike", msg.rating, "Bad response", "Bad response", "thumbs-down") +
       '<button type="button" data-act="retry" title="Regenerate" aria-label="Regenerate"><i data-lucide="rotate-ccw"></i></button>' +
+      retryAs +
+      '<button type="button" data-act="editasst" title="Edit reply" aria-label="Edit reply"><i data-lucide="pencil"></i></button>' +
       '<button type="button" data-act="speak" title="Read aloud" aria-label="Read aloud"><i data-lucide="volume-2"></i></button>' +
       sourcesToggleHtml(msg) + pager + statsHtml(msg) +
       "</div>";
@@ -5747,11 +6527,17 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
   }
 
-  function historyFor(messages, kind) {
+  function historyFor(messages, kind, model) {
     kind = kind || "openai";
-    return messages
-      .filter(function (m) { return String(m.content || "").trim() !== "" || (m.images && m.images.length); })
-      .slice(-30)
+    var F = window.ImposeFeatures;
+    var msgs = messages;
+    if (F) {
+      /* Token aware trim against the model window, instead of a blind last 30. */
+      msgs = F.trimHistory(messages, kind, Math.floor(F.modelContext(model) * 0.5));
+    } else {
+      msgs = messages.filter(function (m) { return String(m.content || "").trim() !== "" || (m.images && m.images.length); }).slice(-30);
+    }
+    return msgs
       .map(function (m) {
         if (!m.images || !m.images.length || m.role !== "user") return { role: m.role, content: m.content };
         var parts = [{ type: "text", text: m.content || "" }];
@@ -5770,8 +6556,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       });
   }
 
-  /* replaceIdx null appends a fresh answer, otherwise regenerates in place. */
-  function streamLive(chat, provider, model, history, replaceIdx) {
+  /* replaceIdx null appends a fresh answer, otherwise regenerates in place.
+     retried marks a failover attempt so a bad provider cannot loop forever. */
+  function streamLive(chat, provider, model, history, replaceIdx, retried) {
     var idx, row;
     if (replaceIdx == null) {
       idx = chat.messages.length;
@@ -5812,7 +6599,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       t0: Date.now(),
       provider: provider,
       model: model,
-      viaRelay: !!(provider && provider.useRelay)
+      viaRelay: !!(provider && provider.useRelay),
+      retried: !!retried,
+      usage: {}
     };
     stream = s;
 
@@ -5833,6 +6622,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       if (stick) scrollBottom();
     }
 
+    var liveOpts = {
+      genParams: chat && chat.params,
+      system: getSystemMsg(chat),
+      usage: s.usage
+    };
     streamChat(provider, model, history, s.controller ? s.controller.signal : undefined, function (chunk) {
       if (stream !== s) return;
       s.text += chunk;
@@ -5844,11 +6638,35 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       if (!s.thinkTouched) s.thinkOpen = true;
       s.dirty = true;
       if (!s.raf) s.raf = requestAnimationFrame(renderFrame);
-    }).then(function () {
+    }, liveOpts).then(function () {
       finishLive(s, false, null);
     }, function (err) {
+      /* Failover: one automatic retry on the next usable provider. */
+      var backup = (!err || err.name !== "AbortError") && !s.retried && state.settings.failover
+        ? pickBackup(provider && provider.id) : null;
+      if (backup) {
+        dnote("chat", "Failover to " + backup.label + " after " + (provider ? provider.label : "failure"));
+        toast("Provider failed. Retrying with " + backup.label + ".");
+        var idxKeep = s.index;
+        var rowKeep = s.row;
+        if (stream === s) stream = null;
+        setStreamingUI(true);
+        rowKeep.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
+        var hist2 = historyFor(chat.messages.slice(0, idxKeep), backup.kind, backup.model);
+        streamLive(chat, backup.provider, backup.model, hist2, idxKeep, true);
+        return;
+      }
       finishLive(s, true, err);
     });
+  }
+
+  /* The next provider in the list that has a model and can actually run. */
+  function pickBackup(excludeId) {
+    var candidates = state.providers.filter(function (p) {
+      return p.id !== excludeId && activeModelOf(p) &&
+        (p.authStyle === "none" || String(p.apiKey || "").trim());
+    });
+    return candidates.length ? { provider: candidates[0], model: activeModelOf(candidates[0]), label: providerDisplay(candidates[0]) } : null;
   }
 
   function finishLive(s, failed, err) {
@@ -5882,7 +6700,22 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (msg) {
       msg.content = s.text;
       msg.error = failed ? sentence : null;
-      msg.stats = { ms: Date.now() - (s.t0 || Date.now()), toks: Math.round(s.text.length / 4) };
+      var stats = { ms: Date.now() - (s.t0 || Date.now()), toks: Math.round(s.text.length / 4) };
+      var u = s.usage || {};
+      if (u.toksOut > 0 || u.toksIn > 0) {
+        stats.toks = (u.toksIn || 0) + (u.toksOut || 0);
+        stats.toksIn = u.toksIn || 0;
+        stats.toksOut = u.toksOut || 0;
+        var pr = s.provider || {};
+        var pin = isFinite(+pr.priceIn) ? +pr.priceIn : null;
+        var pout = isFinite(+pr.priceOut) ? +pr.priceOut : null;
+        if (pin != null || pout != null) {
+          stats.cost = (pin != null ? (u.toksIn || 0) / 1e6 * pin : 0) + (pout != null ? (u.toksOut || 0) / 1e6 * pout : 0);
+        }
+      }
+      msg.stats = stats;
+      msg.via = s.provider ? providerDisplay(s.provider) : null;
+      if (s.stopped && !failed && s.text) msg.stopped = true; else msg.stopped = null;
       if (msg.variants) msg.variants[msg.vi] = s.text;
       chat.updatedAt = Date.now();
       save();
@@ -5905,9 +6738,33 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       maybeRetitle(chat, s.provider, s.model);
     }
     if (!failed && !s.stopped && msg) showFollowups(chat, msg);
+    if (!failed && !s.stopped && msg) maybeSmartFollowups(chat, msg);
     if (awayBase !== -1) updateJumpPill();
     renderList();
     drainNext();
+  }
+
+  /* Model generated follow ups, cached on the message. Falls back to the
+     canned bank silently when the model is out of ideas or money. */
+  function maybeSmartFollowups(chat, msg) {
+    if (!state.settings.followupsSmart) return;
+    if (!msg || msg.suggested || msg.suggesting) return;
+    var t = getTarget();
+    if (!t || String(msg.content || "").length < 40) return;
+    msg.suggesting = true;
+    completeOnce(t.provider, t.model, [{ role: "user", content:
+      window.ImposeFeatures.followUpPrompt(prevUserText(chat, chat.messages.indexOf(msg)), String(msg.content).slice(0, 600)) }])
+      .then(function (out) {
+        msg.suggesting = false;
+        var lines = window.ImposeFeatures.parseFollowUps(out);
+        if (!lines.length) return;
+        msg.suggested = lines;
+        save();
+        if (getChat(activeId) === chat && !stream &&
+            chat.messages[chat.messages.length - 1] === msg) {
+          showFollowups(chat, msg);
+        }
+      }, function () { msg.suggesting = false; });
   }
 
   function clearTraceDemo() {
@@ -6182,6 +7039,25 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     clearTraceDemo();
     stopSpeak();
     if (!text) return;
+    /* "remember that ..." stores a fact for future chats before anything
+       else happens. The message still goes to the model. */
+    if (/^remember /i.test(text) && window.ImposeFeatures) {
+      var fact = window.ImposeFeatures.memoryFromText(text);
+      if (fact) {
+        state.memories = window.ImposeFeatures.dedupeMemory(state.memories, fact);
+        save();
+        renderMemory();
+        toast("Remembered. Manage memories in Settings.");
+      }
+    }
+    /* Optional redaction before anything leaves the device. */
+    if (state.settings.redactPII && window.ImposeFeatures) {
+      var red = window.ImposeFeatures.redactPII(text);
+      if (red.text !== text) {
+        text = red.text;
+        toast.warn("Redacted before send: " + red.found.join(", "));
+      }
+    }
     if (typeof navigator.onLine === "boolean" && !navigator.onLine) {
       state.outbox.push(text);
       save();
@@ -6213,9 +7089,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     chat.messages.push({ role: "user", content: text, ts: Date.now() });
     if (pendingImages.length) {
       chat.messages[chat.messages.length - 1].images = pendingImages.map(function (p) { return p.url; });
+      var vt = getTarget();
+      if (!vt) toast("Demo replies cannot see your images. Only the text was sent.");
+      else if (window.ImposeFeatures && !window.ImposeFeatures.visionCapable(vt.model)) {
+        toast.warn(vt.model + " may not see images. A vision model would.");
+      }
       pendingImages = [];
       renderAttachPreview();
-      if (!getTarget()) toast("Demo replies cannot see your images. Only the text was sent.");
     }
     chat.updatedAt = Date.now();
     save();
@@ -6252,10 +7132,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     renderMessages();
   }
 
-  function routeSend(chat, text, replaceIdx) {
+  function routeSend(chat, text, replaceIdx, override) {
     clearFollowups();
     stopSpeak();
-    var t = getTarget();
+    var t = override ? { provider: override, model: activeModelOf(override) } : getTarget();
     if (t && t.missingKey) {
       dwarn("provider", "Missing key for " + t.provider.label + ", chat not sent");
       if (replaceIdx != null) abortReplace(chat, replaceIdx);
@@ -6272,7 +7152,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         streamResearched(chat, t.provider, t.model, text, replaceIdx);
       } else {
         dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
-        var hist = replaceIdx == null ? historyFor(chat.messages, t.provider.kind) : historyFor(chat.messages.slice(0, replaceIdx), t.provider.kind);
+        var hist = replaceIdx == null ? historyFor(chat.messages, t.provider.kind, t.model) : historyFor(chat.messages.slice(0, replaceIdx), t.provider.kind, t.model);
         streamLive(chat, t.provider, t.model, hist, replaceIdx);
       }
     } else {
@@ -6433,6 +7313,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function maybeRetitle(chat, provider, model) {
+    if (!state.settings.autoName) return;
     if (!chat || chat.customTitle || titling[chat.id] || !provider || !model) return;
     if (chat.messages.length !== 2) return;
     var first = chat.messages[0];
@@ -6607,15 +7488,21 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   });
   chatScroll.addEventListener("scroll", hideCiteCard, { passive: true });
 
-  function prepRegen(chat, msg) {
+  function prepRegen(chat, msg, nextModel) {
     ensureVariants(msg);
+    if (!Array.isArray(msg.variantsMeta)) {
+      msg.variantsMeta = msg.variants.map(function () { return null; });
+    }
+    while (msg.variantsMeta.length < msg.variants.length) msg.variantsMeta.push(null);
     msg.vi = msg.variants.length;
     msg.variants.push("");
+    msg.variantsMeta.push({ model: nextModel || chat.model || "" });
     msg.content = "";
     msg.error = null;
     msg.rating = null;
     msg.stats = null;
     msg.sources = null;
+    msg.stopped = null;
     chat.updatedAt = Date.now();
     save();
   }
@@ -6685,16 +7572,25 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     h.className = "followups-head";
     h.textContent = "Follow-ups";
     wrap.appendChild(h);
-    followupsFor(userText, msg.content).forEach(function (s, i) {
+    var picks = Array.isArray(msg.suggested) && msg.suggested.length
+      ? msg.suggested.slice(0, 3)
+      : followupsFor(userText, msg.content);
+    if (msg.stopped) {
+      picks = ["Continue where you stopped"].concat(picks.slice(0, 2));
+    }
+    picks.forEach(function (s, i) {
+      var prompt = s === "Continue where you stopped"
+        ? "Continue exactly where you stopped. Do not repeat what you already wrote."
+        : s;
       var b = document.createElement("button");
       b.type = "button";
       b.className = "followup";
-      b.innerHTML = '<i data-lucide="corner-up-left"></i>';
+      b.innerHTML = '<i data-lucide="' + (s === "Continue where you stopped" ? "play" : "corner-up-left") + '"></i>';
       var sp = document.createElement("span");
       sp.textContent = s;
       b.appendChild(sp);
       b.style.setProperty("--d", (i * 90) + "ms");
-      b.addEventListener("click", function () { send(s); });
+      b.addEventListener("click", function () { send(prompt); });
       wrap.appendChild(b);
     });
     row.appendChild(wrap);
@@ -6773,7 +7669,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       { icon: "moon", title: "Appearance", hint: "Next theme", run: function () { var n = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length]; applyTheme(n); } },
       { icon: "settings", title: "Settings", hint: "General", run: function () { openSettings("general"); } },
       { icon: "cpu", title: "Providers", hint: "Keys and models", run: function () { openSettings("providers"); } },
-      { icon: "download", title: "Export chats", hint: "JSON backup", run: function () { doExportJSON(); } }
+      { icon: "download", title: "Export chats", hint: "JSON backup", run: function () { doExportJSON(); } },
+      { icon: "book-marked", title: "Prompt library", hint: "Save and reuse prompts", run: function () { openSettings("prompts"); } },
+      { icon: "bar-chart-3", title: "Usage", hint: "Replies, tokens, cost", run: function () { openSettings("usage"); } },
+      { icon: "sliders-horizontal", title: "Chat settings", hint: "System prompt and sampling", run: function () { $("chatParamsBtn").click(); } },
+      { icon: "keyboard", title: "Keyboard shortcuts", hint: "The full list", run: function () { openShortcuts(); } }
     ];
   }
 
@@ -7040,8 +7940,89 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         prepRegen(chat, msg);
         routeSend(chat, prevUserText(chat, idx), idx);
       });
+    } else if (act === "retryas") {
+      if (stream || regenBusy) return;
+      renderRetryMenu(chat, msg, idx, row, btn);
+    } else if (act === "editasst") {
+      if (stream) return;
+      startEditAssistant(chat, row, idx, msg);
     }
   });
+
+  /* Regenerate with a different model: a small menu of the other providers. */
+  function renderRetryMenu(chat, msg, idx, row, trigger) {
+    var list = $("retryMenuList");
+    if (!list) return;
+    list.innerHTML = "";
+    var current = msg.variantsMeta && msg.variantsMeta[msg.variantsMeta.length - 1];
+    state.providers.forEach(function (p) {
+      if (!activeModelOf(p)) return;
+      if (current && current.model === providerDisplay(p)) return;
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "pop-item";
+      b.setAttribute("role", "menuitem");
+      b.innerHTML = '<i data-lucide="cpu"></i><span></span><em></em>';
+      b.querySelector("span").textContent = p.label;
+      b.querySelector("em").textContent = activeModelOf(p);
+      b.addEventListener("click", function () {
+        hidePop(true);
+        if (stream || regenBusy) return;
+        var model = activeModelOf(p);
+        fadeRegen(row, function () {
+          prepRegen(chat, msg, providerDisplay(p));
+          routeSend(chat, prevUserText(chat, idx), idx, p);
+        });
+      });
+      list.appendChild(b);
+    });
+    if (!list.children.length) {
+      var p0 = document.createElement("p");
+      p0.className = "search-empty";
+      p0.textContent = "No other providers are ready.";
+      list.appendChild(p0);
+    }
+    refreshIcons();
+    showPop($("retryMenu"), trigger, { side: "top", align: "start" });
+  }
+
+  /* Fix or adjust an assistant reply in place. Saved as the active variant. */
+  function startEditAssistant(chat, row, idx, msg) {
+    var body = row.querySelector(".msg-body");
+    if (!body || row.querySelector(".edit-box")) return;
+    var box = document.createElement("div");
+    box.className = "edit-box";
+    box.innerHTML = '<textarea aria-label="Edit reply"></textarea><div class="edit-row"><button type="button" class="btn small" data-e="cancel">Cancel</button><button type="button" class="btn small primary" data-e="save">Save</button></div>';
+    var ta = box.querySelector("textarea");
+    ta.value = msg.content || "";
+    body.replaceWith(box);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    function grow() { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 300) + "px"; }
+    ta.addEventListener("input", grow);
+    grow();
+    function commit() {
+      var v = ta.value.trim();
+      if (v && v !== msg.content) {
+        ensureVariants(msg);
+        msg.variants[msg.vi] = v;
+        msg.content = v;
+        chat.updatedAt = Date.now();
+        save();
+      }
+      renderMessages();
+    }
+    box.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-e]");
+      if (!b) return;
+      if (b.dataset.e === "save") commit();
+      else renderMessages();
+    });
+    ta.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+      if (e.key === "Escape") renderMessages();
+    });
+  }
 
   /* ---------- composer ---------- */
 
@@ -7054,12 +8035,42 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var el = $("tokEst");
     var chars = input.value.length;
     var imgs = pendingImages.length;
-    if (!chars && !imgs) { el.hidden = true; return; }
-    var est = Math.round(chars / 4) + imgs * 1000;
-    el.hidden = false;
-    el.textContent = "\u2248" + (est >= 1000 ? (est / 1000).toFixed(1) + "k" : est);
-    el.classList.toggle("large", est > 30000);
-    el.title = est > 30000 ? "Large message. Some models may refuse it." : "Estimated tokens";
+    if (!chars && !imgs) { el.hidden = true; } else {
+      var est = Math.round(chars / 4) + imgs * 1000;
+      el.hidden = false;
+      el.textContent = "\u2248" + (est >= 1000 ? (est / 1000).toFixed(1) + "k" : est);
+      el.classList.toggle("large", est > 30000);
+      el.title = est > 30000 ? "Large message. Some models may refuse it." : "Estimated tokens";
+    }
+    updateCtxMeter();
+  }
+
+  /* Thin meter under the composer: how much of the model window the next
+     request would take, history included. */
+  function updateCtxMeter() {
+    var wrap = $("ctxMeter");
+    if (!wrap) return;
+    var F = window.ImposeFeatures;
+    var t = getTarget();
+    var chat = getChat(activeId);
+    if (!F || !t || !chat || (!chat.messages.length && !input.value)) { wrap.hidden = true; return; }
+    var hist = historyFor(chat.messages, t.provider.kind || "openai", t.model);
+    var used = 600; /* system prompt, roughly */
+    hist.forEach(function (m) {
+      used += F.estimateTokens(typeof m.content === "string" ? m.content : "", m.images);
+    });
+    used += F.estimateTokens(input.value, pendingImages);
+    var ctx = F.modelContext(t.model);
+    var pct = Math.min(100, Math.round(used / ctx * 100));
+    wrap.hidden = pct < 4;
+    var fill = wrap.querySelector(".ctx-fill");
+    if (fill) {
+      fill.style.width = pct + "%";
+      wrap.classList.toggle("warn", pct >= 60 && pct < 85);
+      wrap.classList.toggle("danger", pct >= 85);
+    }
+    wrap.title = "About " + (used >= 1000 ? (used / 1000).toFixed(1) + "k" : used) + " of " +
+      (ctx >= 1000 ? (ctx / 1000) + "k" : ctx) + " tokens (" + pct + "%)";
   }
 
   var sendWasDisabled = true;
@@ -7082,9 +8093,22 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     updateTokEst();
   }
 
-  input.addEventListener("input", function () { autogrow(); syncSend(); });
+  input.addEventListener("input", function () { autogrow(); syncSend(); updateSlashPop(); });
 
   input.addEventListener("keydown", function (e) {
+    if (slashActive()) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        slashHot = e.key === "ArrowDown"
+          ? (slashHot + 1) % slashItems.length
+          : (slashHot - 1 + slashItems.length) % slashItems.length;
+        var rows = $("slashList").querySelectorAll(".slash-row");
+        rows.forEach(function (r, k) { r.classList.toggle("hot", k === slashHot); });
+        return;
+      }
+      if (e.key === "Enter") { e.preventDefault(); pickSlash(slashHot); return; }
+      if (e.key === "Escape") { hideSlash(); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       if (state.settings.enterToSend) {
         e.preventDefault();
@@ -7519,12 +8543,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var reads = files.map(function (f) {
       if (/^image\//.test(f.type || "")) return downscaleImage(f);
       return new Promise(function (resolve) {
-        if (f.size > 100 * 1024) { resolve({ name: f.name, error: "over 100KB" }); return; }
+        if (f.size > 200 * 1024) { resolve({ name: f.name, error: "over 200KB" }); return; }
         var r = new FileReader();
         r.onload = function () {
           var text = String(r.result || "");
           if (/\u0000/.test(text)) resolve({ name: f.name, error: "not a text file" });
-          else resolve({ name: f.name, text: text.slice(0, 100 * 1024), truncated: text.length >= 100 * 1024 && f.size > text.length });
+          else resolve({ name: f.name, text: text.slice(0, 200 * 1024), truncated: text.length >= 200 * 1024 && f.size > text.length });
         };
         r.onerror = function () { resolve({ name: f.name, error: "unreadable" }); };
         r.readAsText(f);
@@ -7542,7 +8566,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       renderAttachPreview();
       if (ok.length) {
         var block = ok.map(function (o) {
-          var head = "File: " + o.name + (o.truncated ? " (first 100KB)" : "");
+          var head = "File: " + o.name + (o.truncated ? " (first 200KB)" : "");
           return head + "\n```\n" + o.text.trim() + "\n```";
         }).join("\n\n");
         input.value = (input.value ? input.value.replace(/\s+$/, "") + "\n\n" : "") + block;
@@ -7870,6 +8894,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
     $("tglEnter").setAttribute("aria-checked", state.settings.enterToSend ? "true" : "false");
     $("tglChips").setAttribute("aria-checked", state.settings.showChips ? "true" : "false");
+    $("tglRedact").setAttribute("aria-checked", state.settings.redactPII ? "true" : "false");
+    $("tglFollow").setAttribute("aria-checked", state.settings.followupsSmart ? "true" : "false");
+    $("tglAutoName").setAttribute("aria-checked", state.settings.autoName ? "true" : "false");
+    $("retentionSel").value = String(state.settings.retentionDays || 0);
   }
 
   function switchTab(name) {
@@ -7881,6 +8909,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     panes.forEach(function (p) {
       p.hidden = p.dataset.pane !== name;
     });
+    if (name === "usage") renderUsage();
+    if (name === "prompts") renderLibrary();
+    if (name === "providers") renderRelayCard();
   }
 
   function openSettings(tab) {
@@ -7920,6 +8951,34 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   wireToggle("tglEnter", "enterToSend");
   wireToggle("tglChips", "showChips", applyChipsVisibility);
+  wireToggle("tglRedact", "redactPII");
+  wireToggle("tglFollow", "followupsSmart");
+  wireToggle("tglAutoName", "autoName");
+
+  $("retentionSel").addEventListener("change", function () {
+    var days = +$("retentionSel").value || 0;
+    state.settings.retentionDays = days;
+    save();
+    if (days > 0) applyRetention(true);
+    dnote("app", "Retention set to " + (days || "off"));
+  });
+
+  /* Delete chats older than the retention window. Pinned chats survive. */
+  function applyRetention(manual) {
+    var days = +state.settings.retentionDays || 0;
+    if (!days) return;
+    var out = window.ImposeFeatures.pruneChats(state.chats, days);
+    if (out.removed.length) {
+      state.chats = out.kept;
+      if (activeId && !getChat(activeId)) { activeId = null; showEmpty(); }
+      save();
+      renderList();
+      toast(out.removed.length + " chat" + (out.removed.length === 1 ? "" : "s") + " removed by the " + days + " day retention rule.");
+      dnote("app", "Retention removed " + out.removed.length + " chats");
+    } else if (manual) {
+      toast("Nothing older than " + days + " days to remove.");
+    }
+  }
 
   $("searchBtn").addEventListener("click", function () {
     state.settings.searchMode = !state.settings.searchMode;
@@ -8318,15 +9377,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   $("exportBtn").addEventListener("click", doExportJSON);
 
   $("importBtn").addEventListener("click", function () { $("importPicker").click(); });
-  $("importPicker").addEventListener("change", function () {
-    var f = $("importPicker").files && $("importPicker").files[0];
-    $("importPicker").value = "";
-    if (!f) return;
-    var r = new FileReader();
-    r.onload = function () {
-      try {
-        var data = JSON.parse(String(r.result || ""));
-        if (!data || !Array.isArray(data.chats)) throw new Error("bad file");
+  var pendingEnc = null;
+
+  function applyImportData(data) {
+    if (!data || !Array.isArray(data.chats)) throw new Error("bad file");
         var have = {};
         state.chats.forEach(function (c) { have[c.id] = true; });
         var added = 0;
@@ -8361,18 +9415,98 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             }
           });
         }
-        state.chats.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
-        save();
-        renderList();
-        toast.success(added === 1 ? "Imported 1 chat." : "Imported " + added + " chats.");
-        if (droppedImages) toast.warn(droppedImages + " attached image" + (droppedImages === 1 ? "" : "s") + " skipped: not valid image data.");
-        dnote("app", "Imported " + added + " chats, skipped " + droppedImages + " bad images");
-      } catch (e) {
-        toast.error("That file is not a Impose backup.");
+    state.chats.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+    save();
+    renderList();
+    toast.success(added === 1 ? "Imported 1 chat." : "Imported " + added + " chats.");
+    if (droppedImages) toast.warn(droppedImages + " attached image" + (droppedImages === 1 ? "" : "s") + " skipped: not valid image data.");
+    dnote("app", "Imported " + added + " chats, skipped " + droppedImages + " bad images");
+    return added;
+  }
+
+  $("importPicker").addEventListener("change", function () {
+    var f = $("importPicker").files && $("importPicker").files[0];
+    $("importPicker").value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      var data;
+      try { data = JSON.parse(String(r.result || "")); }
+      catch (e) { toast.error("That file is not a Impose backup."); return; }
+      if (data && data.format === "impose-encrypted-v1") {
+        pendingEnc = data;
+        openEncModal("decrypt");
+        return;
       }
+      try { applyImportData(data); }
+      catch (e) { toast.error("That file is not a Impose backup."); }
     };
     r.readAsText(f);
   });
+
+  /* ---------- encrypted backup ---------- */
+
+  function openEncModal(mode) {
+    $("encTitle").textContent = mode === "decrypt" ? "Unlock encrypted backup" : "Create encrypted backup";
+    $("encPass").value = "";
+    $("encPass2").value = "";
+    $("encPass2Row").hidden = mode === "decrypt";
+    $("encGo").textContent = mode === "decrypt" ? "Import" : "Export";
+    $("encStatus").textContent = "";
+    $("encModal").__mode = mode;
+    openModal($("encModal"));
+    setTimeout(function () { $("encPass").focus(); }, 200);
+  }
+
+  $("encExportBtn").addEventListener("click", function () { openEncModal("encrypt"); });
+  $("encCancel").addEventListener("click", function () { closeModal($("encModal")); });
+  $("encGo").addEventListener("click", function () {
+    var mode = $("encModal").__mode;
+    var pass = $("encPass").value;
+    var st = $("encStatus");
+    if (mode === "encrypt" && $("encPass2").value !== pass) {
+      st.textContent = "The two passphrases do not match.";
+      return;
+    }
+    if (mode === "encrypt" && pass.length < 8) {
+      st.textContent = "Use a passphrase of at least 8 characters. There is no recovery without it.";
+      return;
+    }
+    st.textContent = "Working...";
+    var promise;
+    if (mode === "encrypt") {
+      promise = window.ImposeFeatures.encryptExport(
+        { chats: state.chats, folders: state.folders, library: state.library || [], memories: state.memories || [] }, pass
+      ).then(function (blob) {
+        downloadBlob(new Blob([JSON.stringify(blob, null, 2)], { type: "application/json" }), "impose-chats-encrypted.json");
+        closeModal($("encModal"));
+        toast.success("Encrypted backup downloaded. The passphrase is not stored anywhere.");
+      });
+    } else {
+      promise = window.ImposeFeatures.decryptExport(pendingEnc, pass).then(function (data) {
+        closeModal($("encModal"));
+        pendingEnc = null;
+        return applyImportData(data);
+      });
+    }
+    promise.then(null, function (err) {
+      st.textContent = String((err && err.message) || err).indexOf("decrypt") > -1 || /bad|Malformed|not an encrypted/i.test(String(err))
+        ? "Wrong passphrase or damaged file."
+        : String((err && err.message) || err);
+      dfail("crypto", String((err && err.message) || err));
+    });
+  });
+
+  function downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
 
   /* hold to delete: press and hold 1.4s to confirm */
 
@@ -8540,6 +9674,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     $("pfRelayKey").value = state.settings.relayKey || "";
     $("pfAuthName").value = existing ? (existing.authName || defaultAuthName(edKind, edAuth)) : defaultAuthName(edKind, edAuth);
     $("pfHeaders").value = existing ? writeHeaders(existing.headers) : "";
+    $("pfPriceIn").value = existing && existing.priceIn !== "" && existing.priceIn != null ? existing.priceIn : "";
+    $("pfPriceOut").value = existing && existing.priceOut !== "" && existing.priceOut != null ? existing.priceOut : "";
     $("pfAdvanced").hidden = true;
     $("pfAdvancedToggle").setAttribute("aria-expanded", "false");
     setStatus($("pfModelStatus"), "");
@@ -8814,6 +9950,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         edEditing.headers = like.headers;
         edEditing.model = model;
         edEditing.useRelay = like.useRelay;
+        edEditing.priceIn = parseFloat($("pfPriceIn").value) || "";
+        edEditing.priceOut = parseFloat($("pfPriceOut").value) || "";
       } else {
         var p = {
           id: uid(),
@@ -8825,7 +9963,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           authName: like.authName,
           headers: like.headers,
           model: model,
-          useRelay: like.useRelay
+          useRelay: like.useRelay,
+          priceIn: parseFloat($("pfPriceIn").value) || "",
+          priceOut: parseFloat($("pfPriceOut").value) || ""
         };
         state.providers.push(p);
         if (!state.settings.activeProviderId) state.settings.activeProviderId = p.id;
@@ -8932,6 +10072,354 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (openPop) hidePop(true);
   });
 
+  /* ---------- conversation memory ---------- */
+
+  function renderMemory() {
+    var box = $("memoryList");
+    if (!box) return;
+    box.innerHTML = "";
+    var mems = state.memories || [];
+    if (!mems.length) {
+      var p = document.createElement("p");
+      p.className = "pane-note";
+      p.textContent = 'Nothing yet. Type "remember that ..." in a chat to store a fact.';
+      box.appendChild(p);
+      return;
+    }
+    mems.slice().reverse().forEach(function (m) {
+      var row = document.createElement("div");
+      row.className = "mem-row";
+      var t = document.createElement("span");
+      t.textContent = m.text;
+      var x = document.createElement("button");
+      x.type = "button";
+      x.className = "icon-btn sm";
+      x.setAttribute("aria-label", "Forget this");
+      x.title = "Forget";
+      x.innerHTML = '<i data-lucide="x"></i>';
+      x.addEventListener("click", function () {
+        state.memories = state.memories.filter(function (g) { return g.id !== m.id; });
+        save();
+        renderMemory();
+      });
+      row.appendChild(t);
+      row.appendChild(x);
+      box.appendChild(row);
+    });
+    refreshIcons();
+  }
+
+  function addMemoryFromInput() {
+    var v = $("memoryInput").value.trim();
+    if (!v) return;
+    var fact = window.ImposeFeatures.memoryFromText(v) || v.slice(0, 160);
+    state.memories = window.ImposeFeatures.dedupeMemory(state.memories, fact);
+    save();
+    $("memoryInput").value = "";
+    renderMemory();
+    toast("Remembered.");
+  }
+  $("memoryAddBtn").addEventListener("click", addMemoryFromInput);
+  $("memoryInput").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); addMemoryFromInput(); }
+  });
+
+  /* ---------- prompt library + slash insert ---------- */
+
+  function renderLibrary() {
+    var box = $("libList");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!(state.library || []).length) {
+      var p = document.createElement("p");
+      p.className = "pane-note";
+      p.textContent = "Save prompts you reuse. {{name}} becomes a fill in slot. Type / in the composer to insert.";
+      box.appendChild(p);
+    }
+    (state.library || []).forEach(function (item) {
+      var row = document.createElement("div");
+      row.className = "lib-row";
+      var txt = document.createElement("div");
+      txt.className = "lib-text";
+      var st = document.createElement("strong");
+      st.textContent = item.title;
+      var em = document.createElement("em");
+      em.textContent = item.body.replace(/\s+/g, " ").slice(0, 90);
+      txt.appendChild(st);
+      txt.appendChild(em);
+      var ins = document.createElement("button");
+      ins.type = "button";
+      ins.className = "pill-btn";
+      ins.textContent = "Insert";
+      ins.addEventListener("click", function () { insertPrompt(item.body); });
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "icon-btn sm";
+      del.title = "Delete prompt";
+      del.setAttribute("aria-label", "Delete " + item.title);
+      del.innerHTML = '<i data-lucide="trash-2"></i>';
+      del.addEventListener("click", function () {
+        state.library = state.library.filter(function (g) { return g.id !== item.id; });
+        save();
+        renderLibrary();
+        toast("Prompt deleted");
+      });
+      row.appendChild(txt);
+      row.appendChild(ins);
+      row.appendChild(del);
+      box.appendChild(row);
+    });
+    refreshIcons();
+  }
+
+  function insertPrompt(body) {
+    closeModal(settingsModal);
+    input.value = window.ImposeFeatures.applyTemplate(body);
+    autogrow();
+    syncSend();
+    input.focus();
+    var vars = window.ImposeFeatures.extractVars(body);
+    if (vars.length) toast("Fill the " + vars.map(function (v) { return "{{" + v + "}}"; }).join(" ") + " slots before sending.");
+  }
+
+  $("libSaveBtn").addEventListener("click", function () {
+    var title = $("libTitle").value.trim().slice(0, 60);
+    var body = $("libBody").value.trim();
+    if (!title || !body) { toast.warn("Give the prompt a title and a body."); return; }
+    state.library = state.library || [];
+    state.library.push({ id: uid(), title: title, body: body });
+    save();
+    $("libTitle").value = "";
+    $("libBody").value = "";
+    renderLibrary();
+    toast.success("Prompt saved. Type / to use it.");
+  });
+
+  /* Slash popup: type / at the start of the composer to pick a prompt. */
+  var slashItems = [];
+  var slashHot = 0;
+
+  function slashActive() { return slashItems.length > 0; }
+
+  function updateSlashPop() {
+    var m = /^\/([a-z0-9_-]*)$/i.exec(input.value);
+    var pop = $("slashPop");
+    if (!m || !(state.library || []).length) { hideSlash(); return; }
+    var q = m[1].toLowerCase();
+    slashItems = state.library.filter(function (it) {
+      return !q || it.title.toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 6);
+    if (!slashItems.length) { hideSlash(); return; }
+    slashHot = 0;
+    var box = $("slashList");
+    box.innerHTML = "";
+    slashItems.forEach(function (it, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "slash-row" + (i === slashHot ? " hot" : "");
+      var st = document.createElement("strong");
+      st.textContent = "/" + it.title;
+      var em = document.createElement("em");
+      em.textContent = it.body.replace(/\s+/g, " ").slice(0, 60);
+      b.appendChild(st);
+      b.appendChild(em);
+      b.addEventListener("click", function () { pickSlash(i); });
+      box.appendChild(b);
+    });
+    pop.hidden = false;
+  }
+
+  function hideSlash() {
+    slashItems = [];
+    var pop = $("slashPop");
+    if (pop) pop.hidden = true;
+  }
+
+  function pickSlash(i) {
+    var it = slashItems[i];
+    hideSlash();
+    if (!it) return;
+    input.value = window.ImposeFeatures.applyTemplate(it.body);
+    autogrow();
+    syncSend();
+    input.focus();
+    var vars = window.ImposeFeatures.extractVars(it.body);
+    if (vars.length) toast("Fill the " + vars.map(function (v) { return "{{" + v + "}}"; }).join(" ") + " slots before sending.");
+  }
+
+  /* ---------- usage dashboard ---------- */
+
+  function renderUsage() {
+    var box = $("usageTable");
+    if (!box) return;
+    var rows = window.ImposeFeatures.aggregateUsage(state.chats, state.providers);
+    box.innerHTML = "";
+    if (!rows.length) {
+      var p = document.createElement("p");
+      p.className = "pane-note";
+      p.textContent = "No replies yet. Usage shows up here once you chat with a provider.";
+      box.appendChild(p);
+      return;
+    }
+    var totalMsgs = 0, totalToks = 0, totalCost = 0;
+    var html = '<table class="usage"><thead><tr><th>Provider</th><th>Replies</th><th>≈tok</th><th>Est. cost</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      totalMsgs += r.msgs;
+      totalToks += r.toks;
+      totalCost += r.cost;
+      html += "<tr><td>" + escapeHtml(r.label) + "</td><td>" + r.msgs + "</td><td>" +
+        (r.toks >= 1000 ? (r.toks / 1000).toFixed(1) + "k" : r.toks) + "</td><td>" +
+        (r.priced ? "$" + (r.cost >= 1 ? r.cost.toFixed(2) : r.cost.toFixed(4)) : "set prices") + "</td></tr>";
+    });
+    html += '</tbody><tfoot><tr><td>All</td><td>' + totalMsgs + "</td><td>" +
+      (totalToks >= 1000 ? (totalToks / 1000).toFixed(1) + "k" : totalToks) + "</td><td>" +
+      "$" + (totalCost >= 1 ? totalCost.toFixed(2) : totalCost.toFixed(4)) + "</td></tr></tfoot></table>" +
+      '<p class="pane-note">Costs estimate from the per million prices you set on a provider. Providers without prices show the token count only.</p>';
+    box.innerHTML = html;
+  }
+
+  /* ---------- relay status card ---------- */
+
+  var relayCardBusy = false;
+
+  function renderRelayCard() {
+    var card = $("relayCard");
+    if (!card || relayCardBusy) return;
+    var cfg = relayCfg();
+    var dot = card.querySelector(".relay-dot");
+    var title = card.querySelector(".relay-title");
+    var sub = card.querySelector(".relay-sub");
+    var wake = $("relayWakeBtn");
+    if (!cfg.url) {
+      dot.className = "relay-dot off";
+      title.textContent = "No relay connected";
+      sub.textContent = "Set one under Advanced in any provider to unlock keyless search and server side requests.";
+      wake.hidden = true;
+      return;
+    }
+    wake.hidden = false;
+    dot.className = "relay-dot busy";
+    title.textContent = "Checking the relay...";
+    sub.textContent = stripSlash(cfg.url);
+    var opts = { headers: { "Authorization": "Bearer " + cfg.key }, signal: withTimeout(9000) };
+    fetch(stripSlash(cfg.url) + "/admin/status", opts).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (d) {
+      var out = window.ImposeFeatures.formatRelayStatus(d);
+      dot.className = "relay-dot " + (out.up ? "ok" : "bad");
+      title.textContent = out.text;
+      sub.textContent = stripSlash(cfg.url);
+    }, function () {
+      dot.className = "relay-dot bad";
+      title.textContent = "Relay unreachable";
+      sub.textContent = stripSlash(cfg.url);
+    });
+  }
+
+  $("relayRefreshBtn").addEventListener("click", renderRelayCard);
+  $("relayWakeBtn").addEventListener("click", function () {
+    var cfg = relayCfg();
+    if (!cfg.url) { toast("Set a relay first."); return; }
+    toast("Waking the model in the background.");
+    fetch(stripSlash(cfg.url) + "/admin/wake-llm?background=1", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + cfg.key },
+      signal: withTimeout(9000)
+    }).then(function (r) {
+      return r.json();
+    }).then(function (d) {
+      toast(d && d.llm_up ? "The model is already up." : "Waking. First reply lands in 1 to 3 minutes.");
+      renderRelayCard();
+    }, function () { toast.error("Could not reach the relay."); });
+  });
+
+  /* ---------- per chat generation settings ---------- */
+
+  $("chatParamsBtn").addEventListener("click", function () {
+    var chat = getChat(activeId);
+    if (!chat) { toast("Send a message first. Chat settings live with a chat."); return; }
+    var pr = chat.params || {};
+    $("cpSystem").value = pr.system || "";
+    $("cpTemp").value = pr.temperature == null ? "" : pr.temperature;
+    $("cpTopP").value = pr.topP == null ? "" : pr.topP;
+    $("cpMaxTok").value = pr.maxTokens == null ? "" : pr.maxTokens;
+    openModal($("chatParamsModal"));
+    setTimeout(function () { $("cpSystem").focus(); }, 200);
+  });
+  $("cpCancel").addEventListener("click", function () { closeModal($("chatParamsModal")); });
+  $("chatParamsModal").addEventListener("pointerdown", function (e) {
+    if (e.target === $("chatParamsModal")) closeModal($("chatParamsModal"));
+  });
+  $("cpReset").addEventListener("click", function () {
+    var chat = getChat(activeId);
+    if (chat) { delete chat.params; save(); }
+    $("cpSystem").value = "";
+    $("cpTemp").value = "";
+    $("cpTopP").value = "";
+    $("cpMaxTok").value = "";
+    toast("Chat settings reset to defaults.");
+  });
+  $("cpSave").addEventListener("click", function () {
+    var chat = getChat(activeId);
+    if (!chat) { closeModal($("chatParamsModal")); return; }
+    var F = window.ImposeFeatures;
+    var params = {
+      system: $("cpSystem").value.trim().slice(0, 2000),
+      temperature: F.clampParam($("cpTemp").value, 0, 2),
+      topP: F.clampParam($("cpTopP").value, 0, 1),
+      maxTokens: $("cpMaxTok").value ? Math.max(1, Math.floor(+$("cpMaxTok").value) || 0) || null : null
+    };
+    if (!params.system && params.temperature == null && params.topP == null && params.maxTokens == null) {
+      delete chat.params;
+    } else {
+      chat.params = params;
+    }
+    save();
+    closeModal($("chatParamsModal"));
+    toast.success("Chat settings saved for this chat only.");
+  });
+
+  /* ---------- keyboard shortcuts overlay ---------- */
+
+  function openShortcuts() { openModal($("shortcutsModal")); }
+  $("shortcutsClose").addEventListener("click", function () { closeModal($("shortcutsModal")); });
+  $("shortcutsModal").addEventListener("pointerdown", function (e) {
+    if (e.target === $("shortcutsModal")) closeModal($("shortcutsModal"));
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
+    var el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+    e.preventDefault();
+    openShortcuts();
+  });
+
+  /* ---------- share as web page + duplicate chat ---------- */
+
+  $("shareHtmlItem").addEventListener("click", function () {
+    var id = itemMenuId;
+    hidePop(true);
+    var chat = id && getChat(id);
+    if (!chat) return;
+    var html = window.ImposeFeatures.shareChatHtml(chat);
+    var base = chat.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "chat";
+    downloadBlob(new Blob([html], { type: "text/html" }), base + ".html");
+    toast.success("Shared as a read only web page.");
+  });
+
+  $("dupItem").addEventListener("click", function () {
+    var id = itemMenuId;
+    hidePop(true);
+    var chat = id && getChat(id);
+    if (!chat) return;
+    var copy = window.ImposeFeatures.duplicateChat(chat, uid());
+    state.chats.unshift(copy);
+    save();
+    renderList();
+    toast.success("Chat duplicated. Branch away.");
+  });
+
   /* ---------- init ---------- */
 
   var deferredInstall = null;
@@ -8972,6 +10460,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     syncSearchBtn();
     syncAvatars();
     updateBanners();
+    renderMemory();
+    applyRetention(false);
     window.addEventListener("online", function () { updateBanners(); drainNext(); });
     window.addEventListener("offline", function () { updateBanners(); });
     drainNext();

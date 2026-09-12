@@ -103,6 +103,8 @@ Notes:
 - Cmd/Ctrl + K toggles chat search
 - Cmd/Ctrl + Shift + P opens the command palette
 - Ctrl + Shift + O starts a new chat
+- / in an empty composer picks a saved prompt
+- ? shows the full shortcut list
 - Esc closes menus and dialogs
 - Enter sends, Shift + Enter adds a line (this is a setting)
 
@@ -113,6 +115,20 @@ Notes:
 - Request shapes live in `streamChat`, `listModels`, and `probeModel`
   in `app.js`. A new shape is a new branch in each.
 - Themes are CSS variable blocks at the top of `styles.css`.
+
+## Feature kit
+
+Settings has more tabs than it used to. Prompts saves reusable prompts with
+{{slots}} and a / slash insert. Usage counts replies, tokens, and estimated
+cost per provider (set optional per million prices in a provider's Advanced
+section). Data adds passphrase encrypted backups (AES-GCM via WebCrypto, no
+recovery without the passphrase) and a retention rule that deletes old
+chats. General has memory ("remember that ..." in any chat), a PII
+redaction toggle, smart follow ups, and auto naming. Per chat generation
+settings (system prompt, temperature, top p, max tokens) live behind the
+sliders button in the top bar. Regenerate with another model via the
+shuffle button on a reply, and deep search reads the top cited pages when
+a relay is connected.
 
 ## Hosting on Render
 
