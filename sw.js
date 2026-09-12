@@ -1,18 +1,32 @@
-/* Impose app shell cache. Navigations stay fresh from the network with an
-   offline fallback; versioned static assets are served from the cache. */
+/* Impose app shell cache.
+   Strategy: navigations and the core code files are NETWORK FIRST with a
+   cache fallback, so a deploy always reaches users on their next load and
+   old JS never runs against new HTML. Everything else (vendored libraries,
+   icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
+   behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v1";
-var SHELL = [
+var CACHE = "impose-shell-v2";
+var CORE = [
   "./",
   "./index.html",
+  "./app.js",
   "./styles.css",
+  "./agent/trace.js",
+  "./agent/harness.js"
+];
+
+/* The full precache list: core files plus the assets that rarely change. */
+var PRECACHE = [
+  "./",
+  "./index.html",
+  "./app.js",
+  "./styles.css",
+  "./agent/trace.js",
+  "./agent/harness.js",
   "./agent/trace.css",
   "./lucide.min.js",
   "./anime.min.js",
   "./og-image.jpg",
-  "./agent/trace.js",
-  "./agent/harness.js",
-  "./app.js",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png"
@@ -20,7 +34,11 @@ var SHELL = [
 
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {
-    return c.addAll(SHELL);
+    /* Precache one at a time; a single 404 (an icon not yet deployed, say)
+       must not abort the whole install. */
+    return Promise.all(PRECACHE.map(function (url) {
+      return c.add(new Request(url, { cache: "reload" })).catch(function () { /* skip */ });
+    }));
   }).then(function () {
     return self.skipWaiting();
   }));
@@ -38,9 +56,17 @@ self.addEventListener("activate", function (e) {
   }));
 });
 
+/* The page can ask the new worker to take over immediately after an update:
+   postMessage("impose-skip-waiting") from the client, or just reload. */
+self.addEventListener("message", function (e) {
+  if (e.data === "impose-skip-waiting" && self.skipWaiting) self.skipWaiting();
+});
+
 self.addEventListener("fetch", function (e) {
   var url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
+
+  /* Navigations: network first, cached shell when offline. */
   if (e.request.mode === "navigate") {
     e.respondWith(fetch(e.request).then(function (res) {
       var copy = res.clone();
@@ -51,14 +77,38 @@ self.addEventListener("fetch", function (e) {
     }));
     return;
   }
-  e.respondWith(caches.match(e.request).then(function (hit) {
-    if (hit) return hit;
-    return fetch(e.request).then(function (res) {
+
+  var path = url.pathname.replace(/^(.*)\/([^\/]*)$/, function (_, dir, file) {
+    return "./" + file;
+  });
+  var isCore = CORE.indexOf(path) !== -1;
+
+  if (isCore) {
+    /* Core code: try the network so deploys land, fall back to cache when
+       offline. */
+    e.respondWith(fetch(e.request).then(function (res) {
       if (res && res.ok) {
         var copy = res.clone();
         caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
       }
       return res;
-    });
+    }).catch(function () {
+      return caches.match(e.request).then(function (hit) {
+        return hit || caches.match("./index.html");
+      });
+    }));
+    return;
+  }
+
+  /* Everything else: serve from cache now, refresh quietly for next time. */
+  e.respondWith(caches.match(e.request).then(function (hit) {
+    var net = fetch(e.request).then(function (res) {
+      if (res && res.ok) {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
+      }
+      return res;
+    }).catch(function () { return hit; });
+    return hit || net;
   }));
 });

@@ -29,12 +29,13 @@ Env (Render dashboard, or .env for local):
 """
 import hmac
 import ipaddress
+import json
 import os
 import socket
 import threading
 import time
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 import uvicorn
@@ -80,6 +81,47 @@ _last_activity = STARTED_AT
 _wake_lock = threading.Lock()
 _waking = False
 
+# Gateway state is a cache, not a question we ask the network on every
+# request: an 8 second health round trip per chat completion made every
+# message slower and stampeded the box under load. Transport errors mark it
+# down at once; any successful probe marks it up.
+_GW_TTL = 10.0
+_gateway_state = {"up": None, "at": 0.0}
+_state_lock = threading.Lock()
+
+# --- auth + proxy rate limiting (per client IP, in memory) ---
+_RATE_BUCKETS = {}
+_rate_lock = threading.Lock()
+
+
+def _client_ip(request: Request) -> str:
+    try:
+        return request.client.host if request.client else "?"
+    except Exception:
+        return "?"
+
+
+def _rate_hit(bucket: str, key: str, limit: int, window: float) -> bool:
+    """Record one event; True when the caller is over the limit."""
+    now = time.time()
+    with _rate_lock:
+        events = _RATE_BUCKETS.setdefault(f"{bucket}:{key}", [])
+        cutoff = now - window
+        while events and events[0] < cutoff:
+            events.pop(0)
+        events.append(now)
+        return len(events) > limit
+
+
+def _rate_over(bucket: str, key: str, limit: int, window: float) -> bool:
+    now = time.time()
+    with _rate_lock:
+        events = _RATE_BUCKETS.get(f"{bucket}:{key}", [])
+        cutoff = now - window
+        while events and events[0] < cutoff:
+            events.pop(0)
+        return len(events) > limit
+
 # --------------------------------------------------------------------------- #
 # auth
 # --------------------------------------------------------------------------- #
@@ -88,8 +130,14 @@ _waking = False
 def _authed(request: Request) -> None:
     if not CONTROL_KEY:
         return
+    ip = _client_ip(request)
+    # Constant time compare is necessary, not sufficient: without a failure
+    # budget the key can be brute forced one guess at a time, forever.
+    if _rate_over("authfail", ip, 15, 60.0):
+        raise HTTPException(status_code=429, detail="too many attempts; wait a minute")
     supplied = request.headers.get("Authorization", "")
     if not hmac.compare_digest(supplied, "Bearer " + CONTROL_KEY):
+        _rate_hit("authfail", ip, 15, 60.0)
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
@@ -105,16 +153,31 @@ def _gateway_headers() -> dict:
 # --------------------------------------------------------------------------- #
 
 
-def gateway_reachable() -> bool:
+def gateway_reachable(force: bool = False) -> bool:
     """Whether the box gateway answers at all. Only a transport error (DNS,
-    connect, timeout) means it is down; any HTTP answer proves it is up."""
+    connect, timeout) means it is down; any HTTP answer proves it is up.
+    Cached for a few seconds so every request is not a health poll."""
     if not GATEWAY_URL:
         return False
+    now = time.time()
+    with _state_lock:
+        if not force and _gateway_state["up"] is not None and now - _gateway_state["at"] < _GW_TTL:
+            return bool(_gateway_state["up"])
     try:
         httpx.get(f"{GATEWAY_URL}/health", timeout=8.0)
-        return True
+        up = True
     except Exception:
-        return False
+        up = False
+    with _state_lock:
+        _gateway_state["up"] = up
+        _gateway_state["at"] = now
+    return up
+
+
+def mark_gateway_down() -> None:
+    with _state_lock:
+        _gateway_state["up"] = False
+        _gateway_state["at"] = time.time()
 
 
 def touch_activity() -> None:
@@ -263,7 +326,7 @@ def _need_wake() -> None:
 @app.get("/health")
 def health():
     return {"ok": True, "service": "impose-relay",
-            "gateway_up": gateway_reachable(),
+            "gateway_up": gateway_reachable(force=True),
             "uptime_seconds": round(time.time() - STARTED_AT, 1)}
 
 
@@ -283,7 +346,13 @@ def models(request: Request):
 @app.post("/v1/chat/completions")
 async def chat(request: Request):
     _authed(request)
-    body = await request.json()
+    raw = await request.body()
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="request body too large (max 10MB)")
+    try:
+        body = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
     if not gateway_reachable():
         _need_wake()
     touch_activity()
@@ -294,14 +363,30 @@ async def chat(request: Request):
         resp = await client.send(req, stream=True)
     except Exception:
         await client.aclose()
+        mark_gateway_down()
         raise HTTPException(status_code=502, detail="upstream LLM is down")
     if body.get("stream"):
+        # A stream that ends without [DONE] is a dead upstream, not a
+        # finished answer. Say so on the wire; the client flags the message.
+        saw_done = False
+        tail = b""
+
         async def sse():
+            nonlocal saw_done, tail
             try:
                 async for chunk in resp.aiter_bytes():
+                    scan = tail + chunk
+                    if b"[DONE]" in scan:
+                        saw_done = True
+                    tail = scan[-8:]
                     yield chunk
             finally:
                 await client.aclose()
+            if resp.status_code == 200 and not saw_done:
+                print("[relay] upstream stream ended without [DONE]", flush=True)
+                yield b"\n: impose: upstream stream ended early\n\n"
+                yield b'data: {"error":{"message":"upstream stream ended before completion",'
+                yield b'"type":"impose_truncated_stream"}}\n\n'
         out_headers = {k: v for k, v in resp.headers.items()
                        if k.lower() in ("content-type", "cache-control")}
         return StreamingResponse(sse(), status_code=resp.status_code, headers=out_headers)
@@ -316,6 +401,8 @@ async def chat(request: Request):
 async def search_proxy(request: Request):
     """Keyless web search for the agent (SearXNG, Bing HTML, DDG HTML)."""
     _authed(request)
+    if _rate_hit("search", _client_ip(request), 60, 60.0):
+        raise HTTPException(status_code=429, detail="search rate limit reached; wait a minute")
     if request.method == "POST":
         try:
             data = await request.json()
@@ -368,28 +455,37 @@ _SSRF_BLOCKS = [ipaddress.ip_network(c) for c in (
 _FETCH_BODY_CAP = 8 * 1024 * 1024
 
 
-def _public_host(host: str) -> bool:
+def _resolve_public_ips(host: str) -> list:
+    """Every address `host` resolves to that is not on the block list. Empty
+    means unresolvable or private: both are refused."""
     host = (host or "").strip().rstrip(".").lower()
     if not host:
-        return False
+        return []
     try:
         infos = socket.getaddrinfo(host, None)
     except Exception:
-        return False
+        return []
     ips = []
     for info in infos:
         try:
-            ips.append(ipaddress.ip_address(info[4][0]))
+            ip = ipaddress.ip_address(info[4][0])
         except Exception:
-            pass
-    if not ips:
-        return False
-    return not any(any(ip in block for block in _SSRF_BLOCKS) for ip in ips)
+            continue
+        if any(ip in block for block in _SSRF_BLOCKS):
+            continue
+        ips.append(str(ip))
+    return ips
+
+
+def _public_host(host: str) -> bool:
+    return bool(_resolve_public_ips(host))
 
 
 @app.post("/v1/fetch")
 async def fetch_proxy(request: Request):
     _authed(request)
+    if _rate_hit("fetch", _client_ip(request), 60, 60.0):
+        raise HTTPException(status_code=429, detail="fetch rate limit reached; wait a minute")
     try:
         data = await request.json()
     except Exception:
@@ -405,7 +501,8 @@ async def fetch_proxy(request: Request):
         raise HTTPException(status_code=400, detail="bad URL")
     if scheme not in ("http", "https") or user or not host:
         raise HTTPException(status_code=400, detail="URL must be http(s) with no credentials")
-    if not _public_host(host):
+    ips = _resolve_public_ips(host)
+    if not ips:
         raise HTTPException(status_code=400, detail="private or unresolvable host")
     fwd = {}
     for k, v in (data.get("headers") or {}).items():
@@ -416,9 +513,32 @@ async def fetch_proxy(request: Request):
     body = data.get("body")
     content = str(body)[:1000000].encode("utf-8", "replace") if body is not None else None
     t0 = time.time()
+
+    # Dial the IP we validated, not the name: a DNS rebinding answer between
+    # the check and the connect would otherwise still reach an inside
+    # address. SNI and Host keep pointing at the real name so TLS and
+    # virtual hosts stay intact. If the pinned dial cannot be done on this
+    # httpx/httpcore, fall back to the name (re-checked) with redirects off.
+    ip = ips[0]
+    pinned_netloc = f"[{ip}]" if ":" in ip else ip
+    if parts.port:
+        pinned_netloc += f":{parts.port}"
+    pinned_url = urlunparse(parts._replace(netloc=pinned_netloc))
+    pinned_headers = dict(fwd)
+    pinned_headers["Host"] = parts.netloc
+    ext = {"sni_hostname": host} if parts.scheme == "https" else {}
+    r = None
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=False) as client:
-            r = await client.request(method, url, headers=fwd, content=content)
+            try:
+                r = await client.request(method, pinned_url, headers=pinned_headers,
+                                         content=content, extensions=ext)
+            except Exception:
+                if not _public_host(host):
+                    raise HTTPException(status_code=400, detail="private or unresolvable host")
+                r = await client.request(method, url, headers=fwd, content=content)
+    except HTTPException:
+        raise
     except httpx.TimeoutException:
         raise HTTPException(status_code=502, detail="target timed out")
     except Exception:
@@ -435,7 +555,7 @@ async def fetch_proxy(request: Request):
 @app.get("/admin/status")
 def admin_status(request: Request):
     _authed(request)
-    return {"gateway_up": gateway_reachable(),
+    return {"gateway_up": gateway_reachable(force=True),
             "idle_minutes": round(idle_minutes(), 1),
             "idle_stop_minutes": IDLE_STOP_MINUTES,
             "idle_monitor": IDLE_MONITOR,
