@@ -40,23 +40,11 @@ try {
         </div>
       </div>
 
-      <nav class="sidebar-nav" aria-label="Sections">
-        <button class="side-action" id="libraryBtn">
-          <i data-lucide="library"></i><span>Library</span>
-        </button>
-        <button class="side-action" id="exploreBtn">
-          <i data-lucide="compass"></i><span>Explore</span>
-        </button>
-      </nav>
 
       <div class="chat-groups" id="chatGroups" role="list"></div>
 
       <div class="sidebar-foot">
-        <button class="plan-card" id="upgradeBtn">
-          <i data-lucide="sparkles"></i>
-          <span class="plan-text"><strong>Upgrade plan</strong><em>More access to the best models</em></span>
-        </button>
-        <button class="profile-row" id="profileBtn" aria-haspopup="menu">
+        <button class="profile-row" id="profileBtn">
           <span class="avatar avatar-sm">A</span>
           <span class="profile-name">Adaeze</span>
         </button>
@@ -79,7 +67,7 @@ try {
         <button class="share-btn" id="shareBtn">
           <i data-lucide="share"></i><span>Share</span>
         </button>
-        <button class="avatar avatar-btn" id="avatarBtn" title="Account" aria-label="Account" aria-haspopup="menu">A</button>
+        <button class="avatar avatar-btn" id="avatarBtn" title="Account" aria-label="Account">A</button>
       </div>
     </header>
 
@@ -116,17 +104,18 @@ try {
 </div>
 
 <div class="composer-block" id="composerBlock">
+  <input type="file" id="filePicker" hidden multiple>
   <div class="composer" id="composer">
     <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Nova"></textarea>
     <div class="composer-row">
-      <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files" aria-haspopup="menu">
+      <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
         <i data-lucide="plus"></i>
       </button>
       <button class="icon-btn" id="searchBtn" title="Deep search the web" aria-label="Deep search the web" aria-pressed="false">
         <i data-lucide="search"></i>
       </button>
       <div class="composer-spacer"></div>
-      <button class="icon-btn" id="micBtn" title="Voice input" aria-label="Voice input">
+      <button class="icon-btn" id="micBtn" title="Voice input" aria-label="Voice input" aria-pressed="false">
         <i data-lucide="mic"></i>
       </button>
       <button class="send-btn" id="sendBtn" title="Send message" aria-label="Send message" disabled>
@@ -144,35 +133,7 @@ try {
   <div id="modelMenuBody"></div>
 </div>
 
-<div class="pop" id="profileMenu" role="menu" aria-label="Account" hidden>
-  <div class="profile-head">
-    <span class="avatar">A</span>
-    <span class="profile-meta"><strong>Adaeze</strong><em>adaeze@mail.com</em></span>
-  </div>
-  <div class="pop-sep"></div>
-  <button class="pop-item" id="settingsItem" role="menuitem">
-    <i data-lucide="settings"></i><span>Settings</span>
-  </button>
-  <button class="pop-item" id="helpItem" role="menuitem">
-    <i data-lucide="circle-help"></i><span>Help</span>
-  </button>
-  <div class="pop-sep"></div>
-  <button class="pop-item" id="logoutItem" role="menuitem">
-    <i data-lucide="log-out"></i><span>Log out</span>
-  </button>
-</div>
 
-<div class="pop" id="attachMenu" role="menu" aria-label="Attach" hidden>
-  <button class="pop-item" data-demo="File upload is not part of this demo" role="menuitem">
-    <i data-lucide="paperclip"></i><span>Upload files</span>
-  </button>
-  <button class="pop-item" data-demo="Photo upload is not part of this demo" role="menuitem">
-    <i data-lucide="image"></i><span>Upload photos</span>
-  </button>
-  <button class="pop-item" data-demo="Connected apps are not part of this demo" role="menuitem">
-    <i data-lucide="blocks"></i><span>Connect apps</span>
-  </button>
-</div>
 
 <div class="pop pop-sm" id="itemMenu" role="menu" aria-label="Chat options" hidden>
   <button class="pop-item" id="renameItem" role="menuitem">
