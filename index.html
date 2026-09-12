@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Nova</title>
-<meta name="description" content="Nova chat client. A frontend demo inspired by modern AI chat apps.">
+<meta name="description" content="Nova chat client. Bring your own key and chat with any provider.">
 <meta name="color-scheme" content="dark light">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="./styles.css">
@@ -70,7 +70,7 @@ try {
           <i data-lucide="panel-left"></i>
         </button>
         <button class="model-btn" id="modelBtn" aria-haspopup="menu">
-          <span id="modelName">Nova 5</span>
+          <span id="modelName">Demo</span>
           <i data-lucide="chevron-down" class="chev"></i>
         </button>
       </div>
@@ -137,22 +137,7 @@ try {
 </div>
 
 <div class="pop" id="modelMenu" role="menu" aria-label="Choose model" hidden>
-  <p class="pop-label">Model</p>
-  <button class="pop-model" data-model="Nova 5" role="menuitemradio">
-    <i data-lucide="sparkles"></i>
-    <span><strong>Nova 5</strong><em>Smartest model for complex work</em></span>
-    <i data-lucide="check" class="check"></i>
-  </button>
-  <button class="pop-model" data-model="Nova 5 Mini" role="menuitemradio">
-    <i data-lucide="zap"></i>
-    <span><strong>Nova 5 Mini</strong><em>Fast for everyday tasks</em></span>
-    <i data-lucide="check" class="check"></i>
-  </button>
-  <button class="pop-model" data-model="Nova 5 Thinking" role="menuitemradio">
-    <i data-lucide="brain"></i>
-    <span><strong>Nova 5 Thinking</strong><em>Reasons through hard problems</em></span>
-    <i data-lucide="check" class="check"></i>
-  </button>
+  <div id="modelMenuBody"></div>
 </div>
 
 <div class="pop" id="profileMenu" role="menu" aria-label="Account" hidden>
@@ -213,38 +198,146 @@ try {
         <i data-lucide="x"></i>
       </button>
     </div>
+    <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+      <button type="button" data-stab="general" role="tab" aria-selected="true">General</button>
+      <button type="button" data-stab="providers" role="tab" aria-selected="false">Providers</button>
+      <button type="button" data-stab="data" role="tab" aria-selected="false">Data</button>
+    </div>
     <div class="settings-body">
-      <section class="settings-section">
-        <h3>Appearance</h3>
-        <div class="seg" id="themeSeg" role="group" aria-label="Theme">
-          <button data-theme-opt="light" aria-pressed="false"><i data-lucide="sun"></i><span>Light</span></button>
-          <button data-theme-opt="dark" aria-pressed="true"><i data-lucide="moon"></i><span>Dark</span></button>
-          <button data-theme-opt="warm" aria-pressed="false"><i data-lucide="sunset"></i><span>Warm</span></button>
+      <div data-pane="general">
+        <section class="settings-section">
+          <h3>Appearance</h3>
+          <div class="seg" id="themeSeg" role="group" aria-label="Theme">
+            <button data-theme-opt="light" aria-pressed="false"><i data-lucide="sun"></i><span>Light</span></button>
+            <button data-theme-opt="dark" aria-pressed="true"><i data-lucide="moon"></i><span>Dark</span></button>
+            <button data-theme-opt="warm" aria-pressed="false"><i data-lucide="sunset"></i><span>Warm</span></button>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h3>Messages</h3>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Send with Enter</strong><span>Enter sends, Shift + Enter adds a new line</span></div>
+            <button class="toggle" id="tglEnter" role="switch" aria-checked="true" aria-label="Send with Enter"><span class="knob"></span></button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Show suggestions</strong><span>Starter ideas on new chats</span></div>
+            <button class="toggle" id="tglChips" role="switch" aria-checked="true" aria-label="Show suggestions"><span class="knob"></span></button>
+          </div>
+        </section>
+      </div>
+      <div data-pane="providers" hidden>
+        <div id="providerList"></div>
+        <button class="btn wide" id="addProviderBtn" type="button"><i data-lucide="plus"></i><span>Add a provider</span></button>
+        <p class="pane-note" id="providerNote"></p>
+      </div>
+      <div data-pane="data" hidden>
+        <section class="settings-section">
+          <h3>Data</h3>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Export chats</strong><span>Download everything as JSON</span></div>
+            <button class="btn" id="exportBtn"><i data-lucide="download"></i><span>Export</span></button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Delete all chats</strong><span>Press and hold to confirm</span></div>
+            <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
+          </div>
+        </section>
+        <p class="version">Nova 1.1. Keys and chats stay in this browser.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay center above" id="providerModal" hidden>
+  <div class="sheet settings-sheet provider-sheet" role="dialog" aria-modal="true" aria-label="Provider">
+    <div class="settings-head provider-head">
+      <button class="icon-btn" id="providerBack" title="Back" aria-label="Back">
+        <i data-lucide="chevron-left"></i>
+      </button>
+      <h2 id="providerTitle">Add a provider</h2>
+      <button class="icon-btn" id="providerClose" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div id="presetStep">
+        <p class="pane-note">What are you connecting to? A preset fills in the shape and the address. Nothing it fills in is locked.</p>
+        <div id="presetList"></div>
+      </div>
+      <div id="providerForm" hidden>
+        <div class="field">
+          <label class="flabel" for="pfName">Name</label>
+          <input type="text" class="text-input" id="pfName" placeholder="Work key" autocomplete="off">
         </div>
-      </section>
-      <section class="settings-section">
-        <h3>Messages</h3>
-        <div class="setting-row">
-          <div class="setting-text"><strong>Send with Enter</strong><span>Enter sends, Shift + Enter adds a new line</span></div>
-          <button class="toggle" id="tglEnter" role="switch" aria-checked="true" aria-label="Send with Enter"><span class="knob"></span></button>
+        <div class="field">
+          <label class="flabel" for="pfBase">Base address</label>
+          <input type="text" class="text-input mono" id="pfBase" placeholder="https://.../v1" autocomplete="off" spellcheck="false">
+          <p class="fhelp" id="pfKindHelp" hidden></p>
         </div>
-        <div class="setting-row">
-          <div class="setting-text"><strong>Show suggestions</strong><span>Starter ideas on new chats</span></div>
-          <button class="toggle" id="tglChips" role="switch" aria-checked="true" aria-label="Show suggestions"><span class="knob"></span></button>
+        <div class="field" id="pfKeyRow">
+          <label class="flabel" for="pfKey">Key</label>
+          <div class="key-wrap">
+            <input type="password" class="text-input mono" id="pfKey" placeholder="Paste your key" autocomplete="off" spellcheck="false">
+            <button class="key-toggle" id="pfKeyToggle" type="button" title="Show key" aria-label="Show key"><i data-lucide="eye"></i></button>
+          </div>
+          <p class="fhelp">Kept in this browser only. It is sent to your provider, nowhere else.</p>
         </div>
-      </section>
-      <section class="settings-section">
-        <h3>Data</h3>
-        <div class="setting-row">
-          <div class="setting-text"><strong>Export chats</strong><span>Download everything as JSON</span></div>
-          <button class="btn" id="exportBtn"><i data-lucide="download"></i><span>Export</span></button>
+        <div class="models-head">
+          <span class="flabel">Models</span>
+          <button class="btn" id="pfCheck" type="button"><i data-lucide="rotate-ccw"></i><span>Check models</span></button>
         </div>
-        <div class="setting-row">
-          <div class="setting-text"><strong>Delete all chats</strong><span>Press and hold to confirm</span></div>
-          <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
+        <p class="status-line" id="pfModelStatus" aria-live="polite"></p>
+        <div class="slot">
+          <input type="radio" name="pfActive" value="0" aria-label="Use model 1">
+          <span class="slot-num">1</span>
+          <input type="text" class="text-input mono pf-model" data-slot="0" list="modelOptions" placeholder="First model" autocomplete="off" spellcheck="false">
         </div>
-      </section>
-      <p class="version">Nova 1.0. Frontend demo, chats stay in this browser.</p>
+        <div class="slot">
+          <input type="radio" name="pfActive" value="1" aria-label="Use model 2">
+          <span class="slot-num">2</span>
+          <input type="text" class="text-input mono pf-model" data-slot="1" list="modelOptions" placeholder="Second model" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="slot">
+          <input type="radio" name="pfActive" value="2" aria-label="Use model 3">
+          <span class="slot-num">3</span>
+          <input type="text" class="text-input mono pf-model" data-slot="2" list="modelOptions" placeholder="Third model" autocomplete="off" spellcheck="false">
+        </div>
+        <datalist id="modelOptions"></datalist>
+        <button class="advanced-row" id="pfAdvancedToggle" type="button" aria-expanded="false">
+          <i data-lucide="sliders-horizontal"></i>
+          <span class="advanced-text"><strong>Advanced</strong><em id="pfAdvancedSummary">OpenAI style, Bearer</em></span>
+          <i data-lucide="chevron-down" class="adv-chev"></i>
+        </button>
+        <div id="pfAdvanced" hidden>
+          <p class="flabel gap">Request shape</p>
+          <div class="seg" id="pfKindSeg" role="group" aria-label="Request shape">
+            <button type="button" data-kind="openai">OpenAI style</button>
+            <button type="button" data-kind="anthropic">Anthropic</button>
+            <button type="button" data-kind="gemini">Gemini</button>
+          </div>
+          <p class="flabel gap">How the key is sent</p>
+          <div class="seg" id="pfAuthSeg" role="group" aria-label="How the key is sent">
+            <button type="button" data-auth="bearer">Bearer</button>
+            <button type="button" data-auth="header">Header</button>
+            <button type="button" data-auth="query">In the URL</button>
+            <button type="button" data-auth="none">No key</button>
+          </div>
+          <div class="field" id="pfAuthNameRow">
+            <label class="flabel" for="pfAuthName" id="pfAuthNameLabel">Header name</label>
+            <input type="text" class="text-input mono" id="pfAuthName" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="flabel" for="pfHeaders">Extra headers</label>
+            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Nova" spellcheck="false"></textarea>
+            <p class="fhelp">One per line, written as Name: value.</p>
+          </div>
+        </div>
+        <p class="status-line" id="pfStatus" aria-live="polite"></p>
+        <div class="editor-foot">
+          <button class="btn danger hold" id="pfRemove" type="button" hidden><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to remove</span></button>
+          <button class="btn primary grow" id="pfSave" type="button"><i data-lucide="check"></i><span>Save</span></button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
