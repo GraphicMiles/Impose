@@ -5209,7 +5209,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
       dnote("net", method + " " + sanitizeUrl(req.url) + " via relay -> " + env.status + " (" + ms() + "ms)" + failTail);
       if (bodyText.charAt(0) === "<" && /cloudflare/i.test(bodyText)) {
-        throw new Error("A firewall in front of the provider blocked this request (" + env.status + "). The provider may block your region or servers.");
+        throw new Error("The provider's firewall (" + env.status + ") is blocking the relay too. " +
+          "Use a provider the relay can reach, or wake the relay's own model from Settings, Providers.");
       }
       /* The box was asleep and is starting. Wait for it, then send this same
          request once more. depth keeps a wake loop from ever going infinite. */
@@ -5481,7 +5482,48 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   /* opts: { genParams, system, usage } where usage is filled in place
      {toksIn, toksOut} when the provider reports real counts. */
+  /* Every chat goes through here: normal replies, the research rewrite,
+     and the research completion. A provider whose firewall blocks browsers
+     gets exactly one silent retry through the relay, as long as nothing
+     streamed yet. This is the whole trick that keeps blocked gateways
+     usable without anyone flipping a setting. */
   function streamChat(provider, model, history, signal, onDelta, onThink, opts) {
+    opts = opts || {};
+    var cfg = (!provider || provider.useRelay) ? null : relayCfg();
+    if (!cfg || !cfg.url || !cfg.key) return streamChatAttempt(provider, model, history, signal, onDelta, onThink, opts);
+    var streamed = false;
+    var watched = onDelta ? function (c) { streamed = true; onDelta(c); } : null;
+    return streamChatAttempt(provider, model, history, signal, watched, onThink, opts).catch(function (err) {
+      var blocked = err && err.name !== "AbortError" &&
+        (err.name === "TypeError" || /firewall|blocked the browser|\(403\)/i.test(String(err.message || "")));
+      if (!blocked || streamed || (signal && signal.aborted)) throw err;
+      dnote("chat", "Direct call to " + (provider.label || provider.baseUrl) + " was blocked. Retrying through the relay.");
+      var viaRelay = Object.assign({}, provider, { useRelay: true });
+      var streamed2 = false;
+      var watched2 = onDelta ? function (c) { streamed2 = true; onDelta(c); } : null;
+      return streamChatAttempt(viaRelay, model, history, signal, watched2, onThink, opts).catch(function (err2) {
+        /* The provider firewall blocks the relay too. Last resort: the
+           relay's own model, labeled honestly in the reply footer. */
+        var walled = err2 && /provider's firewall/i.test(String(err2.message || ""));
+        if (!walled || streamed2 || streamed || (signal && signal.aborted)) throw err2;
+        dnote("chat", "The relay is blocked as well. Trying the relay's own model.");
+        var gw = {
+          id: "__relaygw", label: "Relay gateway", kind: "openai",
+          baseUrl: stripSlash(cfg.url) + "/v1", apiKey: cfg.key,
+          authStyle: "bearer", authName: "Authorization", headers: {},
+          model: model, useRelay: true
+        };
+        return streamChatAttempt(gw, model, history, signal, onDelta, onThink, opts).catch(function (err3) {
+          if (err3 && /\(503\)/.test(String(err3.message || ""))) {
+            throw new Error("The relay's own model is offline. Wake it from Settings, Providers, then try again.");
+          }
+          throw err3;
+        });
+      });
+    });
+  }
+
+  function streamChatAttempt(provider, model, history, signal, onDelta, onThink, opts) {
     opts = opts || {};
     var F = window.ImposeFeatures;
     if (provider && provider.useRelay) return unstreamedChat(provider, model, history, signal, onDelta, opts);
@@ -7002,26 +7044,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     }, liveOpts).then(function () {
       finishLive(s, false, null);
     }, function (err) {
-      /* Some gateways (Cloudflare et al.) block direct browser calls. If the
-         first attempt dies as a network error and a relay is configured,
-         retry the SAME provider through the relay once. */
-      var netFail = err && err.name !== "AbortError" &&
-        (err.name === "TypeError" || /network|fetch/i.test(String(err.message || "")));
-      var rcfg = relayCfg();
-      if (netFail && !s.retried && provider && !provider.useRelay && rcfg && rcfg.url) {
-        s.retried = true;
-        dnote("chat", "Direct call to " + (provider.label || provider.baseUrl) +
-          " was blocked. Retrying through the relay.");
-        toast("Provider blocked the browser. Trying through your relay.");
-        var relayClone = Object.assign({}, provider, { useRelay: true });
-        var idxKeep = s.index;
-        var rowKeep = s.row;
-        if (stream === s) stream = null;
-        setStreamingUI(true);
-        rowKeep.querySelector(".msg-body").innerHTML = dotsHtml;
-        streamLive(chat, relayClone, model, historyFor(chat.messages.slice(0, idxKeep), relayClone.kind, model), idxKeep, true);
-        return;
-      }
       /* Failover: one automatic retry on the next usable provider. */
       var backup = (!err || err.name !== "AbortError") && !s.retried && state.settings.failover
         ? pickBackup(provider && provider.id) : null;
@@ -10796,7 +10818,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   $("relayWakeBtn").addEventListener("click", function () {
     var cfg = relayCfg();
     if (!cfg.url) { toast("Set a relay first."); return; }
-    toast("Waking the model in the background.");
     fetch(stripSlash(cfg.url) + "/admin/wake-llm?background=1", {
       method: "POST",
       headers: { "Authorization": "Bearer " + cfg.key },
@@ -10804,7 +10825,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     }).then(function (r) {
       return r.json();
     }).then(function (d) {
-      toast(d && d.llm_up ? "The model is already up." : "Waking. First reply lands in 1 to 3 minutes.");
+      if (d && d.llm_up) toast.success("The model is already up.");
+      else toast("Wake request sent. First reply lands in 1 to 3 minutes.", null, null, 4200);
       renderRelayCard();
     }, function () { toast.error("Could not reach the relay."); });
   });
