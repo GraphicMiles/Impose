@@ -735,8 +735,13 @@
         throw new Error("The relay returned an unreadable reply.");
       });
     }).then(function (env) {
-      dnote("net", method + " " + sanitizeUrl(req.url) + " via relay -> " + env.status + " (" + ms() + "ms)");
       var bodyText = String((env && env.body) || "");
+      var failTail = "";
+      if (!(env.status >= 200 && env.status < 300)) {
+        var snippet = bodyText.replace(/\s+/g, " ").trim().slice(0, 160);
+        if (snippet) failTail = " " + snippet;
+      }
+      dnote("net", method + " " + sanitizeUrl(req.url) + " via relay -> " + env.status + " (" + ms() + "ms)" + failTail);
       if (bodyText.charAt(0) === "<" && /cloudflare/i.test(bodyText)) {
         throw new Error("A firewall in front of the provider blocked this request (" + env.status + "). The provider may block your region or servers.");
       }
@@ -2716,8 +2721,6 @@
       closeModal(providerModal);
       toast("Provider saved");
     }
-
-    next();
   });
 
   /* hold to remove a provider */
