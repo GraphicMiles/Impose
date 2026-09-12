@@ -315,6 +315,7 @@
 
   $("debugTab").addEventListener("click", openDebug);
   $("debugClose").addEventListener("click", closeDebug);
+  $("debugTrace").addEventListener("click", function () { closeDebug(); playTraceDemo(); });
 
   $("debugSeg").addEventListener("click", function (e) {
     var b = e.target.closest("[data-df]");
@@ -1679,8 +1680,28 @@
     renderList();
   }
 
+  function clearTraceDemo() {
+    messagesEl.querySelectorAll(".msg.demo").forEach(function (n) { n.remove(); });
+  }
+
+  function playTraceDemo() {
+    clearTraceDemo();
+    if (!window.NovaTrace || !window.NovaTrace.playDemo) {
+      dnote("app", "Trace demo unavailable.");
+      return;
+    }
+    showDock();
+    dnote("app", "Playing the agent trace demo.");
+    window.NovaTrace.playDemo(messagesEl, {
+      refreshIcons: refreshIcons,
+      renderMarkdown: renderMarkdown,
+      pin: function () { if (isNearBottom()) scrollBottom(); }
+    });
+  }
+
   function send(text) {
     text = (text || "").trim();
+    clearTraceDemo();
     if (!text) return;
     if (stream) stopStream();
 
@@ -2830,6 +2851,7 @@
     syncSend();
     refreshIcons();
     dnote("app", "Ready. " + state.providers.length + " providers, " + state.chats.length + " chats, " + state.settings.theme + " theme.");
+    if (/[?&]demo=trace\b/.test(window.location.search)) playTraceDemo();
   }
 
   if (document.readyState === "loading") {

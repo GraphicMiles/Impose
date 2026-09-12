@@ -8,6 +8,7 @@
 <meta name="color-scheme" content="dark light">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./agent/trace.css">
 <script>
 try {
   var saved = JSON.parse(localStorage.getItem("nova.clone.v1") || "{}");
@@ -357,6 +358,7 @@ try {
       <div class="debug-head-btns">
         <button class="icon-btn sm" id="debugCopy" title="Copy the log" aria-label="Copy the log"><i data-lucide="copy"></i></button>
         <button class="icon-btn sm" id="debugClear" title="Clear the log" aria-label="Clear the log"><i data-lucide="trash-2"></i></button>
+        <button class="icon-btn sm" id="debugTrace" title="Play the agent trace demo" aria-label="Play the agent trace demo"><i data-lucide="flask-conical"></i></button>
         <button class="icon-btn sm" id="debugClose" title="Close the debug log" aria-label="Close the debug log"><i data-lucide="chevron-down"></i></button>
       </div>
     </div>
@@ -374,6 +376,8 @@ try {
 
 <noscript><p style="padding:24px;font-family:sans-serif">Nova needs JavaScript to run.</p></noscript>
 <script src="./lucide.min.js"></script>
+<script src="./agent/trace.js"></script>
 <script src="./app.js"></script>
 </body>
+</html>
 </html>

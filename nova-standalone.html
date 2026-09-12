@@ -1292,6 +1292,442 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .pick-row em:empty { display: none; }
 
 </style>
+<style>
+/* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
+   translated to Nova tokens, Lucide icons, hairline borders, no shadows. */
+
+:root,
+html[data-theme="dark"] {
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.13);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.13);
+}
+
+html[data-theme="light"] {
+  --ok: #047857;
+  --ok-soft: rgba(4, 120, 87, 0.1);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.1);
+}
+
+html[data-theme="warm"] {
+  --ok: #4d7c0f;
+  --ok-soft: rgba(77, 124, 15, 0.12);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.12);
+}
+
+@keyframes trace-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes trace-shimmer {
+  to { background-position: -200% 0; }
+}
+
+/* ---------- thinking trace ---------- */
+
+.agent-trace {
+  margin-bottom: 10px;
+}
+
+.trace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  padding: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.trace-head:hover {
+  background: var(--hover);
+}
+
+.trace-glyph {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.trace-glyph svg {
+  width: 13px;
+  height: 13px;
+}
+
+.trace-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-head.working .trace-status {
+  color: transparent;
+  background: linear-gradient(100deg, var(--text-2) 30%, var(--text) 50%, var(--text-2) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: trace-shimmer 1.6s linear infinite;
+}
+
+.trace-time {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.trace-chev {
+  display: flex;
+  color: var(--text-3);
+}
+
+.trace-chev svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s var(--ease-out);
+}
+
+.agent-trace.closed .trace-chev svg {
+  transform: rotate(-90deg);
+}
+
+.trace-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.24s var(--ease-out);
+}
+
+.agent-trace.closed .trace-body {
+  grid-template-rows: 0fr;
+}
+
+.trace-clip {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.trace-list {
+  position: relative;
+  padding: 4px 0 6px 8px;
+}
+
+.trace-list::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 10px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--border-soft);
+}
+
+.trace-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 6px 2px 0;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  animation: trace-in 320ms var(--ease-out) both;
+  animation-delay: var(--d, 0ms);
+}
+
+a.trace-row {
+  color: inherit;
+  text-decoration: none;
+}
+
+a.trace-row:hover {
+  background: var(--hover);
+}
+
+.trace-dot {
+  width: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trace-dot i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.trace-dot.t-accent i { background: var(--link); }
+.trace-dot.t-ok i { background: var(--ok); }
+.trace-dot.t-warn i { background: var(--warn); }
+
+.trace-ico {
+  width: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+
+.trace-ico svg {
+  width: 13px;
+  height: 13px;
+}
+
+.trace-ico.spin svg {
+  animation: rot 0.9s linear infinite;
+}
+
+.trace-primary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-sub {
+  min-width: 0;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-row .mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.trace-query {
+  color: var(--text-2);
+}
+
+.trace-diff {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.trace-diff .add { color: var(--ok); }
+.trace-diff .del { color: var(--danger); }
+
+.trace-more {
+  padding: 2px 0 2px 22px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  animation: trace-in 320ms var(--ease-out) both;
+  animation-delay: var(--d, 0ms);
+}
+
+/* ---------- plan task rows ---------- */
+
+.plan-rows {
+  margin: 2px 0 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.plan-row {
+  border-bottom: 1px solid var(--border-soft);
+  animation: trace-in 320ms var(--ease-out) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 4px 6px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.plan-badge {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 11px;
+  color: var(--text-2);
+  background: conic-gradient(var(--link) calc(var(--p, 0) * 1%), var(--border-soft) 0);
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.plan-badge::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.plan-badge > * {
+  position: relative;
+  z-index: 1;
+}
+
+.plan-badge svg {
+  width: 13px;
+  height: 13px;
+}
+
+.plan-badge.pending {
+  color: var(--text-3);
+}
+
+.plan-badge.done {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.plan-badge.failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.plan-badge.done::after,
+.plan-badge.failed::after {
+  display: none;
+}
+
+.plan-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-meta {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.plan-pill {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.plan-pill.done {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.plan-pill.failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.plan-retry {
+  flex: none;
+}
+
+.plan-chev {
+  display: flex;
+  color: var(--text-3);
+}
+
+.plan-chev svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s var(--ease-out);
+}
+
+.plan-row.closed .plan-chev svg {
+  transform: rotate(-90deg);
+}
+
+.plan-detail {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.24s var(--ease-out);
+}
+
+.plan-row.closed .plan-detail {
+  grid-template-rows: 0fr;
+}
+
+.plan-dbody {
+  overflow: hidden;
+  min-height: 0;
+  padding-bottom: 6px;
+}
+
+.plan-dline {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 8px 5px 34px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.plan-dline .mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* ---------- demo ---------- */
+
+.demo-note {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 2px 0 8px;
+}
+
+html.reduce-motion .trace-head.working .trace-status {
+  color: var(--text-2);
+  background: none;
+  animation: none;
+}
+
+html.reduce-motion .trace-row,
+html.reduce-motion .plan-row,
+html.reduce-motion .trace-more {
+  animation: none;
+}
+
+html.reduce-motion .trace-ico.spin svg {
+  animation: none;
+}
+
+</style>
 <script>
 try {
   var saved = JSON.parse(localStorage.getItem("nova.clone.v1") || "{}");
@@ -1641,6 +2077,7 @@ try {
       <div class="debug-head-btns">
         <button class="icon-btn sm" id="debugCopy" title="Copy the log" aria-label="Copy the log"><i data-lucide="copy"></i></button>
         <button class="icon-btn sm" id="debugClear" title="Clear the log" aria-label="Clear the log"><i data-lucide="trash-2"></i></button>
+        <button class="icon-btn sm" id="debugTrace" title="Play the agent trace demo" aria-label="Play the agent trace demo"><i data-lucide="flask-conical"></i></button>
         <button class="icon-btn sm" id="debugClose" title="Close the debug log" aria-label="Close the debug log"><i data-lucide="chevron-down"></i></button>
       </div>
     </div>
@@ -1670,6 +2107,348 @@ If you want to use all the icons you can import it like:
  \`import { createIcons, icons } from 'lucide';
 lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()` only works in a browser environment.");if(Array.from(d.querySelectorAll(`[${t}]`)).forEach(p=>Na(p,{nameAttr:t,icons:h,attrs:c})),M&&Array.from(d.querySelectorAll("template")).forEach(p=>mV({icons:h,nameAttr:t,attrs:c,root:p.content,inTemplates:M})),t==="data-lucide"){const p=d.querySelectorAll("[icon-name]");p.length>0&&(console.warn("[Lucide] Some icons were found with the now deprecated icon-name attribute. These will still be replaced for backwards compatibility, but will no longer be supported in v1.0 and you should switch to data-lucide"),Array.from(p).forEach(Ga=>Na(Ga,{nameAttr:"icon-name",icons:h,attrs:c})))}};a.AArrowDown=Ka,a.AArrowUp=Qa,a.ALargeSmall=ja,a.Accessibility=Ja,a.Activity=Ya,a.ActivitySquare=$0,a.Ad=_a,a.AirVent=xa,a.Airplay=ah,a.AlarmCheck=C,a.AlarmClock=th,a.AlarmClockCheck=C,a.AlarmClockMinus=u,a.AlarmClockOff=hh,a.AlarmClockPlus=g,a.AlarmMinus=u,a.AlarmPlus=g,a.AlarmSmoke=dh,a.Album=k0,a.AlertCircle=j,a.AlertOctagon=E2,a.AlertTriangle=wa,a.AlignCenter=ya,a.AlignCenterHorizontal=ch,a.AlignCenterVertical=Mh,a.AlignEndHorizontal=ph,a.AlignEndVertical=lh,a.AlignHorizontalDistributeCenter=ih,a.AlignHorizontalDistributeEnd=nh,a.AlignHorizontalDistributeStart=rh,a.AlignHorizontalJustifyCenter=eh,a.AlignHorizontalJustifyEnd=oh,a.AlignHorizontalJustifyStart=vh,a.AlignHorizontalSpaceAround=$h,a.AlignHorizontalSpaceBetween=mh,a.AlignJustify=Ca,a.AlignLeft=s,a.AlignRight=sa,a.AlignStartHorizontal=yh,a.AlignStartVertical=sh,a.AlignVerticalDistributeCenter=Ch,a.AlignVerticalDistributeEnd=uh,a.AlignVerticalDistributeStart=gh,a.AlignVerticalJustifyCenter=Ah,a.AlignVerticalJustifyEnd=Hh,a.AlignVerticalJustifyStart=Vh,a.AlignVerticalSpaceAround=wh,a.AlignVerticalSpaceBetween=Sh,a.Ambulance=Lh,a.Ampersand=fh,a.Ampersands=kh,a.Amphora=Ph,a.Anchor=Bh,a.Angle=zh,a.Angry=U1,a.Annoyed=O1,a.Antenna=Rh,a.Anvil=Dh,a.Aperture=Fh,a.AppWindow=bh,a.AppWindowMac=Th,a.Apple=qh,a.Archive=Zh,a.ArchiveRestore=Uh,a.ArchiveX=Oh,a.AreaChart=q,a.Armchair=Gh,a.ArrowBigDown=Wh,a.ArrowBigDownDash=Eh,a.ArrowBigLeft=Xh,a.ArrowBigLeftDash=Ih,a.ArrowBigRight=Kh,a.ArrowBigRightDash=Nh,a.ArrowBigUp=jh,a.ArrowBigUpDash=Qh,a.ArrowDown=Mt,a.ArrowDown01=Jh,a.ArrowDown10=Yh,a.ArrowDownAZ=A,a.ArrowDownAz=A,a.ArrowDownCircle=Y,a.ArrowDownFromLine=_h,a.ArrowDownLeft=xh,a.ArrowDownLeftFromCircle=a1,a.ArrowDownLeftFromSquare=C0,a.ArrowDownLeftSquare=m0,a.ArrowDownNarrowWide=at,a.ArrowDownRight=ht,a.ArrowDownRightFromCircle=x,a.ArrowDownRightFromSquare=g0,a.ArrowDownRightSquare=y0,a.ArrowDownSquare=s0,a.ArrowDownToDot=tt,a.ArrowDownToLine=dt,a.ArrowDownUp=ct,a.ArrowDownWideNarrow=H,a.ArrowDownZA=V,a.ArrowDownZa=V,a.ArrowLeft=nt,a.ArrowLeftCircle=_,a.ArrowLeftFromLine=pt,a.ArrowLeftRight=lt,a.ArrowLeftSquare=u0,a.ArrowLeftToLine=it,a.ArrowRight=vt,a.ArrowRightCircle=d1,a.ArrowRightFromLine=et,a.ArrowRightLeft=rt,a.ArrowRightSquare=V0,a.ArrowRightToLine=ot,a.ArrowUp=Vt,a.ArrowUp01=$t,a.ArrowUp10=mt,a.ArrowUpAZ=w,a.ArrowUpAz=w,a.ArrowUpCircle=c1,a.ArrowUpDown=yt,a.ArrowUpFromDot=st,a.ArrowUpFromLine=Ct,a.ArrowUpLeft=ut,a.ArrowUpLeftFromCircle=h1,a.ArrowUpLeftFromSquare=A0,a.ArrowUpLeftSquare=w0,a.ArrowUpNarrowWide=S,a.ArrowUpRight=gt,a.ArrowUpRightFromCircle=t1,a.ArrowUpRightFromSquare=H0,a.ArrowUpRightSquare=S0,a.ArrowUpSquare=L0,a.ArrowUpToLine=At,a.ArrowUpWideNarrow=Ht,a.ArrowUpZA=L,a.ArrowUpZa=L,a.ArrowsUpFromLine=wt,a.Asterisk=St,a.AsteriskSquare=f0,a.Astroid=Lt,a.AtSign=ft,a.Atom=kt,a.AudioLines=zt,a.AudioLinesOff=Pt,a.AudioLinesX=Bt,a.AudioWaveform=Dt,a.Award=Ft,a.Axe=Rt,a.Axis3D=f,a.Axis3d=f,a.Baby=bt,a.Backpack=Tt,a.Badge=_t,a.BadgeAlert=qt,a.BadgeCent=Ut,a.BadgeCheck=k,a.BadgeDollarSign=Ot,a.BadgeEuro=Gt,a.BadgeHelp=P,a.BadgeIndianRupee=Zt,a.BadgeInfo=Wt,a.BadgeJapaneseYen=Et,a.BadgeMinus=It,a.BadgePercent=Xt,a.BadgePlus=Nt,a.BadgePoundSterling=Kt,a.BadgeQuestionMark=P,a.BadgeRussianRuble=Qt,a.BadgeSwissFranc=Jt,a.BadgeTurkishLira=jt,a.BadgeX=Yt,a.BaggageClaim=xt,a.Balloon=a5,a.Ban=h5,a.Banana=t5,a.Bandage=c5,a.Banknote=n5,a.BanknoteArrowDown=M5,a.BanknoteArrowUp=d5,a.BanknoteCheck=p5,a.BanknoteX=l5,a.BarChart=N,a.BarChart2=X,a.BarChart3=W,a.BarChart4=E,a.BarChartBig=Z,a.BarChartHorizontal=O,a.BarChartHorizontalBig=U,a.Barcode=i5,a.Barrel=e5,a.Baseline=o5,a.Bath=r5,a.Battery=u5,a.BatteryCharging=v5,a.BatteryFull=$5,a.BatteryLow=m5,a.BatteryMedium=y5,a.BatteryPlus=s5,a.BatteryWarning=C5,a.Beaker=g5,a.Bean=H5,a.BeanOff=A5,a.Bed=S5,a.BedDouble=V5,a.BedSingle=w5,a.Beef=f5,a.BeefOff=L5,a.Beer=k5,a.BeerOff=P5,a.Bell=q5,a.BellCheck=B5,a.BellDot=z5,a.BellElectric=D5,a.BellMinus=F5,a.BellOff=R5,a.BellPlus=b5,a.BellRing=T5,a.BetweenHorizonalEnd=B,a.BetweenHorizonalStart=z,a.BetweenHorizontalEnd=B,a.BetweenHorizontalStart=z,a.BetweenVerticalEnd=U5,a.BetweenVerticalStart=O5,a.BicepsFlexed=Z5,a.Bike=G5,a.Binary=E5,a.Binoculars=W5,a.Biohazard=I5,a.Bird=X5,a.Birdhouse=N5,a.Bitcoin=K5,a.Blend=Q5,a.Blender=J5,a.Blinds=j5,a.Blocks=Y5,a.Bluetooth=h4,a.BluetoothConnected=_5,a.BluetoothOff=x5,a.BluetoothSearching=a4,a.Bold=t4,a.Bolt=c4,a.Bomb=d4,a.Bone=p4,a.BoneFracture=M4,a.Book=B4,a.BookA=l4,a.BookAlert=i4,a.BookAudio=n4,a.BookBookmark=D,a.BookCheck=e4,a.BookCopy=r4,a.BookDashed=F,a.BookDown=o4,a.BookHeadphones=v4,a.BookHeart=$4,a.BookImage=m4,a.BookKey=y4,a.BookLock=s4,a.BookMarked=D,a.BookMinus=C4,a.BookOpen=A4,a.BookOpenCheck=u4,a.BookOpenText=g4,a.BookPlus=H4,a.BookSearch=V4,a.BookTemplate=F,a.BookText=w4,a.BookType=S4,a.BookUp=f4,a.BookUp2=L4,a.BookUser=k4,a.BookX=P4,a.Bookmark=T4,a.BookmarkCheck=D4,a.BookmarkMinus=z4,a.BookmarkOff=F4,a.BookmarkPlus=R4,a.BookmarkX=b4,a.BoomBox=q4,a.Bot=Z4,a.BotMessageSquare=U4,a.BotOff=O4,a.BottleWine=G4,a.BowArrow=W4,a.Box=E4,a.BoxSelect=G0,a.Boxes=I4,a.Braces=R,a.Brackets=X4,a.Brain=K4,a.BrainCircuit=N4,a.BrainCog=Q4,a.BrickWall=_4,a.BrickWallFire=J4,a.BrickWallShield=j4,a.Bridge=Y4,a.Briefcase=t3,a.BriefcaseBusiness=x4,a.BriefcaseConveyorBelt=a3,a.BriefcaseMedical=h3,a.BringToFront=d3,a.Broccoli=c3,a.Broom=p3,a.BroomSparkles=M3,a.Brush=i3,a.BrushCleaning=l3,a.Bubbles=e3,a.Bug=o3,a.BugOff=n3,a.BugPlay=r3,a.Building=$3,a.Building2=b,a.BuildingComplex=b,a.BuildingComplexPlus=v3,a.Bus=y3,a.BusFront=m3,a.Cable=C3,a.CableCar=s3,a.Cake=g3,a.CakeSlice=u3,a.Calculator=A3,a.Calendar=W3,a.Calendar1=H3,a.CalendarArrowDown=V3,a.CalendarArrowUp=w3,a.CalendarCheck=L3,a.CalendarCheck2=S3,a.CalendarChevronsRight=f3,a.CalendarClock=k3,a.CalendarCog=P3,a.CalendarDays=B3,a.CalendarFold=z3,a.CalendarHeart=D3,a.CalendarMinus=R3,a.CalendarMinus2=F3,a.CalendarOff=b3,a.CalendarPlus=q3,a.CalendarPlus2=T3,a.CalendarRange=U3,a.CalendarSearch=O3,a.CalendarSync=Z3,a.CalendarX=G3,a.CalendarX2=E3,a.Calendars=I3,a.Camera=N3,a.CameraOff=X3,a.Can=K3,a.CanSoda=Q3,a.CandlestickChart=G,a.Candy=Y3,a.CandyCane=J3,a.CandyOff=j3,a.Cannabis=x3,a.CannabisOff=_3,a.Captions=T,a.CaptionsOff=ad,a.Car=cd,a.CarBattery=hd,a.CarFront=td,a.CarTaxiFront=dd,a.Caravan=Md,a.CardSim=pd,a.Carrot=ld,a.Carton=nd,a.CartonOff=id,a.CaseLower=ed,a.CaseSensitive=rd,a.CaseUpper=od,a.CassetteTape=vd,a.Cast=$d,a.Castle=md,a.Cat=yd,a.Cctv=Cd,a.CctvOff=sd,a.ChartArea=q,a.ChartBar=O,a.ChartBarBig=U,a.ChartBarDecreasing=ud,a.ChartBarIncreasing=gd,a.ChartBarStacked=Ad,a.ChartCandlestick=G,a.ChartColumn=W,a.ChartColumnBig=Z,a.ChartColumnDecreasing=Hd,a.ChartColumnIncreasing=E,a.ChartColumnStacked=Vd,a.ChartGantt=wd,a.ChartLine=I,a.ChartNetwork=Sd,a.ChartNoAxesColumn=X,a.ChartNoAxesColumnDecreasing=Ld,a.ChartNoAxesColumnIncreasing=N,a.ChartNoAxesCombined=fd,a.ChartNoAxesGantt=Q,a.ChartPie=K,a.ChartScatter=J,a.ChartSpline=kd,a.Check=zd,a.CheckCheck=Pd,a.CheckCircle=M1,a.CheckCircle2=p1,a.CheckLine=Bd,a.CheckSquare=F0,a.CheckSquare2=D0,a.ChefHat=Dd,a.Cherry=Fd,a.ChessBishop=Rd,a.ChessKing=Td,a.ChessKnight=bd,a.ChessPawn=qd,a.ChessQueen=Ud,a.ChessRook=Od,a.ChevronDown=Zd,a.ChevronDownCircle=l1,a.ChevronDownSquare=R0,a.ChevronFirst=Gd,a.ChevronLast=Ed,a.ChevronLeft=Wd,a.ChevronLeftCircle=i1,a.ChevronLeftSquare=b0,a.ChevronRight=Id,a.ChevronRightCircle=n1,a.ChevronRightSquare=T0,a.ChevronUp=Xd,a.ChevronUpCircle=e1,a.ChevronUpSquare=q0,a.ChevronsDown=Kd,a.ChevronsDownUp=Nd,a.ChevronsLeft=jd,a.ChevronsLeftRight=Jd,a.ChevronsLeftRightEllipsis=Qd,a.ChevronsRight=_d,a.ChevronsRightLeft=Yd,a.ChevronsUp=a6,a.ChevronsUpDown=xd,a.Church=h6,a.Cigarette=d6,a.CigaretteOff=t6,a.Circle=g6,a.CircleAlert=j,a.CircleArrowDown=Y,a.CircleArrowLeft=_,a.CircleArrowOutDownLeft=a1,a.CircleArrowOutDownRight=x,a.CircleArrowOutUpLeft=h1,a.CircleArrowOutUpRight=t1,a.CircleArrowRight=d1,a.CircleArrowUp=c1,a.CircleCheck=p1,a.CircleCheckBig=M1,a.CircleChevronDown=l1,a.CircleChevronLeft=i1,a.CircleChevronRight=n1,a.CircleChevronUp=e1,a.CircleDashed=M6,a.CircleDashedCheck=c6,a.CircleDivide=r1,a.CircleDollarSign=p6,a.CircleDot=i6,a.CircleDotDashed=l6,a.CircleEllipsis=n6,a.CircleEqual=e6,a.CircleEuro=r6,a.CircleFadingArrowUp=o6,a.CircleFadingPlus=v6,a.CircleGauge=o1,a.CircleHelp=n,a.CircleMinus=v1,a.CircleOff=$6,a.CircleParking=m1,a.CircleParkingOff=$1,a.CirclePause=y1,a.CirclePercent=s1,a.CirclePile=m6,a.CirclePlay=C1,a.CirclePlus=u1,a.CirclePoundSterling=y6,a.CirclePower=g1,a.CircleQuestionMark=n,a.CircleSlash=s6,a.CircleSlash2=A1,a.CircleSlashed=A1,a.CircleSmall=C6,a.CircleStar=u6,a.CircleStop=H1,a.CircleUser=S1,a.CircleUserRound=V1,a.CircleX=w1,a.CircuitBoard=A6,a.Citrus=H6,a.Clapperboard=V6,a.Clipboard=F6,a.ClipboardCheck=w6,a.ClipboardClock=S6,a.ClipboardCopy=L6,a.ClipboardEdit=f1,a.ClipboardList=k6,a.ClipboardMinus=f6,a.ClipboardPaste=P6,a.ClipboardPen=f1,a.ClipboardPenLine=L1,a.ClipboardPlus=B6,a.ClipboardSignature=L1,a.ClipboardType=z6,a.ClipboardX=D6,a.Clock=a8,a.Clock1=R6,a.Clock10=b6,a.Clock11=T6,a.Clock12=q6,a.Clock2=U6,a.Clock3=O6,a.Clock4=Z6,a.Clock5=G6,a.Clock6=E6,a.Clock7=W6,a.Clock8=I6,a.Clock9=X6,a.ClockAlert=N6,a.ClockArrowDown=K6,a.ClockArrowLeft=Q6,a.ClockArrowRight=J6,a.ClockArrowUp=j6,a.ClockCheck=_6,a.ClockFading=Y6,a.ClockPlus=x6,a.ClosedCaption=h8,a.Cloud=u8,a.CloudAlert=t8,a.CloudBackup=d8,a.CloudCheck=c8,a.CloudCog=M8,a.CloudDownload=k1,a.CloudDrizzle=p8,a.CloudFog=l8,a.CloudHail=i8,a.CloudLightning=n8,a.CloudMoon=r8,a.CloudMoonRain=e8,a.CloudOff=o8,a.CloudRain=$8,a.CloudRainWind=v8,a.CloudSnow=m8,a.CloudSun=s8,a.CloudSunRain=y8,a.CloudSync=C8,a.CloudUpload=P1,a.Cloudy=g8,a.Clover=A8,a.Club=H8,a.Code=w8,a.Code2=B1,a.CodeSquare=U0,a.CodeXml=B1,a.Coffee=V8,a.Cog=S8,a.Coins=L8,a.Columns=z1,a.Columns2=z1,a.Columns3=D1,a.Columns3Cog=e,a.Columns4=f8,a.ColumnsSettings=e,a.Combine=k8,a.Command=P8,a.Compass=B8,a.Component=z8,a.Computer=D8,a.ConciergeBell=F8,a.Cone=R8,a.Construction=b8,a.Contact=q8,a.Contact2=F1,a.ContactRound=F1,a.Container=T8,a.Contrast=O8,a.Cookie=U8,a.CookingPot=Z8,a.Copy=N8,a.CopyCheck=G8,a.CopyMinus=E8,a.CopyPlus=W8,a.CopySlash=I8,a.CopyX=X8,a.Copyleft=K8,a.Copyright=Q8,a.CornerDownLeft=J8,a.CornerDownRight=j8,a.CornerLeftDown=Y8,a.CornerLeftUp=_8,a.CornerRightDown=x8,a.CornerRightUp=ac,a.CornerUpLeft=hc,a.CornerUpRight=tc,a.Cpu=cc,a.CreativeCommons=dc,a.CreditCard=ec,a.CreditCardCheck=Mc,a.CreditCardMinus=pc,a.CreditCardPlus=lc,a.CreditCardReader=ic,a.CreditCardX=nc,a.Croissant=rc,a.Crop=oc,a.Cross=vc,a.Crosshair=$c,a.Crown=mc,a.Cuboid=yc,a.CupSoda=sc,a.CurlyBraces=R,a.Currency=uc,a.Cylinder=Cc,a.Dam=gc,a.Database=Bc,a.DatabaseArrowDown=Ac,a.DatabaseArrowUp=Hc,a.DatabaseBackup=Vc,a.DatabaseCheck=wc,a.DatabaseMinus=Sc,a.DatabasePlus=Lc,a.DatabaseSearch=fc,a.DatabaseX=kc,a.DatabaseZap=Pc,a.DecimalsArrowLeft=zc,a.DecimalsArrowRight=Dc,a.Delete=Fc,a.Dessert=Rc,a.Diameter=bc,a.Diamond=Uc,a.DiamondMinus=Tc,a.DiamondPercent=R1,a.DiamondPlus=qc,a.Dice1=Oc,a.Dice2=Zc,a.Dice3=Gc,a.Dice4=Ec,a.Dice5=Wc,a.Dice6=Ic,a.Dices=Xc,a.Diff=Nc,a.Disc=jc,a.Disc2=Kc,a.Disc3=Qc,a.DiscAlbum=Jc,a.Divide=Yc,a.DivideCircle=r1,a.DivideSquare=E0,a.Dna=xc,a.DnaOff=_c,a.Dock=a7,a.Dog=h7,a.DollarSign=t7,a.Dome=d7,a.Donut=c7,a.DoorClosed=p7,a.DoorClosedLocked=M7,a.DoorOpen=l7,a.DoorStairwell=i7,a.Dot=n7,a.DotSquare=W0,a.Download=e7,a.DownloadCloud=k1,a.DraftingCompass=r7,a.Drama=o7,a.Drill=$7,a.Drone=v7,a.Droplet=y7,a.DropletOff=m7,a.Droplets=s7,a.Drum=C7,a.Drumstick=u7,a.Dumbbell=g7,a.Ear=V7,a.EarOff=A7,a.Earth=b1,a.EarthLock=H7,a.Eclipse=w7,a.Edit=l,a.Edit2=h0,a.Edit3=a0,a.Egg=f7,a.EggFried=S7,a.EggOff=L7,a.Eject=k7,a.Ellipse=P7,a.Ellipsis=q1,a.EllipsisVertical=T1,a.Engine=B7,a.Equal=R7,a.EqualApproximately=z7,a.EqualApproximatelyNot=D7,a.EqualNot=F7,a.EqualSquare=I0,a.Eraser=b7,a.EthernetPort=T7,a.Euro=q7,a.EvCharger=U7,a.Expand=O7,a.ExternalLink=Z7,a.Eye=I7,a.EyeClosed=G7,a.EyeDashed=E7,a.EyeOff=W7,a.FaceAngry=U1,a.FaceExpressionless=O1,a.FaceGrinning=Z1,a.FaceNeutral=G1,a.FaceSlightlyFrowning=E1,a.FaceSlightlySmiling=I1,a.FaceSlightlySmilingPlus=W1,a.Factory=X7,a.Fan=N7,a.FastForward=K7,a.Feather=Q7,a.Fence=J7,a.FerrisWheel=j7,a.File=S9,a.FileArchive=Y7,a.FileAudio=r,a.FileAudio2=r,a.FileAxis3D=X1,a.FileAxis3d=X1,a.FileBadge=N1,a.FileBadge2=N1,a.FileBarChart=J1,a.FileBarChart2=_1,a.FileBox=_7,a.FileBraces=Q1,a.FileBracesCorner=K1,a.FileChartColumn=_1,a.FileChartColumnIncreasing=J1,a.FileChartLine=j1,a.FileChartPie=Y1,a.FileCheck=x7,a.FileCheck2=x1,a.FileCheckCorner=x1,a.FileClock=a9,a.FileCode=h9,a.FileCode2=a2,a.FileCodeCorner=a2,a.FileCog=h2,a.FileCog2=h2,a.FileDiff=t9,a.FileDigit=d9,a.FileDown=c9,a.FileEdit=l2,a.FileExclamationPoint=t2,a.FileHeadphone=r,a.FileHeart=M9,a.FileImage=p9,a.FileInput=l9,a.FileJson=Q1,a.FileJson2=K1,a.FileKey=d2,a.FileKey2=d2,a.FileLineChart=j1,a.FileLock=c2,a.FileLock2=c2,a.FileMinus=i9,a.FileMinus2=M2,a.FileMinusCorner=M2,a.FileMusic=n9,a.FileOutput=e9,a.FilePen=l2,a.FilePenLine=p2,a.FilePieChart=Y1,a.FilePlay=i2,a.FilePlus=r9,a.FilePlus2=n2,a.FilePlusCorner=n2,a.FileQuestion=e2,a.FileQuestionMark=e2,a.FileScan=o9,a.FileSearch=v9,a.FileSearch2=r2,a.FileSearchCorner=r2,a.FileSignal=o2,a.FileSignature=p2,a.FileSliders=$9,a.FileSpreadsheet=m9,a.FileStack=y9,a.FileSymlink=s9,a.FileTerminal=C9,a.FileText=u9,a.FileType=g9,a.FileType2=v2,a.FileTypeCorner=v2,a.FileUp=A9,a.FileUser=H9,a.FileVideo=i2,a.FileVideo2=$2,a.FileVideoCamera=$2,a.FileVolume=V9,a.FileVolume2=o2,a.FileWarning=t2,a.FileX=w9,a.FileX2=m2,a.FileXCorner=m2,a.Files=L9,a.Film=f9,a.Filter=g2,a.FilterX=u2,a.Fingerprint=y2,a.FingerprintPattern=y2,a.FireExtinguisher=k9,a.Fish=z9,a.FishOff=P9,a.FishSymbol=B9,a.FishingHook=D9,a.FishingRod=F9,a.Flag=q9,a.FlagOff=R9,a.FlagTriangleLeft=b9,a.FlagTriangleRight=T9,a.Flame=O9,a.FlameKindling=U9,a.Flashlight=G9,a.FlashlightOff=Z9,a.FlaskConical=W9,a.FlaskConicalOff=E9,a.FlaskRound=I9,a.FlipHorizontal=z0,a.FlipHorizontal2=Sa,a.FlipVertical=B0,a.FlipVertical2=La,a.Flower=K9,a.Flower2=X9,a.Focus=N9,a.FoldHorizontal=Q9,a.FoldVertical=J9,a.Folder=wM,a.FolderArchive=j9,a.FolderBookmark=Y9,a.FolderCheck=_9,a.FolderClock=x9,a.FolderClosed=aM,a.FolderCode=hM,a.FolderCog=s2,a.FolderCog2=s2,a.FolderDot=tM,a.FolderDown=dM,a.FolderEdit=C2,a.FolderGit=MM,a.FolderGit2=cM,a.FolderHeart=pM,a.FolderInput=lM,a.FolderKanban=iM,a.FolderKey=nM,a.FolderLock=eM,a.FolderMinus=rM,a.FolderOpen=vM,a.FolderOpenDot=oM,a.FolderOutput=$M,a.FolderPen=C2,a.FolderPlus=mM,a.FolderRoot=yM,a.FolderSearch=CM,a.FolderSearch2=sM,a.FolderSymlink=uM,a.FolderSync=gM,a.FolderTree=AM,a.FolderUp=HM,a.FolderX=VM,a.Folders=SM,a.Footprints=LM,a.ForkKnife=qa,a.ForkKnifeCrossed=Ta,a.Forklift=fM,a.Form=kM,a.FormInput=d0,a.Forward=PM,a.Frame=BM,a.Frown=E1,a.Fuel=zM,a.Fullscreen=DM,a.FunctionSquare=X0,a.Funnel=g2,a.FunnelPlus=FM,a.FunnelX=u2,a.Galaxy=RM,a.GalleryHorizontal=TM,a.GalleryHorizontalEnd=bM,a.GalleryThumbnails=qM,a.GalleryVertical=OM,a.GalleryVerticalEnd=UM,a.Gamepad=EM,a.Gamepad2=ZM,a.GamepadDirectional=GM,a.GanttChart=Q,a.GanttChartSquare=m,a.GapHorizontal=WM,a.GapVertical=IM,a.Gauge=XM,a.GaugeCircle=o1,a.Gavel=NM,a.Gem=KM,a.GeorgianLari=QM,a.Germ=jM,a.GermOff=JM,a.Ghost=YM,a.Gift=_M,a.GitBranch=hp,a.GitBranchMinus=xM,a.GitBranchPlus=ap,a.GitCommit=A2,a.GitCommitHorizontal=A2,a.GitCommitVertical=tp,a.GitCompare=cp,a.GitCompareArrows=dp,a.GitFork=Mp,a.GitGraph=pp,a.GitMerge=ip,a.GitMergeConflict=lp,a.GitPullRequest=$p,a.GitPullRequestArrow=np,a.GitPullRequestClosed=ep,a.GitPullRequestCreate=op,a.GitPullRequestCreateArrow=rp,a.GitPullRequestDraft=vp,a.GlassWater=yp,a.Glasses=mp,a.Globe=Hp,a.Globe2=b1,a.GlobeCheck=sp,a.GlobeCode=Cp,a.GlobeLock=up,a.GlobeOff=gp,a.GlobeX=Ap,a.Goal=Vp,a.Gpu=Sp,a.Grab=L2,a.GraduationCap=wp,a.Grape=Lp,a.Grid=o,a.Grid2X2=S2,a.Grid2X2Check=V2,a.Grid2X2Plus=H2,a.Grid2X2X=w2,a.Grid2x2=S2,a.Grid2x2Check=V2,a.Grid2x2Plus=H2,a.Grid2x2X=w2,a.Grid3X3=o,a.Grid3x2=fp,a.Grid3x3=o,a.Grip=Bp,a.GripHorizontal=kp,a.GripVertical=Pp,a.Group=zp,a.Guitar=Dp,a.Ham=Fp,a.Hamburger=bp,a.Hammer=Rp,a.Hand=Gp,a.HandCoins=Tp,a.HandFist=qp,a.HandGrab=L2,a.HandHeart=Op,a.HandHelping=f2,a.HandMetal=Up,a.HandPlatter=Zp,a.Handbag=Ep,a.Handshake=Wp,a.HardDrive=Np,a.HardDriveDownload=Ip,a.HardDriveUpload=Xp,a.HardHat=Kp,a.Hash=Qp,a.HatGlasses=Jp,a.Haze=jp,a.Hd=Yp,a.HdmiPort=xp,a.Heading=Ml,a.Heading1=_p,a.Heading2=al,a.Heading3=hl,a.Heading4=dl,a.Heading5=tl,a.Heading6=cl,a.HeadphoneOff=ll,a.Headphones=pl,a.Headset=il,a.Heart=Cl,a.HeartCrack=nl,a.HeartHandshake=el,a.HeartMinus=rl,a.HeartOff=ol,a.HeartPlus=vl,a.HeartPulse=$l,a.HeartX=ml,a.Heater=yl,a.Helicopter=sl,a.HelpCircle=n,a.HelpingHand=f2,a.Hexagon=ul,a.Highlighter=gl,a.History=M0,a.Home=k2,a.Hop=Hl,a.HopOff=Al,a.Hospital=Vl,a.Hotel=wl,a.Hourglass=Ll,a.HourglassCog=Sl,a.House=k2,a.HouseHeart=fl,a.HousePlug=kl,a.HousePlus=Pl,a.HouseWifi=Bl,a.Houses=zl,a.IceCream=B2,a.IceCream2=P2,a.IceCreamBowl=P2,a.IceCreamCone=B2,a.IdCard=Fl,a.IdCardLanyard=Dl,a.Image=Gl,a.ImageDown=Rl,a.ImageMinus=bl,a.ImageOff=Tl,a.ImagePlay=ql,a.ImagePlus=Ul,a.ImageUp=Ol,a.ImageUpscale=Zl,a.Images=El,a.Import=Wl,a.Inbox=Il,a.Indent=$,a.IndentDecrease=v,a.IndentIncrease=$,a.IndianRupee=Xl,a.Infinity=Kl,a.Info=Nl,a.Inspect=Y0,a.InspectionPanel=Ql,a.Italic=Jl,a.IterationCcw=jl,a.IterationCw=Yl,a.IvBag=_l,a.JapaneseYen=xl,a.Joystick=ai,a.Kanban=hi,a.KanbanSquare=N0,a.KanbanSquareDashed=O0,a.Kayak=ti,a.Key=Mi,a.KeyRound=di,a.KeySquare=ci,a.Keyboard=li,a.KeyboardMusic=pi,a.KeyboardOff=ii,a.Lamp=$i,a.LampCeiling=ni,a.LampDesk=ei,a.LampFloor=ri,a.LampWallDown=oi,a.LampWallUp=vi,a.LandPlot=mi,a.Landmark=yi,a.Languages=si,a.Laptop=ui,a.Laptop2=z2,a.LaptopMinimal=z2,a.LaptopMinimalCheck=Ci,a.Lasso=Ai,a.LassoSelect=gi,a.Laugh=Z1,a.LayerArrowDown=Hi,a.LayerArrowUp=Vi,a.Layers=D2,a.Layers2=wi,a.Layers3=D2,a.LayersArrowDown=Si,a.LayersArrowUp=Li,a.LayersMinus=fi,a.LayersPlus=ki,a.Layout=x2,a.LayoutArrowDown=Pi,a.LayoutArrowRight=Bi,a.LayoutDashboard=zi,a.LayoutFreeform=Di,a.LayoutGrid=Ri,a.LayoutList=Fi,a.LayoutPanelLeft=bi,a.LayoutPanelTop=Ti,a.LayoutTemplate=qi,a.Leaf=Ui,a.LeafyGreen=Oi,a.Lectern=Zi,a.LensConcave=Gi,a.LensConvex=Ei,a.LetterText=ua,a.Library=Ii,a.LibraryBig=Wi,a.LibrarySquare=K0,a.LifeBuoy=Xi,a.Ligature=Ni,a.Lightbulb=Qi,a.LightbulbOff=Ki,a.Lighthouse=Ji,a.LineChart=I,a.LineDotRightHorizontal=ji,a.LineSquiggle=Yi,a.LineStyle=_i,a.Link=hn,a.Link2=an,a.Link2Off=xi,a.List=wn,a.ListCheck=dn,a.ListChecks=tn,a.ListChevronsDownUp=cn,a.ListChevronsUpDown=Mn,a.ListClock=pn,a.ListCollapse=nn,a.ListEnd=ln,a.ListFilter=rn,a.ListFilterPlus=en,a.ListIndentDecrease=v,a.ListIndentIncrease=$,a.ListMinus=vn,a.ListMusic=on,a.ListOrdered=$n,a.ListPlus=mn,a.ListRestart=yn,a.ListSortAscending=sn,a.ListSortDescending=Cn,a.ListStart=un,a.ListTodo=gn,a.ListTree=An,a.ListVideo=Hn,a.ListX=Vn,a.Loader=Ln,a.Loader2=F2,a.LoaderCircle=F2,a.LoaderPinwheel=Sn,a.Locate=Pn,a.LocateFixed=kn,a.LocateOff=fn,a.LocationEdit=q2,a.Lock=zn,a.LockKeyhole=Bn,a.LockKeyholeOpen=R2,a.LockOpen=b2,a.LogIn=Dn,a.LogOut=Fn,a.Logs=Rn,a.Lollipop=bn,a.Luggage=Tn,a.MSquare=Q0,a.Magnet=qn,a.Mail=Qn,a.MailBadge=Un,a.MailCheck=On,a.MailClock=Zn,a.MailMinus=Gn,a.MailOpen=En,a.MailPen=Wn,a.MailPlus=In,a.MailQuestion=T2,a.MailQuestionMark=T2,a.MailSearch=Xn,a.MailWarning=Nn,a.MailX=Kn,a.Mailbox=Jn,a.Mails=jn,a.Map=oe,a.MapMinus=Yn,a.MapPin=ne,a.MapPinCheck=xn,a.MapPinCheckInside=_n,a.MapPinHouse=ae,a.MapPinMinus=te,a.MapPinMinusInside=he,a.MapPinOff=de,a.MapPinPen=q2,a.MapPinPlus=pe,a.MapPinPlusInside=ce,a.MapPinSearch=Me,a.MapPinX=ie,a.MapPinXInside=le,a.MapPinned=ee,a.MapPlus=re,a.Mars=$e,a.MarsStroke=ve,a.Martini=me,a.Maximize=se,a.Maximize2=ye,a.Medal=Ce,a.Megaphone=ge,a.MegaphoneOff=ue,a.Meh=G1,a.MemoryStick=Ae,a.Menu=He,a.MenuSquare=J0,a.Merge=we,a.MessageCircle=be,a.MessageCircleCheck=Ve,a.MessageCircleCode=Se,a.MessageCircleDashed=fe,a.MessageCircleDashedCheck=Le,a.MessageCircleHeart=Pe,a.MessageCircleMore=ke,a.MessageCircleOff=Be,a.MessageCirclePlus=ze,a.MessageCircleQuestion=U2,a.MessageCircleQuestionMark=U2,a.MessageCircleReply=De,a.MessageCircleWarning=Fe,a.MessageCircleX=Re,a.MessageSquare=_e,a.MessageSquareCheck=Te,a.MessageSquareCode=qe,a.MessageSquareDashed=Ue,a.MessageSquareDiff=Oe,a.MessageSquareDot=Ze,a.MessageSquareHeart=Ge,a.MessageSquareLock=Ee,a.MessageSquareMore=We,a.MessageSquareOff=Ie,a.MessageSquarePlus=Xe,a.MessageSquareQuote=Ne,a.MessageSquareReply=Ke,a.MessageSquareShare=Qe,a.MessageSquareText=Je,a.MessageSquareWarning=je,a.MessageSquareX=Ye,a.MessagesCircle=xe,a.MessagesSquare=ar,a.Metronome=tr,a.Mic=cr,a.Mic2=Z2,a.MicAudioLines=hr,a.MicOff=dr,a.MicSignal=O2,a.MicVocal=Z2,a.Microchip=Mr,a.Microscope=pr,a.Microwave=lr,a.MidiPort=ir,a.Milestone=nr,a.Milk=rr,a.MilkOff=er,a.Minimize=vr,a.Minimize2=or,a.Minus=$r,a.MinusCircle=v1,a.MinusSquare=j0,a.MirrorRectangular=mr,a.MirrorRound=yr,a.Monitor=Br,a.MonitorCheck=sr,a.MonitorCloud=Cr,a.MonitorCog=ur,a.MonitorDot=gr,a.MonitorDown=Ar,a.MonitorOff=Hr,a.MonitorPause=Vr,a.MonitorPlay=wr,a.MonitorSmartphone=Sr,a.MonitorSpeaker=Lr,a.MonitorStop=fr,a.MonitorUp=kr,a.MonitorX=Pr,a.Moon=Dr,a.MoonStar=zr,a.Mop=Rr,a.MopSparkles=Fr,a.MoreHorizontal=q1,a.MoreVertical=T1,a.Mosque=br,a.Motorbike=Tr,a.Mountain=Ur,a.MountainSnow=qr,a.Mouse=Kr,a.MouseLeft=Or,a.MouseOff=Zr,a.MousePointer=Xr,a.MousePointer2=Gr,a.MousePointer2Off=Er,a.MousePointerBan=Wr,a.MousePointerClick=Ir,a.MousePointerSquareDashed=Z0,a.MouseRight=Nr,a.Mouth=Jr,a.MouthOff=Qr,a.Move=no,a.Move3D=G2,a.Move3d=G2,a.MoveDiagonal=Yr,a.MoveDiagonal2=jr,a.MoveDown=ao,a.MoveDownLeft=_r,a.MoveDownRight=xr,a.MoveHorizontal=ho,a.MoveLeft=to,a.MoveRight=co,a.MoveUp=lo,a.MoveUpLeft=Mo,a.MoveUpRight=po,a.MoveVertical=io,a.Music=vo,a.Music2=eo,a.Music3=ro,a.Music4=oo,a.Navigation=so,a.Navigation2=mo,a.Navigation2Off=$o,a.NavigationOff=yo,a.Network=Co,a.Newspaper=uo,a.Nfc=go,a.NonBinary=Ao,a.Notebook=Lo,a.NotebookDot=Ho,a.NotebookPen=Vo,a.NotebookTabs=So,a.NotebookText=wo,a.NotepadText=ko,a.NotepadTextDashed=fo,a.Nut=Bo,a.NutOff=Po,a.Octagon=Do,a.OctagonAlert=E2,a.OctagonMinus=zo,a.OctagonPause=W2,a.OctagonX=I2,a.Omega=Fo,a.Option=Ro,a.Orbit=bo,a.Origami=qo,a.Outdent=v,a.Package=Io,a.Package2=To,a.PackageCheck=Uo,a.PackageMinus=Oo,a.PackageOpen=Go,a.PackagePlus=Zo,a.PackageSearch=Eo,a.PackageX=Wo,a.PaintBucket=Xo,a.PaintRoller=No,a.Paintbrush=Ko,a.Paintbrush2=X2,a.PaintbrushVertical=X2,a.Palette=Qo,a.Palmtree=Va,a.Panda=Jo,a.PanelBottom=Yo,a.PanelBottomClose=jo,a.PanelBottomDashed=N2,a.PanelBottomInactive=N2,a.PanelBottomOpen=_o,a.PanelLeft=j2,a.PanelLeftClose=K2,a.PanelLeftDashed=Q2,a.PanelLeftInactive=Q2,a.PanelLeftOpen=J2,a.PanelLeftRightDashed=xo,a.PanelRight=tv,a.PanelRightClose=av,a.PanelRightDashed=Y2,a.PanelRightInactive=Y2,a.PanelRightOpen=hv,a.PanelTop=pv,a.PanelTopBottomDashed=dv,a.PanelTopClose=cv,a.PanelTopDashed=_2,a.PanelTopInactive=_2,a.PanelTopOpen=Mv,a.PanelsLeftBottom=lv,a.PanelsLeftRight=D1,a.PanelsRightBottom=iv,a.PanelsTopBottom=l0,a.PanelsTopLeft=x2,a.PaperBag=nv,a.Paperclip=ev,a.Parasol=rv,a.Parentheses=ov,a.Park=vv,a.ParkingCircle=m1,a.ParkingCircleOff=$1,a.ParkingMeter=$v,a.ParkingSquare=x0,a.ParkingSquareOff=_0,a.PartyPopper=mv,a.Pause=yv,a.PauseCircle=y1,a.PauseOctagon=W2,a.PawPrint=sv,a.PcCase=Cv,a.Pen=h0,a.PenBox=l,a.PenLine=a0,a.PenOff=uv,a.PenSquare=l,a.PenTool=gv,a.Pencil=wv,a.PencilLine=Av,a.PencilOff=Hv,a.PencilRuler=Vv,a.PencilSparkles=Sv,a.Pentagon=Lv,a.Percent=fv,a.PercentCircle=s1,a.PercentDiamond=R1,a.PercentSquare=aa,a.PersonStanding=kv,a.Phi=Pv,a.PhilippinePeso=Bv,a.Phone=qv,a.PhoneCall=zv,a.PhoneForwarded=Dv,a.PhoneIncoming=Fv,a.PhoneMissed=Rv,a.PhoneOff=bv,a.PhoneOutgoing=Tv,a.Pi=Uv,a.PiSquare=ha,a.Piano=Ov,a.Pickaxe=Zv,a.PictureInPicture=Ev,a.PictureInPicture2=Gv,a.PieChart=K,a.PiggyBank=Wv,a.Pilcrow=Xv,a.PilcrowLeft=Iv,a.PilcrowRight=Nv,a.PilcrowSquare=ta,a.Pill=Qv,a.PillBottle=Kv,a.Pin=jv,a.PinOff=Jv,a.Pipette=Yv,a.Pizza=_v,a.Plane=h$,a.PlaneLanding=xv,a.PlaneTakeoff=a$,a.PlantPot=t$,a.Play=M$,a.PlayCircle=C1,a.PlayOff=d$,a.PlaySquare=da,a.PlayingCard=c$,a.PlayingCards=l$,a.PlayingCardsFan=p$,a.Plug=n$,a.Plug2=i$,a.PlugZap=t0,a.PlugZap2=t0,a.Plus=e$,a.PlusCircle=u1,a.PlusSquare=ca,a.PocketKnife=r$,a.Podcast=O2,a.Podium=o$,a.Pointer=$$,a.PointerOff=v$,a.Popcorn=m$,a.Popsicle=y$,a.PoundSterling=s$,a.Power=A$,a.PowerCircle=g1,a.PowerOff=C$,a.PowerSquare=Ma,a.Presentation=u$,a.Printer=V$,a.PrinterCheck=g$,a.PrinterX=H$,a.Projector=w$,a.Proportions=S$,a.Puzzle=L$,a.Pyramid=f$,a.QrCode=k$,a.Quote=P$,a.Rabbit=B$,a.Radar=z$,a.Radiation=D$,a.Radical=F$,a.Radio=q$,a.RadioOff=R$,a.RadioReceiver=b$,a.RadioTower=T$,a.Radius=U$,a.Rainbow=O$,a.Rat=Z$,a.Ratio=G$,a.Receipt=Y$,a.ReceiptCent=E$,a.ReceiptEuro=W$,a.ReceiptIndianRupee=I$,a.ReceiptJapaneseYen=X$,a.ReceiptPoundSterling=N$,a.ReceiptRussianRuble=Q$,a.ReceiptSwissFranc=K$,a.ReceiptText=J$,a.ReceiptTurkishLira=j$,a.RectangleCircle=_$,a.RectangleEllipsis=d0,a.RectangleGoggles=x$,a.RectangleHorizontal=am,a.RectangleVertical=hm,a.Recycle=tm,a.Redo=Mm,a.Redo2=dm,a.RedoDot=cm,a.RefreshCcw=lm,a.RefreshCcwDot=pm,a.RefreshCw=nm,a.RefreshCwOff=im,a.Refrigerator=em,a.Regex=rm,a.RemoveFormatting=om,a.Repeat=ym,a.Repeat1=vm,a.Repeat2=$m,a.RepeatOff=mm,a.Replace=Cm,a.ReplaceAll=sm,a.Reply=gm,a.ReplyAll=um,a.Rewind=Am,a.Ribbon=Hm,a.Road=Vm,a.RobotArm=wm,a.RobotVacuum=Sm,a.Rocket=Lm,a.RockingChair=fm,a.RollerCoaster=km,a.Rose=Pm,a.Rotate3D=c0,a.Rotate3d=c0,a.RotateCcw=Dm,a.RotateCcwClock=M0,a.RotateCcwKey=Bm,a.RotateCcwSquare=zm,a.RotateCw=bm,a.RotateCwFadingClock=Fm,a.RotateCwSquare=Rm,a.Route=qm,a.RouteOff=Tm,a.Router=Um,a.Rows=p0,a.Rows2=p0,a.Rows3=l0,a.Rows4=Om,a.Rss=Zm,a.Ruler=Em,a.RulerDimensionLine=Gm,a.RussianRuble=Wm,a.Sailboat=Im,a.Salad=Xm,a.Sandwich=Nm,a.Satellite=Qm,a.SatelliteDish=Km,a.SaudiRiyal=Jm,a.Save=hy,a.SaveAll=jm,a.SaveCheck=Ym,a.SaveOff=_m,a.SavePen=xm,a.SavePlus=ay,a.Scale=dy,a.Scale3D=i0,a.Scale3d=i0,a.Scaling=ty,a.Scan=$y,a.ScanBarcode=My,a.ScanBox=cy,a.ScanEye=py,a.ScanFace=ly,a.ScanHeart=iy,a.ScanLine=ny,a.ScanQrCode=ey,a.ScanSearch=ry,a.ScanSquare=oy,a.ScanText=vy,a.ScatterChart=J,a.School=my,a.School2=ka,a.Scissors=sy,a.ScissorsLineDashed=yy,a.ScissorsSquare=pa,a.ScissorsSquareDashedBottom=P0,a.Scooter=Cy,a.ScreenShare=Ay,a.ScreenShareOff=uy,a.Scroll=Hy,a.ScrollText=gy,a.Search=ky,a.SearchAlert=Vy,a.SearchCheck=wy,a.SearchCode=Sy,a.SearchSlash=Ly,a.SearchX=fy,a.Section=Py,a.Send=zy,a.SendHorizonal=n0,a.SendHorizontal=n0,a.SendToBack=By,a.SeparatorHorizontal=Dy,a.SeparatorVertical=Ry,a.Server=Uy,a.ServerCog=Fy,a.ServerCrash=by,a.ServerOff=Ty,a.ServerPlus=qy,a.Settings=Zy,a.Settings2=Oy,a.Shapes=Gy,a.Share=Wy,a.Share2=Ey,a.Sheet=Iy,a.Shell=Xy,a.ShelvingUnit=Ny,a.Shield=ls,a.ShieldAlert=Ky,a.ShieldBan=Qy,a.ShieldCheck=Jy,a.ShieldClose=r0,a.ShieldCog=Yy,a.ShieldCogCorner=jy,a.ShieldEllipsis=_y,a.ShieldHalf=xy,a.ShieldKeyhole=as,a.ShieldLock=hs,a.ShieldMinus=ts,a.ShieldOff=ds,a.ShieldPlus=cs,a.ShieldQuestion=e0,a.ShieldQuestionMark=e0,a.ShieldUser=Ms,a.ShieldX=r0,a.Ship=es,a.ShipCargo=ps,a.ShipWheel=is,a.Shirt=ns,a.ShoppingBag=os,a.ShoppingBasket=rs,a.ShoppingCart=ms,a.ShoppingCartMinus=vs,a.ShoppingCartPlus=$s,a.Shovel=ys,a.ShowerHead=Cs,a.Shredder=ss,a.Shrimp=gs,a.ShrimpOff=us,a.Shrink=As,a.Shrub=Hs,a.Shuffle=Vs,a.Sidebar=j2,a.SidebarClose=K2,a.SidebarOpen=J2,a.Sigma=Ss,a.SigmaSquare=la,a.Signal=Ps,a.SignalHigh=ws,a.SignalLow=Ls,a.SignalMedium=fs,a.SignalZero=ks,a.Signature=zs,a.Signpost=Ds,a.SignpostBig=Bs,a.Siren=Fs,a.SkipBack=bs,a.SkipForward=Rs,a.Skull=Ts,a.Slash=Us,a.SlashSquare=ia,a.Slice=qs,a.Sliders=o0,a.SlidersHorizontal=Os,a.SlidersVertical=o0,a.Smartphone=Es,a.SmartphoneCharging=Zs,a.SmartphoneNfc=Gs,a.Smile=I1,a.SmilePlus=W1,a.Snail=Ws,a.Snowflake=Is,a.SoapDispenserDroplet=Xs,a.Sofa=Ns,a.SolarPanel=Ks,a.SortAsc=S,a.SortDesc=H,a.Soup=Qs,a.Space=Js,a.Spade=js,a.Sparkle=Ys,a.Sparkles=v0,a.Speaker=_s,a.Speech=xs,a.SpellCheck=hC,a.SpellCheck2=aC,a.Spline=dC,a.SplinePointer=tC,a.Split=cC,a.SplitSquareHorizontal=na,a.SplitSquareVertical=ea,a.Spool=MC,a.SportShoe=pC,a.Spotlight=lC,a.SprayCan=iC,a.Sprout=nC,a.Square=LC,a.SquareActivity=$0,a.SquareArrowDown=s0,a.SquareArrowDownLeft=m0,a.SquareArrowDownRight=y0,a.SquareArrowLeft=u0,a.SquareArrowOutDownLeft=C0,a.SquareArrowOutDownRight=g0,a.SquareArrowOutUpLeft=A0,a.SquareArrowOutUpRight=H0,a.SquareArrowRight=V0,a.SquareArrowRightEnter=eC,a.SquareArrowRightExit=rC,a.SquareArrowUp=L0,a.SquareArrowUpLeft=w0,a.SquareArrowUpRight=S0,a.SquareAsterisk=f0,a.SquareBookmark=k0,a.SquareBottomDashedScissors=P0,a.SquareCenterlineDashedHorizontal=z0,a.SquareCenterlineDashedVertical=B0,a.SquareChartGantt=m,a.SquareCheck=D0,a.SquareCheckBig=F0,a.SquareChevronDown=R0,a.SquareChevronLeft=b0,a.SquareChevronRight=T0,a.SquareChevronUp=q0,a.SquareCode=U0,a.SquareDashed=G0,a.SquareDashedBottom=vC,a.SquareDashedBottomCode=oC,a.SquareDashedKanban=O0,a.SquareDashedMousePointer=Z0,a.SquareDashedText=y,a.SquareDashedTopSolid=$C,a.SquareDimensions=mC,a.SquareDivide=E0,a.SquareDot=W0,a.SquareEqual=I0,a.SquareExclamationPoint=yC,a.SquareFunction=X0,a.SquareGanttChart=m,a.SquareKanban=N0,a.SquareLibrary=K0,a.SquareM=Q0,a.SquareMenu=J0,a.SquareMinus=j0,a.SquareMousePointer=Y0,a.SquareOff=sC,a.SquareParking=x0,a.SquareParkingOff=_0,a.SquarePause=CC,a.SquarePen=l,a.SquarePercent=aa,a.SquarePi=ha,a.SquarePilcrow=ta,a.SquarePlay=da,a.SquarePlus=ca,a.SquarePower=Ma,a.SquareRadical=uC,a.SquareRoundCorner=gC,a.SquareScissors=pa,a.SquareSigma=la,a.SquareSlash=ia,a.SquareSplitHorizontal=na,a.SquareSplitVertical=ea,a.SquareSquare=AC,a.SquareStack=HC,a.SquareStar=VC,a.SquareStop=wC,a.SquareTerminal=ra,a.SquareText=SC,a.SquareUser=va,a.SquareUserRound=oa,a.SquareX=$a,a.SquaresExclude=fC,a.SquaresIntersect=kC,a.SquaresSubtract=PC,a.SquaresUnite=BC,a.Squircle=DC,a.SquircleDashed=zC,a.Squirrel=RC,a.Stamp=FC,a.Star=ZC,a.StarCheck=bC,a.StarHalf=TC,a.StarMinus=qC,a.StarOff=UC,a.StarPlus=GC,a.StarX=OC,a.Stars=v0,a.StepBack=EC,a.StepForward=WC,a.Stethoscope=IC,a.Sticker=XC,a.StickyNote=YC,a.StickyNoteCheck=NC,a.StickyNoteMinus=KC,a.StickyNoteOff=QC,a.StickyNotePlus=JC,a.StickyNoteX=jC,a.StickyNotes=_C,a.Stone=xC,a.StopCircle=H1,a.Store=au,a.StretchHorizontal=hu,a.StretchVertical=tu,a.Strikethrough=du,a.Subscript=cu,a.Subtitles=T,a.Summary=Mu,a.Sun=eu,a.SunDim=pu,a.SunMedium=lu,a.SunMoon=iu,a.SunSnow=nu,a.Sunrise=ru,a.Sunset=ou,a.Superscript=vu,a.SwatchBook=$u,a.SwissFranc=mu,a.SwitchCamera=yu,a.Sword=su,a.Swords=Cu,a.Syringe=uu,a.Table=fu,a.Table2=gu,a.TableCellsMerge=Au,a.TableCellsSplit=Hu,a.TableColumnsSplit=Vu,a.TableConfig=e,a.TableOfContents=wu,a.TableProperties=Lu,a.TableRowsSplit=Su,a.Tablet=Pu,a.TabletSmartphone=ku,a.Tablets=Bu,a.Tag=Fu,a.TagPlus=zu,a.TagX=Du,a.Tags=Ru,a.Tally1=bu,a.Tally2=qu,a.Tally3=Tu,a.Tally4=Uu,a.Tally5=Ou,a.Tangent=Zu,a.Target=Gu,a.Telescope=Eu,a.Tent=Wu,a.TentTree=Iu,a.Terminal=Ku,a.TerminalSquare=ra,a.TestTube=Xu,a.TestTube2=ma,a.TestTubeDiagonal=ma,a.TestTubes=Nu,a.Text=s,a.TextAlignCenter=ya,a.TextAlignEnd=sa,a.TextAlignJustify=Ca,a.TextAlignStart=s,a.TextCursor=Ju,a.TextCursorInput=Qu,a.TextInitial=ua,a.TextQuote=ju,a.TextSearch=Yu,a.TextSelect=y,a.TextSelection=y,a.TextWrap=ga,a.Theater=xu,a.Thermometer=hg,a.ThermometerSnowflake=_u,a.ThermometerSun=ag,a.ThumbsDown=tg,a.ThumbsUp=cg,a.TicTacToe=dg,a.Ticket=rg,a.TicketCheck=pg,a.TicketMinus=Mg,a.TicketPercent=lg,a.TicketPlus=ig,a.TicketSlash=ng,a.TicketX=eg,a.Tickets=vg,a.TicketsPlane=og,a.Timeline=$g,a.Timer=sg,a.TimerOff=mg,a.TimerReset=yg,a.ToggleLeft=Cg,a.ToggleRight=ug,a.Toilet=gg,a.ToolCase=Ag,a.Toolbox=Hg,a.Toothbrush=wg,a.ToothbrushSparkles=Vg,a.Tornado=Lg,a.Torus=Sg,a.Touchpad=kg,a.TouchpadOff=fg,a.TowelRack=Pg,a.TowerControl=Bg,a.ToyBrick=zg,a.Tractor=Dg,a.TrafficCone=Fg,a.Trailer=bg,a.Train=Aa,a.TrainFront=Tg,a.TrainFrontTunnel=Rg,a.TrainTrack=qg,a.TramFront=Aa,a.Transgender=Ug,a.Trash=Ha,a.Trash2=Ha,a.TrashOff=Og,a.TreeDeciduous=Zg,a.TreePalm=Va,a.TreePine=Gg,a.Trees=Eg,a.TrendingDown=Wg,a.TrendingUp=Xg,a.TrendingUpDown=Ig,a.Triangle=Qg,a.TriangleAlert=wa,a.TriangleDashed=Ng,a.TriangleRight=Kg,a.TrianglesCenterlineDashedHorizontal=Sa,a.TrianglesCenterlineDashedVertical=La,a.Trophy=Jg,a.Truck=Yg,a.TruckElectric=jg,a.TurkishLira=xg,a.Turntable=_g,a.Turtle=aA,a.Tv=tA,a.Tv2=fa,a.TvMinimal=fa,a.TvMinimalPlay=hA,a.Type=cA,a.TypeOutline=dA,a.Umbrella=lA,a.UmbrellaOff=pA,a.Underline=MA,a.Undo=eA,a.Undo2=iA,a.UndoDot=nA,a.UnfoldHorizontal=oA,a.UnfoldVertical=rA,a.Ungroup=vA,a.University=ka,a.Unlink=mA,a.Unlink2=$A,a.Unlock=b2,a.UnlockKeyhole=R2,a.Unplug=yA,a.Upload=sA,a.UploadCloud=P1,a.Usb=uA,a.UsbCPort=CA,a.User=qA,a.User2=Ra,a.UserCheck=gA,a.UserCheck2=Ba,a.UserCircle=S1,a.UserCircle2=V1,a.UserCog=AA,a.UserCog2=Pa,a.UserGroup=HA,a.UserKey=VA,a.UserLock=wA,a.UserMinus=SA,a.UserMinus2=za,a.UserPen=LA,a.UserPlus=fA,a.UserPlus2=Da,a.UserRound=Ra,a.UserRoundArrowLeft=kA,a.UserRoundCheck=Ba,a.UserRoundCog=Pa,a.UserRoundGroup=PA,a.UserRoundKey=BA,a.UserRoundMinus=za,a.UserRoundPen=zA,a.UserRoundPlus=Da,a.UserRoundSearch=DA,a.UserRoundX=Fa,a.UserSearch=FA,a.UserShield=RA,a.UserSquare=va,a.UserSquare2=oa,a.UserStar=bA,a.UserX=TA,a.UserX2=Fa,a.Users=UA,a.Users2=ba,a.UsersRound=ba,a.Utensils=qa,a.UtensilsCrossed=Ta,a.UtilityPole=OA,a.Van=ZA,a.Variable=GA,a.Vault=EA,a.VectorPolygon=WA,a.VectorSquare=IA,a.Vegan=XA,a.VenetianMask=NA,a.Venus=QA,a.VenusAndMars=KA,a.Verified=k,a.Vibrate=jA,a.VibrateOff=JA,a.Video=_A,a.VideoOff=YA,a.Videotape=xA,a.View=aH,a.Virus=tH,a.VirusOff=hH,a.Voicemail=dH,a.Volleyball=cH,a.Volume=iH,a.Volume1=pH,a.Volume2=MH,a.VolumeOff=lH,a.VolumeX=nH,a.Vote=eH,a.Wallet=oH,a.Wallet2=Ua,a.WalletCards=rH,a.WalletMinimal=Ua,a.Wallpaper=vH,a.Wand=$H,a.Wand2=Oa,a.WandSparkles=Oa,a.Warehouse=sH,a.WashingMachine=mH,a.Watch=yH,a.Waves=Za,a.WavesArrowDown=CH,a.WavesArrowUp=gH,a.WavesHorizontal=Za,a.WavesLadder=uH,a.WavesVertical=AH,a.Waypoints=HH,a.Webcam=wH,a.WebcamOff=VH,a.Webhook=LH,a.WebhookOff=SH,a.Weight=kH,a.WeightTilde=fH,a.Wheat=zH,a.WheatOff=PH,a.Whistle=BH,a.WholeWord=RH,a.Wifi=GH,a.WifiCog=DH,a.WifiHigh=FH,a.WifiLow=bH,a.WifiOff=TH,a.WifiPen=qH,a.WifiSync=UH,a.WifiZero=OH,a.Wind=EH,a.WindArrowDown=ZH,a.Wine=WH,a.WineOff=IH,a.Workflow=XH,a.Worm=NH,a.WrapText=ga,a.Wrench=QH,a.WrenchOff=KH,a.X=jH,a.XCircle=w1,a.XLineTop=JH,a.XOctagon=I2,a.XSquare=$a,a.Zap=_H,a.ZapOff=YH,a.ZodiacAquarius=xH,a.ZodiacAries=aV,a.ZodiacCancer=hV,a.ZodiacCapricorn=tV,a.ZodiacGemini=dV,a.ZodiacLeo=cV,a.ZodiacLibra=MV,a.ZodiacOphiuchus=pV,a.ZodiacPisces=lV,a.ZodiacSagittarius=iV,a.ZodiacScorpio=nV,a.ZodiacTaurus=eV,a.ZodiacVirgo=rV,a.ZoomIn=oV,a.ZoomOut=vV,a.createElement=Ia,a.createIcons=mV,a.icons=$V}));
 //# sourceMappingURL=lucide.min.js.map
+
+</script>
+<script>
+/* Nova agent pipeline visualization: beautifului Thinking trace plus Task rows,
+   translated to vanilla JS. This module drives from plain calls and knows
+   nothing about the agent runtime. Phase 2 binds the runtime event bus here;
+   until then playDemo acts as the binder with a scripted sample run. */
+(function () {
+  "use strict";
+
+  var TONES = ["t-accent", "t-warn", "t-ok"];
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function el(tag, cls) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    return n;
+  }
+
+  function icon(name) {
+    return '<i data-lucide="' + name + '"></i>';
+  }
+
+  /* Mounts the expandable trace header plus timeline inside an assistant row,
+     above the answer body. Returns a handle the runtime binder drives. */
+  function mountTrace(host, opts) {
+    opts = opts || {};
+    var box = el("div", "agent-trace");
+    var head = el("button", "trace-head working");
+    head.setAttribute("type", "button");
+    head.setAttribute("aria-expanded", "true");
+    head.innerHTML =
+      '<span class="trace-glyph">' + icon(opts.icon || "sparkles") + "</span>" +
+      '<span class="trace-status">' + esc(opts.active || "Thinking") + "</span>" +
+      '<span class="trace-time"></span>' +
+      '<span class="trace-chev">' + icon("chevron-down") + "</span>";
+    var statusEl = head.querySelector(".trace-status");
+    var timeEl = head.querySelector(".trace-time");
+    var listBody = el("div", "trace-body");
+    var clip = el("div", "trace-clip");
+    var list = el("div", "trace-list");
+    clip.appendChild(list);
+    listBody.appendChild(clip);
+    box.appendChild(head);
+    box.appendChild(listBody);
+    var anchor = host.querySelector(".msg-body");
+    if (anchor) host.insertBefore(box, anchor);
+    else host.appendChild(box);
+
+    var manual = null;
+    var working = true;
+    var t0 = Date.now();
+    var count = 0;
+    var moreEl = null;
+
+    function render() {
+      var open = manual !== null ? manual : working;
+      box.classList.toggle("closed", !open);
+      head.classList.toggle("working", working);
+      head.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+
+    head.addEventListener("click", function () {
+      var open = manual !== null ? manual : working;
+      manual = !open;
+      render();
+    });
+
+    function leftFor(def) {
+      if (def.kind === "query") return '<span class="trace-ico">' + icon("search") + "</span>";
+      if (def.kind === "step") return '<span class="trace-ico spin" data-ico>' + icon("loader-circle") + "</span>";
+      var tone = def.tone || TONES[count % TONES.length];
+      return '<span class="trace-dot ' + tone + '"><i></i></span>';
+    }
+
+    function addRow(def) {
+      def = def || {};
+      var row = document.createElement(def.href ? "a" : "div");
+      row.className = "trace-row" + (def.kind === "query" ? " trace-query" : "");
+      row.style.setProperty("--d", (count * 120) + "ms");
+      count++;
+      var html = leftFor(def) + '<span class="trace-primary' + (def.mono ? " mono" : "") + '">' + esc(def.primary) + "</span>";
+      if (def.secondary) html += '<span class="trace-sub' + (def.mono ? " mono" : "") + '">' + esc(def.secondary) + "</span>";
+      if (def.add !== undefined) {
+        html += '<span class="trace-diff"><span class="add">+' + esc(def.add) + "</span> " +
+          '<span class="del">-' + esc(def.del === undefined ? 0 : def.del) + "</span></span>";
+      }
+      row.innerHTML = html;
+      if (def.href) {
+        row.setAttribute("href", def.href);
+        row.setAttribute("target", "_blank");
+        row.setAttribute("rel", "noreferrer");
+      }
+      if (moreEl) list.insertBefore(row, moreEl);
+      else list.appendChild(row);
+      return row;
+    }
+
+    function setStep(row, done) {
+      if (!row || !row.isConnected) return;
+      var ico = row.querySelector("[data-ico]");
+      if (!ico) return;
+      ico.classList.toggle("spin", !done);
+      ico.innerHTML = icon(done ? "check" : "loader-circle");
+    }
+
+    function setMore(n) {
+      if (!moreEl) {
+        moreEl = el("div", "trace-more");
+        list.appendChild(moreEl);
+      }
+      moreEl.style.setProperty("--d", (count * 120) + "ms");
+      moreEl.textContent = "+" + n + " more";
+    }
+
+    function settle(doneText) {
+      working = false;
+      var secs = Math.max(1, Math.round((Date.now() - t0) / 1000));
+      statusEl.textContent = doneText || ("Thought for " + secs + " seconds");
+      timeEl.textContent = secs + "s";
+      var spins = list.querySelectorAll("[data-ico].spin");
+      for (var i = 0; i < spins.length; i++) {
+        spins[i].classList.remove("spin");
+        spins[i].innerHTML = icon("check");
+      }
+      render();
+    }
+
+    render();
+    return {
+      el: box,
+      setStatus: function (t) { statusEl.textContent = t; },
+      addRow: addRow,
+      setStep: setStep,
+      setMore: setMore,
+      settle: settle
+    };
+  }
+
+  /* Mounts the plan step list. Rows flip between pending, running, failed,
+     and done. The retry control calls back out; the runtime decides. */
+  function mountPlan(host, opts) {
+    opts = opts || {};
+    var wrap = el("div", "plan-rows");
+    var anchor = host.querySelector(".msg-body");
+    if (anchor) host.insertBefore(wrap, anchor);
+    else host.appendChild(wrap);
+    var byKey = {};
+
+    function badgeInner(row) {
+      if (row.status === "done") return icon("check");
+      if (row.status === "failed") return icon("x");
+      return esc(row.step == null ? "" : String(row.step));
+    }
+
+    function paint(entry) {
+      var row = entry.row;
+      var badge = entry.badge;
+      var pillSlot = entry.pillSlot;
+      badge.className = "plan-badge " + row.status;
+      badge.style.setProperty("--p", row.status === "running" ? (row.progress || 0) : 0);
+      badge.innerHTML = badgeInner(row);
+      entry.meta.textContent = row.meta || "";
+      pillSlot.innerHTML = "";
+      if (row.status === "done") {
+        var pill = el("span", "plan-pill done");
+        pill.textContent = "Completed";
+        pillSlot.appendChild(pill);
+      } else if (row.status === "failed") {
+        var fpill = el("span", "plan-pill failed");
+        fpill.textContent = "Failed";
+        pillSlot.appendChild(fpill);
+        var retry = el("button", "icon-btn sm plan-retry");
+        retry.setAttribute("type", "button");
+        retry.setAttribute("title", "Retry this step");
+        retry.setAttribute("aria-label", "Retry " + row.label);
+        retry.innerHTML = icon("rotate-ccw");
+        retry.addEventListener("click", function (e) {
+          e.stopPropagation();
+          if (opts.onRetry) opts.onRetry(row.key);
+        });
+        pillSlot.appendChild(retry);
+      }
+      entry.node.classList.toggle("closed", !row.open);
+    }
+
+    (opts.rows || []).forEach(function (row, i) {
+      row.open = !!row.open;
+      var node = el("div", "plan-row");
+      node.style.setProperty("--d", (i * 80) + "ms");
+      var head = el("button", "plan-head");
+      head.setAttribute("type", "button");
+      head.innerHTML = '<span class="plan-badge"></span>' +
+        '<span class="plan-label">' + esc(row.label) + "</span>" +
+        '<span class="plan-meta"></span>' +
+        '<span class="plan-pills"></span>' +
+        '<span class="plan-chev">' + icon("chevron-down") + "</span>";
+      var detail = el("div", "plan-detail");
+      var dbody = el("div", "plan-dbody");
+      (row.details || []).forEach(function (d) {
+        var line = el("div", "plan-dline");
+        line.innerHTML = "<span>" + esc(d.label) + '</span><span class="mono">' + esc(d.meta) + "</span>";
+        dbody.appendChild(line);
+      });
+      detail.appendChild(dbody);
+      node.appendChild(head);
+      node.appendChild(detail);
+      head.addEventListener("click", function () {
+        row.open = !row.open;
+        node.classList.toggle("closed", !row.open);
+      });
+      var entry = {
+        row: row,
+        node: node,
+        badge: head.querySelector(".plan-badge"),
+        meta: head.querySelector(".plan-meta"),
+        pillSlot: head.querySelector(".plan-pills")
+      };
+      paint(entry);
+      byKey[row.key] = entry;
+      wrap.appendChild(node);
+    });
+
+    return {
+      el: wrap,
+      setRow: function (key, patch) {
+        var entry = byKey[key];
+        if (!entry) return;
+        Object.keys(patch || {}).forEach(function (k) { entry.row[k] = patch[k]; });
+        paint(entry);
+      }
+    };
+  }
+
+  /* Scripted sample run: thinking trace plus plan rows plus a sample answer.
+     Treated as illustrative data, never as real results. */
+  function playDemo(root, helpers) {
+    var row = el("div", "msg assistant demo");
+    row.innerHTML = '<div class="demo-note">Sample run with sample data.</div><div class="msg-body"></div>';
+    root.appendChild(row);
+    var body = row.querySelector(".msg-body");
+    body.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+    helpers.refreshIcons();
+    helpers.pin();
+
+    var trace = mountTrace(row, { active: "Thinking" });
+    helpers.refreshIcons();
+    var plan = null;
+    var step1 = null;
+    var step2 = null;
+    var dead = false;
+
+    function retryCompare() {
+      if (!plan || dead) return;
+      plan.setRow("compare", { status: "running", step: 3, progress: 30, meta: "retrying", open: true });
+      helpers.refreshIcons();
+      helpers.pin();
+      setTimeout(function () {
+        if (dead) return;
+        plan.setRow("compare", { status: "done", meta: "3 picks", open: false });
+        helpers.refreshIcons();
+        helpers.pin();
+      }, 1400);
+    }
+
+    var beats = [
+      [650, function () {
+        step1 = trace.addRow({ kind: "step", primary: "Reading the request" });
+      }],
+      [1350, function () {
+        trace.setStep(step1, true);
+        step2 = trace.addRow({ kind: "step", primary: "Planning search queries" });
+      }],
+      [2200, function () {
+        trace.setStep(step2, true);
+        trace.setStatus("Searching the web");
+        trace.addRow({ kind: "query", primary: "best gaming phones under 300000 naira", mono: true });
+        plan = mountPlan(row, {
+          onRetry: function (key) { if (key === "compare") retryCompare(); },
+          rows: [
+            { key: "gather", label: "Gather candidates", meta: "8 phones", status: "done", open: false,
+              details: [{ label: "Discovery queries", meta: "3" }, { label: "Sources read", meta: "11" }] },
+            { key: "verify", label: "Verify prices", meta: "0 of 8", status: "running", step: 2, progress: 0, open: false,
+              details: [{ label: "Jumia NG listings", meta: "4" }, { label: "Slot listings", meta: "2" }] },
+            { key: "compare", label: "Compare and answer", meta: "waiting", status: "pending", step: 3, progress: 0, open: false,
+              details: [{ label: "Shortlist", meta: "3" }, { label: "Sources cited", meta: "3" }] }
+          ]
+        });
+      }],
+      [2900, function () {
+        trace.addRow({ primary: "GSMArena", secondary: "gsmarena.com", href: "https://www.gsmarena.com/" });
+        trace.addRow({ primary: "Jumia NG", secondary: "jumia.com.ng", href: "https://www.jumia.com.ng/" });
+        trace.addRow({ primary: "Slot Systems", secondary: "slot.ng", href: "https://slot.ng/" });
+        trace.setMore(5);
+        plan.setRow("verify", { meta: "6 of 8", progress: 66, open: true });
+      }],
+      [4300, function () {
+        plan.setRow("verify", { status: "done", meta: "8 of 8", open: false });
+        plan.setRow("compare", { status: "failed", meta: "no verdict", open: true });
+      }],
+      [5600, function () {
+        retryCompare();
+      }],
+      [7000, function () {
+        trace.settle();
+        body.innerHTML = helpers.renderMarkdown(
+          "Gaming phones under \u20A6300,000, from the sample run.\n\n" +
+          "**Redmi Note 13 Pro 5G** (Dimensity 7200 Ultra) around \u20A6285,000 on Jumia NG. " +
+          "Strong sustained performance for the price.\n\n" +
+          "**Tecno Camon 30 Pro** (Dimensity 8200) around \u20A6270,000 at Slot. " +
+          "Best chip in this bracket, weaker update policy.\n\n" +
+          "**Infinix GT 20 Pro** (Dimensity 8200 Ultimate) around \u20A6295,000. " +
+          "Built for gaming, ships with a cooling case.\n\n" +
+          "Sources: GSMArena, Jumia NG, Slot Systems."
+        );
+      }]
+    ];
+
+    beats.forEach(function (beat) {
+      setTimeout(function () {
+        if (dead || !row.isConnected) {
+          dead = true;
+          return;
+        }
+        beat[1]();
+        helpers.refreshIcons();
+        helpers.pin();
+      }, beat[0]);
+    });
+  }
+
+  window.NovaTrace = {
+    mountTrace: mountTrace,
+    mountPlan: mountPlan,
+    playDemo: playDemo
+  };
+})();
 
 </script>
 <script>
@@ -1990,6 +2769,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   $("debugTab").addEventListener("click", openDebug);
   $("debugClose").addEventListener("click", closeDebug);
+  $("debugTrace").addEventListener("click", function () { closeDebug(); playTraceDemo(); });
 
   $("debugSeg").addEventListener("click", function (e) {
     var b = e.target.closest("[data-df]");
@@ -3354,8 +4134,28 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     renderList();
   }
 
+  function clearTraceDemo() {
+    messagesEl.querySelectorAll(".msg.demo").forEach(function (n) { n.remove(); });
+  }
+
+  function playTraceDemo() {
+    clearTraceDemo();
+    if (!window.NovaTrace || !window.NovaTrace.playDemo) {
+      dnote("app", "Trace demo unavailable.");
+      return;
+    }
+    showDock();
+    dnote("app", "Playing the agent trace demo.");
+    window.NovaTrace.playDemo(messagesEl, {
+      refreshIcons: refreshIcons,
+      renderMarkdown: renderMarkdown,
+      pin: function () { if (isNearBottom()) scrollBottom(); }
+    });
+  }
+
   function send(text) {
     text = (text || "").trim();
+    clearTraceDemo();
     if (!text) return;
     if (stream) stopStream();
 
@@ -4505,6 +5305,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     syncSend();
     refreshIcons();
     dnote("app", "Ready. " + state.providers.length + " providers, " + state.chats.length + " chats, " + state.settings.theme + " theme.");
+    if (/[?&]demo=trace\b/.test(window.location.search)) playTraceDemo();
   }
 
   if (document.readyState === "loading") {
@@ -4516,4 +5317,5 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
 </script>
 </body>
+</html>
 </html>
