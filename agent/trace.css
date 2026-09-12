@@ -39,18 +39,19 @@ html[data-theme="warm"] {
 }
 
 .trace-head {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  width: calc(100% + 12px);
-  margin: 0 -6px;
-  padding: 6px;
+  max-width: 100%;
+  margin: 0;
+  padding: 6px 10px 6px 6px;
   border: 0;
   border-radius: 8px;
   background: none;
   color: inherit;
   cursor: pointer;
   text-align: left;
+  vertical-align: top;
 }
 
 .trace-head:hover {
@@ -75,7 +76,7 @@ html[data-theme="warm"] {
 }
 
 .trace-status {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-size: 13px;
   color: var(--text-2);
@@ -94,12 +95,16 @@ html[data-theme="warm"] {
 }
 
 .trace-time {
+  flex: none;
+  margin-left: 8px;
   font-size: 12px;
   color: var(--text-3);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .trace-chev {
+  flex: none;
   display: flex;
   color: var(--text-3);
 }
@@ -159,7 +164,7 @@ html[data-theme="warm"] {
 }
 
 a.trace-row {
-  color: inherit;
+  color: var(--link);
   text-decoration: none;
 }
 
@@ -431,3 +436,9 @@ html.reduce-motion .trace-more {
 html.reduce-motion .trace-ico.spin svg {
   animation: none;
 }
+
+/* source favicons with dot fallback */
+
+.trace-fav { width: 14px; flex: none; display: flex; align-items: center; justify-content: center; }
+.trace-fav-img { width: 14px; height: 14px; border-radius: 3px; display: block; }
+.trace-fav.bare::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
