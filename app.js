@@ -1,11 +1,13 @@
-/* Nova chat client. Frontend only, no backend. Chats persist to localStorage. */
+/* Nova chat client. Bring your own key: providers speak OpenAI style,
+   Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
   "use strict";
 
   var STORE_KEY = "nova.clone.v1";
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var SYS_MSG = "You are Nova, a helpful assistant.";
 
-  /* ---------- canned replies (stand in for a real API) ---------- */
+  /* ---------- canned replies (demo mode, no provider set) ---------- */
 
   var REPLIES = {
     greeting: "Hello. What would you like to work on?\n\nI can help with writing, code, planning, or working through an idea. Just type below to start.",
@@ -22,7 +24,7 @@
 
     travel: "For Lagos to London, here is the practical picture.\n\n**Direct flights (LOS to LHR)**\n- British Airways: daily service, about 6h 40m\n- Virgin Atlantic: daily service, similar timing\n- Air Peace: direct option, often lower fares\n\n**Booking tips**\n- Midweek departures (Tue, Wed) are usually cheaper than weekends.\n- Compare the direct fare against one stop options via Casablanca or Istanbul. The saving can be large.\n- Check the baggage allowance before you book. Some cheaper fares include only 23kg.\n\nTell me your dates and budget and I will sketch a shortlist of options.",
 
-    fallback: "Got it. Here is how I would break that down.\n\n**First pass**\n- Define the outcome in one sentence.\n- List what you already know and what is missing.\n- Start with the step that removes the most doubt.\n\nTell me which part to go deeper on, or paste any details you have (numbers, drafts, error messages), and I will get specific."
+    fallback: "Got it. This is demo mode, so here is a sketch rather than a live answer.\n\n**First pass**\n- Define the outcome in one sentence.\n- List what you already know and what is missing.\n- Start with the step that removes the most doubt.\n\nConnect a provider in Settings to get live answers from a real model."
   };
 
   function generateReply(text) {
@@ -42,6 +44,92 @@
       if (t.indexOf(words[i]) > -1) return true;
     }
     return false;
+  }
+
+  /* ---------- provider catalogue (mirrors Luna's presets) ----------
+     A preset is a starting point, never a cage: it fills in the request
+     shape and the address, and every field stays editable afterwards. */
+
+  var PRESETS = [
+    { id: "openai", name: "OpenAI", kind: "openai", baseUrl: "https://api.openai.com/v1", note: "GPT models", icon: "sparkles", keyHint: "sk-…" },
+    { id: "anthropic", name: "Anthropic", kind: "anthropic", baseUrl: "https://api.anthropic.com/v1", note: "Claude models", icon: "asterisk", keyHint: "sk-ant-…" },
+    { id: "gemini", name: "Google Gemini", kind: "gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", note: "Gemini models, free tier available", icon: "gem", keyHint: "AIza…" },
+    { id: "groq", name: "Groq", kind: "openai", baseUrl: "https://api.groq.com/openai/v1", note: "Very fast, free tier available", icon: "zap", keyHint: "gsk_…" },
+    { id: "openrouter", name: "OpenRouter", kind: "openai", baseUrl: "https://openrouter.ai/api/v1", note: "One key, most models, some free", icon: "shuffle", keyHint: "sk-or-…" },
+    { id: "deepseek", name: "DeepSeek", kind: "openai", baseUrl: "https://api.deepseek.com/v1", note: "Cheap and strong at code", icon: "droplet" },
+    { id: "mistral", name: "Mistral", kind: "openai", baseUrl: "https://api.mistral.ai/v1", note: "European, small and fast models", icon: "wind" },
+    { id: "together", name: "Together", kind: "openai", baseUrl: "https://api.together.xyz/v1", note: "Open-weight models, hosted", icon: "users" },
+    { id: "xai", name: "xAI", kind: "openai", baseUrl: "https://api.x.ai/v1", note: "Grok models", icon: "rocket" },
+    { id: "local", name: "LM Studio or llama.cpp", kind: "openai", baseUrl: "http://192.168.1.10:1234/v1", note: "A server on your own network. No key needed", icon: "house" },
+    { id: "custom", name: "Something else", kind: "openai", baseUrl: "", note: "Any endpoint. Pick the shape yourself", icon: "sliders-horizontal" }
+  ];
+
+  var KINDS = ["openai", "anthropic", "gemini"];
+  var KIND_NAMES = ["OpenAI style", "Anthropic", "Gemini"];
+  var AUTH_STYLES = ["bearer", "header", "query", "none"];
+  var AUTH_NAMES = ["Bearer", "Header", "In the URL", "No key"];
+
+  function presetById(id) {
+    for (var i = 0; i < PRESETS.length; i++) {
+      if (PRESETS[i].id === id) return PRESETS[i];
+    }
+    return PRESETS[PRESETS.length - 1];
+  }
+
+  /* The preset a saved row came from, matched on its address, so a saved
+     provider shows what it is rather than "Something else". */
+  function presetMatch(kind, baseUrl) {
+    var address = String(baseUrl || "").trim().replace(/\/+$/, "");
+    for (var i = 0; i < PRESETS.length; i++) {
+      if (PRESETS[i].baseUrl && PRESETS[i].baseUrl === address) return PRESETS[i];
+    }
+    for (var j = 0; j < PRESETS.length; j++) {
+      if (PRESETS[j].kind === kind && kind !== "openai") return PRESETS[j];
+    }
+    return presetById("custom");
+  }
+
+  function defaultAuthStyle(kind) {
+    if (kind === "anthropic") return "header";
+    if (kind === "gemini") return "query";
+    return "bearer";
+  }
+
+  function defaultAuthName(kind, style) {
+    if (style === "query") return "key";
+    if (style === "header") return kind === "anthropic" ? "x-api-key" : "Authorization";
+    return "Authorization";
+  }
+
+  function kindName(kind) {
+    var i = KINDS.indexOf(kind);
+    return i < 0 ? KIND_NAMES[0] : KIND_NAMES[i];
+  }
+
+  function authStyleName(style) {
+    var i = AUTH_STYLES.indexOf(style);
+    return i < 0 ? AUTH_NAMES[0] : AUTH_NAMES[i];
+  }
+
+  /* "Name: value" per line, which is how a person writes a header down. */
+  function parseHeaders(text) {
+    var out = {};
+    String(text || "").split("\n").forEach(function (line) {
+      var split = line.indexOf(":");
+      if (split <= 0) return;
+      var name = line.slice(0, split).trim();
+      var value = line.slice(split + 1).trim();
+      if (name && value) out[name] = value;
+    });
+    return out;
+  }
+
+  function writeHeaders(headers) {
+    var lines = [];
+    Object.keys(headers || {}).forEach(function (name) {
+      lines.push(name + ": " + headers[name]);
+    });
+    return lines.join("\n");
   }
 
   /* ---------- tiny utils ---------- */
@@ -87,7 +175,8 @@
       {
         id: uid() + "a",
         title: "Flight options to London",
-        model: "Nova 5",
+        model: "Demo",
+        providerId: null,
         createdAt: now - 5 * HOUR,
         updatedAt: now - 2 * HOUR,
         messages: [
@@ -98,7 +187,8 @@
       {
         id: uid() + "b",
         title: "Follow up email for invoice",
-        model: "Nova 5",
+        model: "Demo",
+        providerId: null,
         createdAt: now - 8 * HOUR,
         updatedAt: now - 6 * HOUR,
         messages: [
@@ -109,7 +199,8 @@
       {
         id: uid() + "c",
         title: "Python function walkthrough",
-        model: "Nova 5",
+        model: "Demo",
+        providerId: null,
         createdAt: now - 30 * HOUR,
         updatedAt: now - 26 * HOUR,
         messages: [
@@ -120,7 +211,8 @@
       {
         id: uid() + "d",
         title: "Lagos food blog names",
-        model: "Nova 5 Mini",
+        model: "Demo",
+        providerId: null,
         createdAt: now - 3 * 24 * HOUR,
         updatedAt: now - 3 * 24 * HOUR,
         messages: [
@@ -131,7 +223,8 @@
       {
         id: uid() + "e",
         title: "How mortgages work",
-        model: "Nova 5",
+        model: "Demo",
+        providerId: null,
         createdAt: now - 12 * 24 * HOUR,
         updatedAt: now - 12 * 24 * HOUR,
         messages: [
@@ -143,7 +236,7 @@
   }
 
   function defaultSettings() {
-    return { theme: "dark", enterToSend: true, showChips: true, model: "Nova 5" };
+    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null };
   }
 
   function loadState() {
@@ -153,19 +246,20 @@
         var parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.chats)) {
           parsed.settings = Object.assign(defaultSettings(), parsed.settings || {});
+          parsed.providers = Array.isArray(parsed.providers) ? parsed.providers : [];
           return parsed;
         }
       } catch (e) { /* fall through to seed */ }
     }
-    return { chats: seedChats(), settings: defaultSettings() };
+    return { chats: seedChats(), providers: [], settings: defaultSettings() };
   }
 
   var state = loadState();
   var activeId = null;
-  var stream = null; // { timer, thinkTimer, chatId, index, tokens, pos, row, body }
+  var stream = null; // canned: { timer, thinkTimer, ... } live: { live, controller, text, ... }
 
   function save() {
-    store.write(JSON.stringify({ chats: state.chats, settings: state.settings }));
+    store.write(JSON.stringify({ chats: state.chats, providers: state.providers, settings: state.settings }));
   }
 
   function getChat(id) {
@@ -173,6 +267,41 @@
       if (state.chats[i].id === id) return state.chats[i];
     }
     return null;
+  }
+
+  function getProvider(id) {
+    for (var i = 0; i < state.providers.length; i++) {
+      if (state.providers[i].id === id) return state.providers[i];
+    }
+    return null;
+  }
+
+  function activeProvider() {
+    return getProvider(state.settings.activeProviderId);
+  }
+
+  function activeModelOf(p) {
+    if (!p) return "";
+    var slot = typeof p.activeSlot === "number" ? p.activeSlot : 0;
+    return String((p.models || [])[slot] || "").trim();
+  }
+
+  function providerDisplay(p) {
+    if (!p) return "Demo";
+    var m = activeModelOf(p);
+    return m ? p.label + " · " + m : p.label;
+  }
+
+  /* null means demo mode. missingKey means configured but unusable. */
+  function getTarget() {
+    var p = activeProvider();
+    if (!p) return null;
+    var m = activeModelOf(p);
+    if (!m) return null;
+    if (p.authStyle !== "none" && !String(p.apiKey || "").trim()) {
+      return { provider: p, model: m, missingKey: true };
+    }
+    return { provider: p, model: m };
   }
 
   function titleFrom(text) {
@@ -183,12 +312,301 @@
     return (lastSpace > 20 ? cut.slice(0, lastSpace) : cut) + "...";
   }
 
+  /* ---------- request layer: addresses, auth, shapes, failures ---------- */
+
+  function stripSlash(u) {
+    return String(u || "").trim().replace(/\/+$/, "");
+  }
+
+  function isPrivateHost(h) {
+    h = String(h || "").toLowerCase();
+    if (h === "localhost" || h.slice(-10) === ".localhost" || h.slice(-6) === ".local") return true;
+    if (h === "127.0.0.1" || h === "::1" || h === "[::1]") return true;
+    var m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (!m) return false;
+    var a = +m[1], b = +m[2];
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+
+  /* null when fine, otherwise the sentence to show. Plain http is allowed on
+     your own network only, because there nothing leaves the building. */
+  function checkAddress(raw) {
+    var v = String(raw || "").trim();
+    if (!v) return "Add a base address.";
+    var u = null;
+    try { u = new URL(v); } catch (e) { u = null; }
+    if (!u) return "That address is not a valid URL.";
+    if (u.protocol !== "https:" && u.protocol !== "http:") return "The address must start with https.";
+    if (u.protocol === "http:" && !isPrivateHost(u.hostname)) {
+      return "Use https, unless the server is on your own network.";
+    }
+    return null;
+  }
+
+  function hasHeader(headers, name) {
+    var want = name.toLowerCase();
+    return Object.keys(headers).some(function (k) { return k.toLowerCase() === want; });
+  }
+
+  /* like: { kind, baseUrl, apiKey, authStyle, authName, headers } */
+  function buildRequest(like, path, extraParams) {
+    var headers = {};
+    Object.keys(like.headers || {}).forEach(function (k) { headers[k] = like.headers[k]; });
+    var style = like.authStyle || defaultAuthStyle(like.kind);
+    var name = String(like.authName || defaultAuthName(like.kind, style)).trim() || "Authorization";
+    var key = String(like.apiKey || "");
+    if (key && style === "bearer") headers[name] = "Bearer " + key;
+    else if (key && style === "header") headers[name] = key;
+    var params = [];
+    if (extraParams) {
+      Object.keys(extraParams).forEach(function (k) {
+        params.push(encodeURIComponent(k) + "=" + encodeURIComponent(extraParams[k]));
+      });
+    }
+    if (key && style === "query") {
+      params.push(encodeURIComponent(name) + "=" + encodeURIComponent(key));
+    }
+    var url = stripSlash(like.baseUrl) + path;
+    if (params.length) url += (url.indexOf("?") > -1 ? "&" : "?") + params.join("&");
+    if (like.kind === "anthropic") {
+      if (!hasHeader(headers, "anthropic-version")) headers["anthropic-version"] = "2023-06-01";
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+    }
+    return { url: url, headers: headers };
+  }
+
+  /* The provider's own explanation, dug out of whichever envelope it used. */
+  function detailOf(payload) {
+    var text = String(payload || "").trim();
+    if (!text || text.charAt(0) === "<") return "";
+    try {
+      var data = JSON.parse(text);
+      var err = data && data.error;
+      var msg = typeof err === "string" ? err : (err && err.message) || data.message || "";
+      msg = String(msg).trim().replace(/\s+/g, " ");
+      return msg.length > 140 ? msg.slice(0, 140) + "..." : msg;
+    } catch (e) {
+      return text.length > 140 ? text.slice(0, 140) + "..." : text;
+    }
+  }
+
+  /* Someone else's HTTP code, turned into a sentence about what to do. */
+  function explain(like, code, payload, model) {
+    var where = like.kind === "anthropic" ? "Anthropic" : like.kind === "gemini" ? "Google" : "The provider";
+    var detail = detailOf(payload);
+    var tail = detail ? " " + detail : "";
+    if (code === 401) return "That key was rejected by " + where + ". Check it, or paste a new one.";
+    if (code === 403) {
+      return detail ? where + " refused this request (403)." + tail
+        : where + " refused this request (403). The key may lack model access.";
+    }
+    if (code === 404) {
+      return model ? '"' + model + '" is not available on this key. Check the model list and pick another.'
+        : "That address does not exist on " + where + ". Check the base address.";
+    }
+    if (code === 413) return "The conversation is too long for " + where + ". Start a new chat.";
+    if (code === 429) return where + " is rate limiting this key. Wait a moment and try again.";
+    if (code >= 500) {
+      var host = "";
+      try { host = new URL(like.baseUrl).hostname; } catch (e) { host = ""; }
+      return "The server at " + (host || "the provider") + " is having trouble (" + code + ")." + tail + " Try again shortly.";
+    }
+    if (code === 400) return where + " rejected the request." + tail;
+    return where + " answered " + code + "." + tail;
+  }
+
+  function fetchSentence(err) {
+    if (err && err.name === "AbortError") return "The provider took too long to answer. Try again.";
+    if (err && err.name === "TypeError") return "Could not reach the provider. Check the address and your connection.";
+    if (err && err.message) return err.message;
+    return "Could not reach the provider. Check the address and your connection.";
+  }
+
+  function withTimeout(ms) {
+    if (window.AbortSignal && AbortSignal.timeout) return AbortSignal.timeout(ms);
+    return undefined;
+  }
+
+  function throwIfHttpError(like, model, res) {
+    if (res.ok) return Promise.resolve();
+    return res.text().then(function (text) {
+      throw new Error(explain(like, res.status, text, model));
+    }, function () {
+      throw new Error(explain(like, res.status, "", model));
+    });
+  }
+
+  function scoreModel(id) {
+    var t = String(id).toLowerCase();
+    var s = 0;
+    if (/embed|whisper|tts|dall|image|moderation|guard|transcri|realtime|audio|vision/.test(t)) s -= 3;
+    if (/gpt|Muse|gemini|llama|mixtral|mistral|grok|deepseek|qwen|sonnet|opus|haiku|chat|instruct|turbo/.test(t)) s += 2;
+    return s;
+  }
+
+  /* What the provider says it serves today. Throws the provider's sentence. */
+  function listModels(like) {
+    var req = buildRequest(like, "/models");
+    var opts = { headers: req.headers, signal: withTimeout(45000) };
+    return fetch(req.url, opts).then(function (res) {
+      return throwIfHttpError(like, "", res).then(function () { return res.json(); });
+    }).then(function (data) {
+      if (like.kind === "gemini") {
+        return (data.models || [])
+          .filter(function (m) {
+            var methods = m.supportedGenerationMethods || [];
+            return methods.indexOf("generateContent") > -1;
+          })
+          .map(function (m) { return String(m.name || "").replace(/^models\//, ""); })
+          .filter(function (id) { return !!id; })
+          .sort();
+      }
+      var ids = (data.data || []).map(function (m) { return String(m.id || ""); }).filter(function (id) { return !!id; });
+      ids.sort(function (a, b) {
+        var d = scoreModel(b) - scoreModel(a);
+        return d !== 0 ? d : (a < b ? -1 : a > b ? 1 : 0);
+      });
+      return ids;
+    }, function (err) {
+      if (err && err.name === "AbortError") throw new Error("The provider took too long to answer. Try again.");
+      if (err && err.name === "TypeError") throw new Error("Could not reach the provider. Check the address and your connection.");
+      if (err instanceof Error && err.message) throw err;
+      throw new Error("Could not reach the provider. Check the address and your connection.");
+    });
+  }
+
+  /* One real request before anything is kept. Empty when the model answered,
+     otherwise the provider's own words. */
+  function probeModel(like, model) {
+    var req, body;
+    if (like.kind === "anthropic") {
+      req = buildRequest(like, "/messages");
+      body = { model: model, max_tokens: 16, messages: [{ role: "user", content: "Reply with the word OK." }] };
+    } else if (like.kind === "gemini") {
+      req = buildRequest(like, "/models/" + encodeURIComponent(model) + ":generateContent");
+      body = { contents: [{ parts: [{ text: "Reply with the word OK." }] }] };
+    } else {
+      req = buildRequest(like, "/chat/completions");
+      body = { model: model, messages: [{ role: "user", content: "Reply with the word OK." }], stream: false };
+    }
+    req.headers["Content-Type"] = "application/json";
+    return fetch(req.url, {
+      method: "POST",
+      headers: req.headers,
+      body: JSON.stringify(body),
+      signal: withTimeout(45000)
+    }).then(function (res) {
+      return throwIfHttpError(like, model, res).then(function () { return ""; });
+    }, function (err) {
+      if (err && err.name === "AbortError") return "The provider took too long to answer. Try again.";
+      if (err && err.name === "TypeError") return "Could not reach the provider. Check the address and your connection.";
+      if (err instanceof Error && err.message) return err.message;
+      return "Could not reach the provider. Check the address and your connection.";
+    });
+  }
+
+  function readSSE(res, onData) {
+    if (!res.body || !res.body.getReader) {
+      return res.text().then(function (text) {
+        text.split("\n").forEach(function (line) {
+          line = line.trim();
+          if (line.indexOf("data:") === 0) {
+            var data = line.slice(5).trim();
+            if (data && data !== "[DONE]") {
+              try { onData(JSON.parse(data)); } catch (e) { /* partial line */ }
+            }
+          }
+        });
+      });
+    }
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = "";
+    function pump() {
+      return reader.read().then(function (part) {
+        if (part.done) return;
+        buf += decoder.decode(part.value, { stream: true });
+        var idx;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+          var line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (line.indexOf("data:") === 0) {
+            var data = line.slice(5).trim();
+            if (data === "[DONE]") return;
+            if (data) {
+              try { onData(JSON.parse(data)); } catch (e) { /* partial line */ }
+            }
+          }
+        }
+        return pump();
+      });
+    }
+    return pump();
+  }
+
+  function streamChat(provider, model, history, signal, onDelta) {
+    var req, body;
+    if (provider.kind === "anthropic") {
+      req = buildRequest(provider, "/messages");
+      req.headers["Content-Type"] = "application/json";
+      body = { model: model, max_tokens: 1024, system: SYS_MSG, messages: history, stream: true };
+      return fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body), signal: signal })
+        .then(function (res) {
+          return throwIfHttpError(provider, model, res).then(function () {
+            return readSSE(res, function (d) {
+              if (d.type === "content_block_delta" && d.delta && d.delta.type === "text_delta" && d.delta.text) {
+                onDelta(d.delta.text);
+              }
+            });
+          });
+        });
+    }
+    if (provider.kind === "gemini") {
+      req = buildRequest(provider, "/models/" + encodeURIComponent(model) + ":streamGenerateContent", { alt: "sse" });
+      req.headers["Content-Type"] = "application/json";
+      body = {
+        systemInstruction: { parts: [{ text: SYS_MSG }] },
+        contents: history.map(function (m) {
+          return { role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] };
+        })
+      };
+      return fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body), signal: signal })
+        .then(function (res) {
+          return throwIfHttpError(provider, model, res).then(function () {
+            return readSSE(res, function (d) {
+              (d.candidates || []).forEach(function (c) {
+                var parts = (c.content && c.content.parts) || [];
+                parts.forEach(function (part) { if (part.text) onDelta(part.text); });
+              });
+            });
+          });
+        });
+    }
+    req = buildRequest(provider, "/chat/completions");
+    req.headers["Content-Type"] = "application/json";
+    body = {
+      model: model,
+      messages: [{ role: "system", content: SYS_MSG }].concat(history),
+      stream: true
+    };
+    return fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body), signal: signal })
+      .then(function (res) {
+        return throwIfHttpError(provider, model, res).then(function () {
+          return readSSE(res, function (d) {
+            var choice = d.choices && d.choices[0];
+            var delta = choice && (choice.delta || choice.message);
+            if (delta && delta.content) onDelta(delta.content);
+          });
+        });
+      });
+  }
+
   /* ---------- markdown renderer (escapes first, then formats) ---------- */
 
   function inlineMd(s) {
     var t = escapeHtml(s);
     var stash = [];
-    function hold(html) { stash.push(html); return " " + (stash.length - 1) + " "; }
+    function hold(html) { stash.push(html); return "" + (stash.length - 1) + ""; }
     t = t.replace(/`([^`\n]+?)`/g, function (m, g) { return hold('<code class="md-code">' + g + "</code>"); });
     t = t.replace(/\[([^\]]+?)\]\((https?:[^)\s]+)\)/g, function (m, g1, g2) {
       return hold('<a href="' + g2 + '" target="_blank" rel="noopener">' + g1 + "</a>");
@@ -196,7 +614,7 @@
     t = t.replace(/\*\*([^*]+?)\*\*/g, "<strong>$1</strong>");
     t = t.replace(/(^|\W)\*([^*\n]+?)\*/g, "$1<em>$2</em>");
     t = t.replace(/(^|\W)_([^_\n]+?)_/g, "$1<em>$2</em>");
-    t = t.replace(/ (\d+) /g, function (m, g) { return stash[+g]; });
+    t = t.replace(/(\d+)/g, function (m, g) { return stash[+g]; });
     return t;
   }
 
@@ -660,7 +1078,7 @@
     if (window.innerWidth > 768) input.focus();
   }
 
-  /* ---------- streaming ---------- */
+  /* ---------- streaming: canned demo + live provider ---------- */
 
   function setStreamingUI(on) {
     sendBtn.hidden = on;
@@ -669,16 +1087,25 @@
 
   function stopStream() {
     if (!stream) return;
-    clearTimeout(stream.thinkTimer);
-    clearInterval(stream.timer);
-    if (stream.row && stream.row.isConnected && stream.chatId === activeId) {
-      finalizeStreamRow(stream, true);
-    }
+    var s = stream;
     stream = null;
     setStreamingUI(false);
+    if (s.live) {
+      s.stopped = true;
+      if (s.controller) {
+        try { s.controller.abort(); } catch (e) { /* noop */ }
+      }
+      /* The live driver's finish path runs next and tidies up. */
+    } else {
+      clearTimeout(s.thinkTimer);
+      clearInterval(s.timer);
+      if (s.row && s.row.isConnected && s.chatId === activeId) {
+        finalizeStreamRow(s, true);
+      }
+    }
   }
 
-  function finalizeStreamRow(s, partial) {
+  function finalizeStreamRow(s) {
     var chat = getChat(s.chatId);
     var content = s.tokens.slice(0, s.pos).join("");
     if (chat && chat.messages[s.index]) {
@@ -686,12 +1113,12 @@
       chat.updatedAt = Date.now();
       save();
     }
-    s.body.innerHTML = renderMarkdown(content || (partial ? "" : "..."));
+    s.body.innerHTML = renderMarkdown(content);
     if (!s.row.querySelector(".msg-actions")) {
       s.row.insertAdjacentHTML("beforeend", actionsHtml());
     }
     refreshIcons();
-    if (!partial) renderList();
+    renderList();
   }
 
   function streamAssistant(chat, reply) {
@@ -731,7 +1158,7 @@
         clearInterval(s.timer);
         stream = null;
         setStreamingUI(false);
-        finalizeStreamRow(s, false);
+        finalizeStreamRow(s);
         if (stick) scrollBottom();
       }
     }
@@ -741,6 +1168,115 @@
       tick();
       s.timer = setInterval(tick, REDUCED ? 10 : 26);
     }, REDUCED ? 60 : 520);
+  }
+
+  function historyFor(messages) {
+    return messages
+      .filter(function (m) { return String(m.content || "").trim() !== ""; })
+      .slice(-30)
+      .map(function (m) { return { role: m.role, content: m.content }; });
+  }
+
+  /* replaceIdx null appends a fresh answer, otherwise regenerates in place. */
+  function streamLive(chat, provider, model, history, replaceIdx) {
+    var idx, row;
+    if (replaceIdx == null) {
+      idx = chat.messages.length;
+      chat.messages.push({ role: "assistant", content: "", ts: Date.now() });
+      row = document.createElement("div");
+      row.className = "msg assistant";
+      row.dataset.i = idx;
+      row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span></span></div>';
+      messagesEl.appendChild(row);
+    } else {
+      idx = replaceIdx;
+      row = messagesEl.querySelector('.msg[data-i="' + idx + '"]');
+      if (!row) return;
+      var oldActions = row.querySelector(".msg-actions");
+      if (oldActions) oldActions.remove();
+      row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+    }
+
+    setStreamingUI(true);
+    if (isNearBottom()) scrollBottom();
+
+    var s = {
+      live: true,
+      chatId: chat.id,
+      index: idx,
+      row: row,
+      body: row.querySelector(".msg-body"),
+      text: "",
+      dirty: false,
+      raf: 0,
+      controller: ("AbortController" in window) ? new AbortController() : null,
+      stopped: false,
+      done: false
+    };
+    stream = s;
+
+    function renderFrame() {
+      s.raf = 0;
+      if (stream !== s || !s.dirty) return;
+      s.dirty = false;
+      var stick = isNearBottom();
+      if (s.body.isConnected) {
+        s.body.innerHTML = renderMarkdown(s.text) + '<span class="cursor"></span>';
+      }
+      if (stick) scrollBottom();
+    }
+
+    streamChat(provider, model, history, s.controller ? s.controller.signal : undefined, function (chunk) {
+      if (stream !== s) return;
+      s.text += chunk;
+      s.dirty = true;
+      if (!s.raf) s.raf = requestAnimationFrame(renderFrame);
+    }).then(function () {
+      finishLive(s, false, null);
+    }, function (err) {
+      finishLive(s, true, err);
+    });
+  }
+
+  function finishLive(s, failed, err) {
+    if (s.done) return;
+    s.done = true;
+    if (s.raf) cancelAnimationFrame(s.raf);
+    if (stream === s) {
+      stream = null;
+      setStreamingUI(false);
+    }
+    if (failed && err && err.name === "AbortError") {
+      failed = false; /* stopped by the user, or timed out mid stream */
+      s.stopped = true;
+    }
+    var chat = getChat(s.chatId);
+    if (!s.text && (s.stopped || !failed)) {
+      /* Stopped before a word arrived: leave no empty bubble behind. */
+      if (chat) {
+        chat.messages.splice(s.index, 1);
+        save();
+      }
+      if (s.row.isConnected) s.row.remove();
+      return;
+    }
+    var sentence = failed ? fetchSentence(err) : "";
+    if (failed && !s.text) s.text = sentence;
+    if (chat && chat.messages[s.index]) {
+      chat.messages[s.index].content = s.text;
+      chat.updatedAt = Date.now();
+      save();
+    }
+    if (s.row.isConnected) {
+      s.body.innerHTML = renderMarkdown(s.text);
+      if (!s.row.querySelector(".msg-actions")) {
+        s.row.insertAdjacentHTML("beforeend", actionsHtml());
+      }
+      refreshIcons();
+      if (isNearBottom()) scrollBottom();
+    }
+    if (failed && s.text !== sentence) toast(sentence);
+    renderList();
   }
 
   function send(text) {
@@ -753,7 +1289,8 @@
       chat = {
         id: uid(),
         title: titleFrom(text),
-        model: state.settings.model,
+        model: "Demo",
+        providerId: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: []
@@ -780,7 +1317,54 @@
     autogrow();
     syncSend();
 
-    streamAssistant(chat, generateReply(text));
+    var t = getTarget();
+    if (t && t.missingKey) {
+      toast("Add a key to " + t.provider.label + " first.");
+      openSettings("providers");
+      return;
+    }
+    if (t) {
+      chat.model = providerDisplay(t.provider);
+      chat.providerId = t.provider.id;
+      save();
+      streamLive(chat, t.provider, t.model, historyFor(chat.messages), null);
+    } else {
+      streamAssistant(chat, generateReply(text));
+    }
+  }
+
+  function cannedRetry(chat, row, idx, prevUser) {
+    var reply = generateReply(prevUser || chat.title);
+    var tokens = reply.match(/\S+\s+|\S+$/g) || [reply];
+    var body = row.querySelector(".msg-body");
+    var oldActions = row.querySelector(".msg-actions");
+    if (oldActions) oldActions.remove();
+    setStreamingUI(true);
+    var s = {
+      chatId: chat.id,
+      index: idx,
+      tokens: tokens,
+      pos: 0,
+      row: row,
+      body: body,
+      timer: null,
+      thinkTimer: null
+    };
+    stream = s;
+    var timer = setInterval(function () {
+      if (stream !== s) { clearInterval(timer); return; }
+      s.pos = Math.min(tokens.length, s.pos + 3);
+      var stick = isNearBottom();
+      s.body.innerHTML = renderMarkdown(tokens.slice(0, s.pos).join("")) + '<span class="cursor"></span>';
+      if (stick) scrollBottom();
+      if (s.pos >= tokens.length) {
+        clearInterval(timer);
+        stream = null;
+        setStreamingUI(false);
+        finalizeStreamRow(s);
+      }
+    }, REDUCED ? 10 : 22);
+    s.timer = timer;
   }
 
   /* message action delegation */
@@ -820,41 +1404,21 @@
       btn.setAttribute("aria-pressed", btn.classList.contains("on") ? "true" : "false");
     } else if (act === "retry") {
       if (stream) return;
+      var t = getTarget();
+      if (t && t.missingKey) {
+        toast("Add a key to " + t.provider.label + " first.");
+        openSettings("providers");
+        return;
+      }
+      if (t) {
+        streamLive(chat, t.provider, t.model, historyFor(chat.messages.slice(0, idx)), idx);
+        return;
+      }
       var prevUser = null;
       for (var k = idx - 1; k >= 0; k--) {
         if (chat.messages[k].role === "user") { prevUser = chat.messages[k].content; break; }
       }
-      var reply = generateReply(prevUser || chat.title);
-      var tokens = reply.match(/\S+\s+|\S+$/g) || [reply];
-      var body = row.querySelector(".msg-body");
-      var oldActions = row.querySelector(".msg-actions");
-      if (oldActions) oldActions.remove();
-      setStreamingUI(true);
-      var s = {
-        chatId: chat.id,
-        index: idx,
-        tokens: tokens,
-        pos: 0,
-        row: row,
-        body: body,
-        timer: null,
-        thinkTimer: null
-      };
-      stream = s;
-      var timer = setInterval(function () {
-        if (stream !== s) { clearInterval(timer); return; }
-        s.pos = Math.min(tokens.length, s.pos + 3);
-        var stick = isNearBottom();
-        s.body.innerHTML = renderMarkdown(tokens.slice(0, s.pos).join("")) + '<span class="cursor"></span>';
-        if (stick) scrollBottom();
-        if (s.pos >= tokens.length) {
-          clearInterval(timer);
-          stream = null;
-          setStreamingUI(false);
-          finalizeStreamRow(s, false);
-        }
-      }, REDUCED ? 10 : 22);
-      s.timer = timer;
+      cannedRetry(chat, row, idx, prevUser);
     }
   });
 
@@ -889,6 +1453,94 @@
     send(chip.dataset.prompt);
   });
 
+  /* ---------- model menu (demo + every provider's three models) ---------- */
+
+  var modelMenuBody = $("modelMenuBody");
+
+  function syncModelLabel() {
+    var p = activeProvider();
+    $("modelName").textContent = providerDisplay(p);
+  }
+
+  function modelRow(icon, title, sub, checked, attrs) {
+    var b = document.createElement("button");
+    b.className = "pop-model";
+    b.type = "button";
+    b.setAttribute("role", "menuitemradio");
+    b.setAttribute("aria-checked", checked ? "true" : "false");
+    Object.keys(attrs || {}).forEach(function (k) { b.setAttribute(k, attrs[k]); });
+    b.innerHTML = '<i data-lucide="' + icon + '"></i><span><strong></strong><em></em></span><i data-lucide="check" class="check"></i>';
+    b.querySelector("strong").textContent = title;
+    b.querySelector("em").textContent = sub;
+    return b;
+  }
+
+  function renderModelMenu() {
+    modelMenuBody.innerHTML = "";
+    var label = document.createElement("p");
+    label.className = "pop-label";
+    label.textContent = "Model";
+    modelMenuBody.appendChild(label);
+
+    var demoBtn = modelRow("flask-conical", "Demo replies", "Built in sample answers", !state.settings.activeProviderId, { "data-demo-use": "1" });
+    modelMenuBody.appendChild(demoBtn);
+
+    state.providers.forEach(function (p) {
+      var g = document.createElement("p");
+      g.className = "model-group";
+      g.textContent = p.label;
+      modelMenuBody.appendChild(g);
+      (p.models || []).forEach(function (m, i) {
+        var name = String(m || "").trim();
+        if (!name) return;
+        var checked = state.settings.activeProviderId === p.id && (p.activeSlot || 0) === i;
+        modelMenuBody.appendChild(modelRow("cpu", name, checked ? "In use" : p.label, checked, {
+          "data-prov": p.id,
+          "data-slot": i
+        }));
+      });
+    });
+
+    var sep = document.createElement("div");
+    sep.className = "pop-sep";
+    modelMenuBody.appendChild(sep);
+    var manage = document.createElement("button");
+    manage.className = "pop-item";
+    manage.type = "button";
+    manage.setAttribute("role", "menuitem");
+    manage.setAttribute("data-manage", "1");
+    manage.innerHTML = '<i data-lucide="settings"></i><span>Manage providers</span>';
+    modelMenuBody.appendChild(manage);
+    refreshIcons();
+  }
+
+  $("modelMenu").addEventListener("click", function (e) {
+    if (e.target.closest("[data-manage]")) {
+      hidePop(true);
+      openSettings("providers");
+      return;
+    }
+    if (e.target.closest("[data-demo-use]")) {
+      state.settings.activeProviderId = null;
+      save();
+      syncModelLabel();
+      renderModelMenu();
+      hidePop();
+      return;
+    }
+    var item = e.target.closest("[data-prov]");
+    if (!item) return;
+    var p = getProvider(item.getAttribute("data-prov"));
+    if (!p) return;
+    p.activeSlot = +item.getAttribute("data-slot") || 0;
+    state.settings.activeProviderId = p.id;
+    save();
+    syncModelLabel();
+    renderModelMenu();
+    renderProviders();
+    hidePop();
+  });
+
   /* ---------- sidebar + topbar wiring ---------- */
 
   $("newChatBtn").addEventListener("click", newChat);
@@ -902,29 +1554,9 @@
   $("micBtn").addEventListener("click", function () { toast("Voice input is not part of this demo"); });
 
   $("modelBtn").addEventListener("click", function () {
-    syncModelMenu();
+    renderModelMenu();
     showPop($("modelMenu"), $("modelBtn"), { side: "bottom", align: "start" });
   });
-
-  $("modelMenu").addEventListener("click", function (e) {
-    var item = e.target.closest(".pop-model");
-    if (!item) return;
-    state.settings.model = item.dataset.model;
-    save();
-    syncModelLabel();
-    syncModelMenu();
-    hidePop();
-  });
-
-  function syncModelLabel() { $("modelName").textContent = state.settings.model; }
-
-  function syncModelMenu() {
-    var items = $("modelMenu").querySelectorAll(".pop-model");
-    items.forEach(function (item) {
-      var on = item.dataset.model === state.settings.model;
-      item.setAttribute("aria-checked", on ? "true" : "false");
-    });
-  }
 
   $("profileBtn").addEventListener("click", function () {
     hidePop(true);
@@ -949,8 +1581,7 @@
 
   $("settingsItem").addEventListener("click", function () {
     hidePop(true);
-    syncSettingsUI();
-    openModal($("settingsModal"));
+    openSettings("general");
   });
   $("helpItem").addEventListener("click", function () {
     hidePop();
@@ -1150,6 +1781,29 @@
     $("tglChips").setAttribute("aria-checked", state.settings.showChips ? "true" : "false");
   }
 
+  function switchTab(name) {
+    var tabs = settingsModal.querySelectorAll("[data-stab]");
+    tabs.forEach(function (b) {
+      b.setAttribute("aria-selected", b.dataset.stab === name ? "true" : "false");
+    });
+    var panes = settingsModal.querySelectorAll("[data-pane]");
+    panes.forEach(function (p) {
+      p.hidden = p.dataset.pane !== name;
+    });
+  }
+
+  function openSettings(tab) {
+    syncSettingsUI();
+    renderProviders();
+    switchTab(tab || "general");
+    openModal(settingsModal);
+  }
+
+  document.querySelector(".settings-tabs").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-stab]");
+    if (b) switchTab(b.dataset.stab);
+  });
+
   function applyTheme(theme) {
     state.settings.theme = theme;
     document.documentElement.setAttribute("data-theme", theme);
@@ -1231,6 +1885,441 @@
   holdBtn.addEventListener("keydown", holdStart);
   holdBtn.addEventListener("keyup", holdCancel);
 
+  /* ---------- providers UI ---------- */
+
+  var providerModal = $("providerModal");
+  var edEditing = null;   /* provider object when editing, else null */
+  var edPreset = null;    /* preset the form started from */
+  var edKind = "openai";
+  var edAuth = "bearer";
+  var edBusy = false;
+
+  function renderProviders() {
+    var list = $("providerList");
+    list.innerHTML = "";
+    state.providers.forEach(function (p) {
+      var preset = presetMatch(p.kind, p.baseUrl);
+      var isActive = state.settings.activeProviderId === p.id;
+      var row = document.createElement("div");
+      row.className = "provider-row" + (isActive ? " is-active" : "");
+      var model = activeModelOf(p);
+      row.innerHTML = '<span class="icon-box"><i data-lucide="' + preset.icon + '"></i></span>' +
+        '<span class="provider-text"><strong></strong><em></em></span>';
+      row.querySelector("strong").textContent = p.label;
+      row.querySelector("em").textContent = model || "No model set";
+      if (isActive) {
+        var tag = document.createElement("span");
+        tag.className = "active-tag";
+        tag.textContent = "Active";
+        row.appendChild(tag);
+      } else {
+        var use = document.createElement("button");
+        use.className = "pill-btn";
+        use.type = "button";
+        use.textContent = "Use";
+        use.addEventListener("click", function () {
+          state.settings.activeProviderId = p.id;
+          save();
+          renderProviders();
+          renderModelMenu();
+          syncModelLabel();
+          toast("Now using " + p.label);
+        });
+        row.appendChild(use);
+      }
+      var edit = document.createElement("button");
+      edit.className = "icon-btn sm";
+      edit.type = "button";
+      edit.title = "Edit " + p.label;
+      edit.setAttribute("aria-label", "Edit " + p.label);
+      edit.innerHTML = '<i data-lucide="pencil"></i>';
+      edit.addEventListener("click", function () { openEditor(p); });
+      row.appendChild(edit);
+      list.appendChild(row);
+    });
+    var note = $("providerNote");
+    if (!state.providers.length) {
+      note.textContent = "No providers yet. Connect OpenAI, Anthropic, Groq, or any endpoint you name yourself. Until then, chats use demo replies.";
+    } else {
+      note.textContent = "Keys stay in this browser. Prompts go to the provider you use.";
+    }
+    refreshIcons();
+  }
+
+  $("addProviderBtn").addEventListener("click", function () {
+    openProviderModal();
+  });
+
+  function openProviderModal() {
+    edEditing = null;
+    edPreset = null;
+    $("providerTitle").textContent = "Add a provider";
+    $("presetStep").hidden = false;
+    $("providerForm").hidden = true;
+    renderPresets();
+    openModal(providerModal);
+  }
+
+  function renderPresets() {
+    var wrap = $("presetList");
+    wrap.innerHTML = "";
+    PRESETS.forEach(function (preset) {
+      var b = document.createElement("button");
+      b.className = "preset-row";
+      b.type = "button";
+      b.innerHTML = '<span class="icon-box"><i data-lucide="' + preset.icon + '"></i></span>' +
+        "<span><strong></strong><em></em></span>";
+      b.querySelector("strong").textContent = preset.name;
+      b.querySelector("em").textContent = preset.note;
+      b.addEventListener("click", function () { startForm(preset, null); });
+      wrap.appendChild(b);
+    });
+    refreshIcons();
+  }
+
+  function openEditor(p) {
+    startForm(presetMatch(p.kind, p.baseUrl), p);
+    if (providerModal.hidden) openModal(providerModal);
+  }
+
+  function startForm(preset, existing) {
+    edEditing = existing || null;
+    edPreset = preset;
+    edKind = existing ? (existing.kind || "openai") : preset.kind;
+    edAuth = existing ? (existing.authStyle || defaultAuthStyle(edKind)) : defaultAuthStyle(preset.kind);
+
+    $("providerTitle").textContent = existing ? "Edit " + existing.label : "Connect to " + preset.name;
+    $("presetStep").hidden = true;
+    $("providerForm").hidden = false;
+
+    $("pfName").value = existing ? existing.label : preset.name;
+    $("pfBase").value = existing ? existing.baseUrl : preset.baseUrl;
+    $("pfKey").value = "";
+    $("pfKey").type = "password";
+    $("pfKeyToggle").innerHTML = '<i data-lucide="eye"></i>';
+    $("pfKey").placeholder = existing ? "Saved. Type to replace it." : (preset.keyHint || "Paste your key");
+    var models = existing ? (existing.models || []) : [];
+    var inputs = document.querySelectorAll(".pf-model");
+    inputs.forEach(function (inp, i) {
+      inp.value = models[i] || "";
+    });
+    var radios = document.querySelectorAll('input[name="pfActive"]');
+    var slot = existing && typeof existing.activeSlot === "number" ? existing.activeSlot : 0;
+    radios.forEach(function (r, i) { r.checked = i === slot; });
+    $("pfAuthName").value = existing ? (existing.authName || defaultAuthName(edKind, edAuth)) : defaultAuthName(edKind, edAuth);
+    $("pfHeaders").value = existing ? writeHeaders(existing.headers) : "";
+    $("pfAdvanced").hidden = true;
+    $("pfAdvancedToggle").setAttribute("aria-expanded", "false");
+    $("modelOptions").innerHTML = "";
+    setStatus($("pfModelStatus"), "");
+    setStatus($("pfStatus"), "");
+    $("pfRemove").hidden = !existing;
+    syncEditorKind();
+    syncEditorAuth();
+    refreshIcons();
+    if (providerModal.hidden) openModal(providerModal);
+  }
+
+  function syncEditorKind() {
+    var btns = $("pfKindSeg").querySelectorAll("button");
+    btns.forEach(function (b) {
+      b.setAttribute("aria-pressed", b.dataset.kind === edKind ? "true" : "false");
+    });
+    var help = $("pfKindHelp");
+    if (edKind === "gemini") {
+      help.textContent = "Gemini speaks its own shape. Nova handles that for you.";
+      help.hidden = false;
+    } else if (edKind === "anthropic") {
+      help.textContent = "Anthropic speaks its own shape. Nova handles that for you.";
+      help.hidden = false;
+    } else {
+      help.hidden = true;
+    }
+    syncAdvancedSummary();
+  }
+
+  function syncEditorAuth() {
+    var btns = $("pfAuthSeg").querySelectorAll("button");
+    btns.forEach(function (b) {
+      b.setAttribute("aria-pressed", b.dataset.auth === edAuth ? "true" : "false");
+    });
+    $("pfKeyRow").style.display = edAuth === "none" ? "none" : "";
+    var nameRow = $("pfAuthNameRow");
+    if (edAuth === "none") {
+      nameRow.style.display = "none";
+    } else {
+      nameRow.style.display = "";
+      $("pfAuthNameLabel").textContent = edAuth === "query" ? "Query parameter" : "Header name";
+    }
+    syncAdvancedSummary();
+  }
+
+  function syncAdvancedSummary() {
+    var extra = Object.keys(parseHeaders($("pfHeaders").value)).length > 0;
+    $("pfAdvancedSummary").textContent = kindName(edKind) + ", " + authStyleName(edAuth) + (extra ? ", custom headers" : "");
+  }
+
+  $("pfKindSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-kind]");
+    if (!b || edBusy) return;
+    edKind = b.dataset.kind;
+    edAuth = defaultAuthStyle(edKind);
+    $("pfAuthName").value = defaultAuthName(edKind, edAuth);
+    if (!edEditing && !$("pfBase").value.trim()) {
+      var suggested = presetMatch(edKind, "");
+      if (suggested.baseUrl) $("pfBase").value = suggested.baseUrl;
+    }
+    syncEditorKind();
+    syncEditorAuth();
+  });
+
+  $("pfAuthSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-auth]");
+    if (!b || edBusy) return;
+    edAuth = b.dataset.auth;
+    $("pfAuthName").value = defaultAuthName(edKind, edAuth);
+    syncEditorAuth();
+  });
+
+  $("pfAdvancedToggle").addEventListener("click", function () {
+    var open = $("pfAdvanced").hidden;
+    $("pfAdvanced").hidden = !open;
+    $("pfAdvancedToggle").setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  $("pfHeaders").addEventListener("input", syncAdvancedSummary);
+
+  $("pfKeyToggle").addEventListener("click", function () {
+    var field = $("pfKey");
+    var show = field.type === "password";
+    field.type = show ? "text" : "password";
+    $("pfKeyToggle").innerHTML = show ? '<i data-lucide="eye-off"></i>' : '<i data-lucide="eye"></i>';
+    $("pfKeyToggle").setAttribute("aria-label", show ? "Hide key" : "Show key");
+    refreshIcons();
+  });
+
+  function setStatus(el, msg, opts) {
+    opts = opts || {};
+    el.classList.toggle("error", !!opts.error);
+    el.innerHTML = "";
+    if (opts.spin) {
+      var spin = document.createElement("span");
+      spin.className = "spin";
+      spin.innerHTML = '<i data-lucide="loader-circle"></i>';
+      el.appendChild(spin);
+      refreshIcons();
+    }
+    if (msg) el.appendChild(document.createTextNode(msg));
+  }
+
+  /* The connection as the form describes it right now. */
+  function formLike() {
+    var key = $("pfKey").value.trim();
+    if (!key && edEditing) key = edEditing.apiKey || "";
+    return {
+      kind: edKind,
+      baseUrl: $("pfBase").value.trim(),
+      apiKey: key,
+      authStyle: edAuth,
+      authName: $("pfAuthName").value.trim() || defaultAuthName(edKind, edAuth),
+      headers: parseHeaders($("pfHeaders").value)
+    };
+  }
+
+  function formModels() {
+    var out = [];
+    document.querySelectorAll(".pf-model").forEach(function (inp) {
+      out.push(inp.value.trim());
+    });
+    return out;
+  }
+
+  function formSlot() {
+    var checked = document.querySelector('input[name="pfActive"]:checked');
+    return checked ? +checked.value : 0;
+  }
+
+  $("pfCheck").addEventListener("click", function () {
+    if (edBusy) return;
+    var like = formLike();
+    var bad = checkAddress(like.baseUrl);
+    if (bad) {
+      setStatus($("pfModelStatus"), bad, { error: true });
+      return;
+    }
+    if (like.authStyle !== "none" && !like.apiKey) {
+      setStatus($("pfModelStatus"), "Add a key first.", { error: true });
+      return;
+    }
+    edBusy = true;
+    $("pfCheck").disabled = true;
+    $("pfSave").disabled = true;
+    setStatus($("pfModelStatus"), "Asking the provider what it serves...", { spin: true });
+    listModels(like).then(function (found) {
+      edBusy = false;
+      $("pfCheck").disabled = false;
+      $("pfSave").disabled = false;
+      if (!found.length) {
+        setStatus($("pfModelStatus"), "That key can see no models.", { error: true });
+        return;
+      }
+      var dl = $("modelOptions");
+      dl.innerHTML = "";
+      found.slice(0, 300).forEach(function (id) {
+        var opt = document.createElement("option");
+        opt.value = id;
+        dl.appendChild(opt);
+      });
+      setStatus($("pfModelStatus"), "It serves " + found.length + ". Pick three from the list.");
+    }, function (err) {
+      edBusy = false;
+      $("pfCheck").disabled = false;
+      $("pfSave").disabled = false;
+      setStatus($("pfModelStatus"), fetchSentence(err), { error: true });
+    });
+  });
+
+  $("pfSave").addEventListener("click", function () {
+    if (edBusy) return;
+    var like = formLike();
+    var bad = checkAddress(like.baseUrl);
+    if (bad) {
+      setStatus($("pfStatus"), bad, { error: true });
+      return;
+    }
+    if (like.authStyle !== "none" && !like.apiKey) {
+      setStatus($("pfStatus"), "This provider needs a key.", { error: true });
+      return;
+    }
+    var models = formModels();
+    if (models.some(function (m) { return !m; })) {
+      setStatus($("pfStatus"), "Fill in all three model slots.", { error: true });
+      return;
+    }
+    edBusy = true;
+    $("pfCheck").disabled = true;
+    $("pfSave").disabled = true;
+
+    var i = 0;
+    function next() {
+      if (i >= models.length) {
+        persist();
+        return;
+      }
+      setStatus($("pfStatus"), "Checking model " + (i + 1) + " of 3...", { spin: true });
+      probeModel(like, models[i]).then(function (problem) {
+        if (problem) {
+          edBusy = false;
+          $("pfCheck").disabled = false;
+          $("pfSave").disabled = false;
+          setStatus($("pfStatus"), "Model " + (i + 1) + " failed. " + problem, { error: true });
+          return;
+        }
+        i++;
+        next();
+      });
+    }
+
+    function persist() {
+      var label = $("pfName").value.trim() || (edPreset ? edPreset.name : "Provider");
+      if (edEditing) {
+        edEditing.label = label;
+        edEditing.kind = edKind;
+        edEditing.baseUrl = like.baseUrl;
+        if ($("pfKey").value.trim()) edEditing.apiKey = $("pfKey").value.trim();
+        if (like.authStyle === "none") edEditing.apiKey = "";
+        edEditing.authStyle = like.authStyle;
+        edEditing.authName = like.authName;
+        edEditing.headers = like.headers;
+        edEditing.models = models;
+        edEditing.activeSlot = formSlot();
+      } else {
+        var p = {
+          id: uid(),
+          label: label,
+          kind: edKind,
+          baseUrl: like.baseUrl,
+          apiKey: like.authStyle === "none" ? "" : like.apiKey,
+          authStyle: like.authStyle,
+          authName: like.authName,
+          headers: like.headers,
+          models: models,
+          activeSlot: formSlot()
+        };
+        state.providers.push(p);
+        if (!state.settings.activeProviderId) state.settings.activeProviderId = p.id;
+      }
+      save();
+      edBusy = false;
+      $("pfCheck").disabled = false;
+      $("pfSave").disabled = false;
+      renderProviders();
+      renderModelMenu();
+      syncModelLabel();
+      closeModal(providerModal);
+      toast("Provider saved");
+    }
+
+    next();
+  });
+
+  /* hold to remove a provider */
+
+  var pfRemoveBtn = $("pfRemove");
+  var pfRemoveTimer = null;
+
+  function pfRemoveStart(e) {
+    if (e && e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+    if (e && e.type === "keydown") e.preventDefault();
+    if (pfRemoveTimer || !edEditing) return;
+    pfRemoveBtn.classList.add("armed");
+    pfRemoveTimer = setTimeout(function () {
+      pfRemoveTimer = null;
+      pfRemoveBtn.classList.remove("armed");
+      var id = edEditing.id;
+      state.providers = state.providers.filter(function (p) { return p.id !== id; });
+      if (state.settings.activeProviderId === id) state.settings.activeProviderId = null;
+      save();
+      renderProviders();
+      renderModelMenu();
+      syncModelLabel();
+      closeModal(providerModal);
+      toast("Provider removed");
+    }, 1450);
+  }
+
+  function pfRemoveCancel() {
+    if (!pfRemoveTimer) return;
+    clearTimeout(pfRemoveTimer);
+    pfRemoveTimer = null;
+    pfRemoveBtn.classList.remove("armed");
+  }
+
+  pfRemoveBtn.addEventListener("pointerdown", pfRemoveStart);
+  pfRemoveBtn.addEventListener("pointerup", pfRemoveCancel);
+  pfRemoveBtn.addEventListener("pointerleave", pfRemoveCancel);
+  pfRemoveBtn.addEventListener("keydown", pfRemoveStart);
+  pfRemoveBtn.addEventListener("keyup", pfRemoveCancel);
+
+  $("providerBack").addEventListener("click", function () {
+    if (edBusy) return;
+    if (!$("providerForm").hidden && !edEditing) {
+      $("providerForm").hidden = true;
+      $("presetStep").hidden = false;
+      $("providerTitle").textContent = "Add a provider";
+      return;
+    }
+    closeModal(providerModal);
+  });
+
+  $("providerClose").addEventListener("click", function () {
+    if (!edBusy) closeModal(providerModal);
+  });
+
+  providerModal.addEventListener("pointerdown", function (e) {
+    if (e.target === providerModal && !edBusy) closeModal(providerModal);
+  });
+
   /* ---------- global keys ---------- */
 
   document.addEventListener("keydown", function (e) {
@@ -1247,6 +2336,7 @@
       return;
     }
     if (e.key === "Escape") {
+      if (!providerModal.hidden) { if (!edBusy) closeModal(providerModal); return; }
       if (openPop) { hidePop(); return; }
       if (!searchModal.hidden) { closeModal(searchModal); return; }
       if (!settingsModal.hidden) { closeModal(settingsModal); return; }
@@ -1264,7 +2354,11 @@
     document.documentElement.setAttribute("data-theme", state.settings.theme);
     if (window.innerWidth <= 768) document.body.classList.remove("nav-open");
     else document.body.classList.add("nav-open");
+    if (state.settings.activeProviderId && !getProvider(state.settings.activeProviderId)) {
+      state.settings.activeProviderId = null;
+    }
     syncModelLabel();
+    renderModelMenu();
     renderList();
     showEmpty();
     autogrow();

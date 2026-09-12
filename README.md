@@ -1,8 +1,8 @@
-# Nova. ChatGPT style chat client (frontend demo)
+# Nova. ChatGPT style chat client with bring your own key
 
-A polished, frontend only clone of a modern AI chat app. New chats, history
-grouped by date, search, streaming replies with markdown, model picker, three
-themes, settings, and toasts. Chats persist in the browser via localStorage.
+A polished chat frontend that talks to real providers. Connect OpenAI,
+Anthropic, Gemini, Groq, OpenRouter, or any endpoint you name yourself.
+With no provider set, the app answers with built in demo replies.
 
 ## Run it
 
@@ -21,7 +21,7 @@ with everything inlined, so it works from disk with no server.
 
 - `index.html` markup and dialogs
 - `styles.css` theme tokens, layout, motion
-- `app.js` state, streaming, markdown renderer, search, settings
+- `app.js` state, providers, streaming, markdown renderer, search
 - `lucide.min.js` icon library, vendored so the app works offline
 - `nova-standalone.html` portable single file build
 - `build_inline.py` rebuilds the single file build
@@ -31,6 +31,36 @@ Rebuild with:
 ```bash
 python3 build_inline.py
 ```
+
+## Providers
+
+Settings has a Providers tab. Adding one works like this:
+
+1. Pick what you are connecting to. A preset fills in the request shape
+   and the base address. Nothing it fills in is locked.
+2. Paste a key. Keys stay in this browser's local storage. They are sent
+   to your provider, nowhere else.
+3. Tap Check models. Nova asks the provider what your key can actually
+   use, then you pick three models and mark one as active.
+4. Save. Each model is probed with one real request before anything
+   is kept.
+
+Under Advanced: request shape (OpenAI style, Anthropic, Gemini), how the
+key is sent (Bearer, a header you name, a query parameter you name, or
+no key), and extra headers written one per line as Name: value. That
+last one is what makes an endpoint nobody has heard of yet work today.
+
+The top bar model menu lists every provider's three models, plus demo
+mode. Switching is instant. Failures come back as sentences about what
+to do, with the provider's own detail attached when it offers any.
+
+Notes:
+
+- Anthropic sends the browser access header it documents, so direct
+  calls from the page work.
+- Plain http addresses are accepted only for hosts on your own network
+  (localhost, LAN addresses). Everything else must be https.
+- Export covers chats only. Keys are never exported.
 
 ## House rules honored
 
@@ -49,10 +79,10 @@ python3 build_inline.py
 - UI motion stays under 300ms. Buttons press at 160ms with a subtle
   scale on `:active`. Only `transform` and `opacity` animate.
 - Popovers scale from their trigger via a per open `transform-origin`.
-  The centered settings modal is the one exception.
+  The centered modals are the exception.
 - Search opens instantly with zero animation. It is keyboard initiated
   (Cmd/Ctrl + K), and frequent actions must feel instant.
-- Destructive delete uses press and hold with a slow linear fill.
+- Destructive deletes use press and hold with a slow linear fill.
 - Toasts stack bottom center and slide up on a soft curve.
 - `prefers-reduced-motion` shortens all motion and speeds up streaming.
 
@@ -66,8 +96,7 @@ python3 build_inline.py
 ## Make it yours
 
 - Brand name, user name, and email are plain strings in `index.html`.
-- Models live in the model menu in `index.html` plus `syncModelLabel`.
-- Canned replies live in the `REPLIES` object in `app.js`. To go live,
-  replace `generateReply` plus `streamAssistant` with a fetch call to
-  your API and stream tokens into the same renderer.
+- The provider catalogue lives in the `PRESETS` array in `app.js`.
+- Request shapes live in `streamChat`, `listModels`, and `probeModel`
+  in `app.js`. A new shape is a new branch in each.
 - Themes are CSS variable blocks at the top of `styles.css`.
