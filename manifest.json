@@ -1,6 +1,6 @@
 {
-  "name": "Nova",
-  "short_name": "Nova",
+  "name": "Impose",
+  "short_name": "Impose",
   "description": "Bring your own key and chat with any provider.",
   "start_url": "./index.html",
   "scope": "./",

@@ -1,4 +1,4 @@
-# Hosting Nova Chat Clone on Render
+# Hosting Impose Chat Clone on Render
 
 One Blueprint file in this repo (`render.yaml`) deploys both halves: the
 chat UI as a static site and the slim relay as a Python web service.

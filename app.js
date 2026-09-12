@@ -1,9 +1,10 @@
-/* Nova chat client. Bring your own key: providers speak OpenAI style,
+/* Impose chat client. Bring your own key: providers speak OpenAI style,
    Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
   "use strict";
 
-  var STORE_KEY = "nova.clone.v1";
+  var STORE_KEY = "impose.clone.v1";
+  var LEGACY_STORE_KEY = "nova.clone.v1";
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /* anime.js (vendored) drives JS motion; CSS owns hovers and reveals. */
@@ -25,7 +26,7 @@
   function yesTrans(els) {
     for (var i = 0; i < els.length; i++) els[i].style.transition = "";
   }
-  var SYS_MSG = "You are Nova, a helpful assistant.";
+  var SYS_MSG = "You are Impose, a helpful assistant.";
 
   /* ---------- canned replies (demo mode, no provider set) ---------- */
 
@@ -177,11 +178,14 @@
 
   var store = {
     read: function () {
-      try { return window.localStorage.getItem(STORE_KEY); }
+      try { return window.localStorage.getItem(STORE_KEY) || window.localStorage.getItem(LEGACY_STORE_KEY); }
       catch (e) { return null; }
     },
     write: function (v) {
-      try { window.localStorage.setItem(STORE_KEY, v); }
+      try {
+        window.localStorage.setItem(STORE_KEY, v);
+        window.localStorage.removeItem(LEGACY_STORE_KEY);
+      }
       catch (e) { /* sandboxed iframe: keep everything in memory */ }
     }
   };
@@ -371,7 +375,7 @@
 
   /* Log every network request the app makes. Keys in URLs are redacted. */
   (function wrapFetch() {
-    if (!window.fetch || window.fetch.__novaWrapped) return;
+    if (!window.fetch || window.fetch.__imposeWrapped) return;
     var nativeFetch = window.fetch.bind(window);
     function wrapped(input, opts) {
       var url = typeof input === "string" ? input : (input && input.url) || "";
@@ -395,7 +399,7 @@
         throw err;
       });
     }
-    wrapped.__novaWrapped = true;
+    wrapped.__imposeWrapped = true;
     window.fetch = wrapped;
   })();
 
@@ -1939,7 +1943,7 @@
   }
 
   function restoreTrace(row, msg) {
-    if (!window.NovaTrace || !msg || !msg.sources || !msg.sources.length) return;
+    if (!window.ImposeTrace || !msg || !msg.sources || !msg.sources.length) return;
     if (row.querySelector(".agent-trace")) return;
     var rows = msg.sources.map(function (s, i) {
       return { primary: s.title || s.url, secondary: hostOf(s.url), href: s.url, si: i + 1 };
@@ -1952,7 +1956,7 @@
         query: null,
         rows: rows
       };
-    window.NovaTrace.mountSettled(row, snap);
+    window.ImposeTrace.mountSettled(row, snap);
     refreshIcons();
   }
 
@@ -2385,13 +2389,13 @@
 
   function playTraceDemo() {
     clearTraceDemo();
-    if (!window.NovaTrace || !window.NovaTrace.playDemo) {
+    if (!window.ImposeTrace || !window.ImposeTrace.playDemo) {
       dnote("app", "Trace demo unavailable.");
       return;
     }
     showDock();
     dnote("app", "Playing the agent trace demo.");
-    window.NovaTrace.playDemo(messagesEl, {
+    window.ImposeTrace.playDemo(messagesEl, {
       refreshIcons: refreshIcons,
       renderMarkdown: renderMarkdown,
       pin: function () { if (isNearBottom()) scrollBottom(); }
@@ -2502,7 +2506,7 @@
       if (oldPanel) oldPanel.remove();
       row.querySelector(".msg-body").innerHTML = "";
     }
-    var trace = window.NovaTrace.mountTrace(row, { active: "Thinking" });
+    var trace = window.ImposeTrace.mountTrace(row, { active: "Thinking" });
     refreshIcons();
     trace.setElapsed();
     var tickTimer = setInterval(function () { trace.setElapsed(); }, 100);
@@ -2575,7 +2579,7 @@
     }
 
     var signal = s.controller ? s.controller.signal : undefined;
-    window.NovaHarness.harness.runAgent({
+    window.ImposeHarness.harness.runAgent({
       query: userText,
       context: agentContext(chat, userText),
       signal: signal,
@@ -2729,7 +2733,7 @@
       chat.model = providerDisplay(t.provider);
       chat.providerId = t.provider.id;
       save();
-      if (state.settings.searchMode && window.NovaHarness && window.NovaTrace) {
+      if (state.settings.searchMode && window.ImposeHarness && window.ImposeTrace) {
         dnote("chat", "Research via " + providerDisplay(t.provider));
         streamResearched(chat, t.provider, t.model, text, replaceIdx);
       } else {
@@ -4046,7 +4050,7 @@
     var chat = getChat(activeId);
     if (!chat || !chat.messages.length) { toast("Nothing to share yet."); return; }
     var text = chat.title + "\n\n" + chat.messages.map(function (m) {
-      return (m.role === "user" ? "You: " : "Nova: ") + m.content;
+      return (m.role === "user" ? "You: " : "Impose: ") + m.content;
     }).join("\n\n");
     if (navigator.share) {
       navigator.share({ title: chat.title, text: text }).then(function () {
@@ -4138,7 +4142,7 @@
     if (!chat) return;
     var lines = ["# " + chat.title, ""];
     chat.messages.forEach(function (m) {
-      lines.push(m.role === "user" ? "You:" : "Nova:");
+      lines.push(m.role === "user" ? "You:" : "Impose:");
       lines.push(m.content || "");
       lines.push("");
     });
@@ -4372,7 +4376,7 @@
   });
 
   function fbContextLine() {
-    return "Nova 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
+    return "Impose 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
   }
 
   function fbDraft() {
@@ -4411,12 +4415,12 @@
   var ext = { connected: false, version: "", tabs: [], tabId: 0, threadUrl: "", snapshot: "", log: [] };
 
   try {
-    var savedActions = JSON.parse(localStorage.getItem("nova.actions.v1") || "[]");
+    var savedActions = JSON.parse(localStorage.getItem("impose.actions.v1") || localStorage.getItem("nova.actions.v1") || "[]");
     if (Array.isArray(savedActions)) ext.log = savedActions.slice(-30);
   } catch (e) { ext.log = []; }
 
   function extSaveLog() {
-    try { localStorage.setItem("nova.actions.v1", JSON.stringify(ext.log.slice(-30))); } catch (e) { /* noop */ }
+    try { localStorage.setItem("impose.actions.v1", JSON.stringify(ext.log.slice(-30))); localStorage.removeItem("nova.actions.v1"); } catch (e) { /* noop */ }
   }
 
   function renderExtLog() {
@@ -4449,7 +4453,7 @@
   window.addEventListener("message", function (e) {
     if (e.origin !== location.origin) return;
     var m = e.data;
-    if (!m || m.src !== "nova-ext" || !m.id || !extPending[m.id]) return;
+    if (!m || m.src !== "impose-ext" || !m.id || !extPending[m.id]) return;
     var p = extPending[m.id];
     delete extPending[m.id];
     clearTimeout(p.timer);
@@ -4466,7 +4470,7 @@
       }, EXT_TIMEOUT);
       if (timer.unref) { try { timer.unref(); } catch (e) { /* browsers lack unref */ } }
       extPending[id] = { resolve: resolve, reject: reject, timer: timer };
-      window.postMessage({ src: "nova-page", id: id, method: method, params: params || {} }, location.origin);
+      window.postMessage({ src: "impose-page", id: id, method: method, params: params || {} }, location.origin);
     });
   }
 
@@ -4487,7 +4491,7 @@
       return true;
     }, function (err) {
       setExtStatus(false, "Extension not connected",
-        silent ? "Install the Nova bridge to act in your tabs." : String((err && err.message) || err));
+        silent ? "Install the Impose bridge to act in your tabs." : String((err && err.message) || err));
       return false;
     });
   }
@@ -4617,7 +4621,7 @@
   }
 
   function extDraft() {
-    if (!ext.snapshot) { toast("Read the page first so Nova can see the conversation."); return; }
+    if (!ext.snapshot) { toast("Read the page first so Impose can see the conversation."); return; }
     var instr = $("extInstr").value.trim();
     var p = draftReply(ext.snapshot, instr);
     if (!p) return;
@@ -4729,7 +4733,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
-    a.download = "nova-chats.json";
+    a.download = "impose-chats.json";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -4779,7 +4783,7 @@
         toast.success(added === 1 ? "Imported 1 chat." : "Imported " + added + " chats.");
         dnote("app", "Imported " + added + " chats");
       } catch (e) {
-        toast.error("That file is not a Nova backup.");
+        toast.error("That file is not a Impose backup.");
       }
     };
     r.readAsText(f);
@@ -4969,10 +4973,10 @@
     });
     var help = $("pfKindHelp");
     if (edKind === "gemini") {
-      help.textContent = "Gemini speaks its own shape. Nova handles that for you.";
+      help.textContent = "Gemini speaks its own shape. Impose handles that for you.";
       help.hidden = false;
     } else if (edKind === "anthropic") {
-      help.textContent = "Anthropic speaks its own shape. Nova handles that for you.";
+      help.textContent = "Anthropic speaks its own shape. Impose handles that for you.";
       help.hidden = false;
     } else {
       help.hidden = true;

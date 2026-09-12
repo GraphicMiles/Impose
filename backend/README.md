@@ -8,7 +8,7 @@ Luna's `render-control-plane` job pattern.
 ## Architecture
 
 ```
-Browser (Nova web UI) or any client
+Browser (Impose web UI) or any client
   │  HTTPS + Authorization: Bearer <CONTROL_KEY>
   │  (CORS is enabled, so the web UI calls these hosts directly)
   ▼
@@ -117,7 +117,7 @@ keyed provider when you want stronger general results.
 
 ### Part 2: the web UI (same turn, two minutes)
 
-In Nova: Settings → Providers → Add → Self hosted. Paste the public box
+In Impose: Settings → Providers → Add → Self hosted. Paste the public box
 URL plus `/v1` as the base address, the box `CONTROL_KEY` as the key
 (Bearer is the default), tap Check models, tap one to check it, save. Chat now
 runs on your own model.

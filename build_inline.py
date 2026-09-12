@@ -1,4 +1,4 @@
-"""Build nova-standalone.html by inlining CSS and JS into index.html.
+"""Build impose-standalone.html by inlining CSS and JS into index.html.
 
 Reads index.html, replaces the stylesheet links with style tags and the
 script tags with inline scripts. Output works from disk with no server.
@@ -59,6 +59,6 @@ html = html.replace(
     1,
 )
 
-out = ROOT / "nova-standalone.html"
+out = ROOT / "impose-standalone.html"
 out.write_text(html, encoding="utf-8")
 print("Wrote %s (%d bytes)" % (out.name, out.stat().st_size))

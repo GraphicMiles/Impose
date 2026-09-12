@@ -1,4 +1,4 @@
-/* Nova agent pipeline visualization: beautifului Thinking trace plus Task rows,
+/* Impose agent pipeline visualization: beautifului Thinking trace plus Task rows,
    translated to vanilla JS. This module drives from plain calls and knows
    nothing about the agent runtime. Phase 2 binds the runtime event bus here;
    until then playDemo acts as the binder with a scripted sample run. */
@@ -398,7 +398,7 @@
     return trace;
   }
 
-  window.NovaTrace = {
+  window.ImposeTrace = {
     mountTrace: mountTrace,
     mountSettled: mountSettled,
     mountPlan: mountPlan,

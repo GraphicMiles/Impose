@@ -18,7 +18,7 @@ What it does
 4. WATCHDOG  On startup (and via /admin/start-llm) it spawns llama-server if
              the model is not answering, so after a Studio restart, launching
              just this process brings the whole stack back.
-5. CORS      Enabled for browser clients (the Nova web UI calls this host
+5. CORS      Enabled for browser clients (the Impose web UI calls this host
              directly). Tighten ALLOWED_ORIGINS once the UI has a fixed home.
 
 Config (env, or a .env file next to this script):

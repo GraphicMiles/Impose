@@ -152,7 +152,7 @@ test("runAgent answers from knowledge when results are empty", function () {
   }).then(function (out) {
     ok(completed, "completes");
     ok(completed.system.indexOf("found nothing") !== -1, "says so");
-    eq(completed.user, "phones", "question passed through");
+    eq(completed.user, "Question: phones", "question passed through");
     eq(emits.join(","), "status,query,settle", "pipeline shown");
     eq(out.sources.length, 0, "no sources");
   });
@@ -199,7 +199,7 @@ test("runAgent searches the rewritten query", function () {
   }).then(function () {
     eq(s.calls[0][0], "Python function explained line by line", "planned query searched");
     eq(emits.join(","), "status,status,query,status,source,settle", "planning beat shown");
-    ok(completed.indexOf("Walk me through") === 0, "synthesis keeps the original question");
+    ok(completed.indexOf("Question: Walk me through") === 0, "synthesis keeps the original question");
   });
 });
 
@@ -234,6 +234,26 @@ test("runAgent drops excluded domains", function () {
     eq(out.sources.length, 1, "one survives");
     eq(out.sources[0].url, "https://b.io/", "right one");
     ok(completed.indexOf("[1] B") !== -1, "evidence renumbered");
+  });
+});
+
+test("runAgent hands context to the rewrite and the answer", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "sa" }], provider: "p" }]);
+  var seen = {};
+  return H.harness.runAgent({
+    query: "Is he married",
+    context: "user: Who is mrbeast",
+    rewrite: function (q, c) { seen.q = q; seen.c = c; return Promise.resolve("Is MrBeast married"); },
+    search: s.fn,
+    emit: function () {},
+    onDelta: function () {},
+    complete: function (system, user) { seen.user = user; return Promise.resolve(); }
+  }).then(function () {
+    eq(seen.q, "Is he married", "rewrite sees the question");
+    eq(seen.c, "user: Who is mrbeast", "rewrite sees the context");
+    eq(s.calls[0][0], "Is MrBeast married", "resolved query searched");
+    ok(seen.user.indexOf("Conversation so far:") === 0, "answer carries the conversation");
+    ok(seen.user.indexOf("Question: Is he married") !== -1, "answer keeps the question");
   });
 });
 

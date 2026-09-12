@@ -1,7 +1,7 @@
-/* Nova agent harness: a tiny plugin registry plus the one tool that exists
+/* Impose agent harness: a tiny plugin registry plus the one tool that exists
    today (websearch). A second tool later is one registerTool call and
    nothing else. Nothing here touches the DOM; the app injects search,
-   complete, and emit. Loads in the browser as window.NovaHarness and
+   complete, and emit. Loads in the browser as window.ImposeHarness and
    under node via require. */
 (function () {
   "use strict";
@@ -108,7 +108,7 @@
           });
           if (results.length === 0) {
             deps.emit({ t: "settle", text: "Searched the web" });
-            var bare = "You are Nova, a helpful assistant. The web search found nothing for this question. " +
+            var bare = "You are Impose, a helpful assistant. The web search found nothing for this question. " +
               "Say so in one short line, then answer from your own knowledge anyway. " +
               "Never refuse a question you can answer, and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
             return deps.complete(bare, withContext(question), deps.onDelta, deps.onThink).then(function () {
@@ -124,7 +124,7 @@
           var lines = results.map(function (r, i) {
             return "[" + (i + 1) + "] " + (r.title || r.url) + "\n" + r.url + "\n" + (r.snippet || "");
           }).join("\n\n");
-          var system = "You are Nova, a helpful assistant. Use the evidence below when it answers the question, " +
+          var system = "You are Impose, a helpful assistant. Use the evidence below when it answers the question, " +
             "and cite sources by number like [1]. If the evidence is off topic or too thin, say the search missed " +
             "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
             "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
@@ -164,5 +164,5 @@
   api.harness.registerTool(websearchTool);
 
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-  else getRoot().NovaHarness = api;
+  else getRoot().ImposeHarness = api;
 })();

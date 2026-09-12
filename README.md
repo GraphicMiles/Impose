@@ -1,4 +1,4 @@
-# Nova. ChatGPT style chat client with bring your own key
+# Impose. ChatGPT style chat client with bring your own key
 
 A polished chat frontend that talks to real providers. Connect OpenAI,
 Anthropic, Gemini, Groq, OpenRouter, or any endpoint you name yourself.
@@ -14,7 +14,7 @@ python3 -m http.server 8000
 
 Then open http://localhost:8000
 
-Or open `nova-standalone.html` directly. It is the same app in one file
+Or open `impose-standalone.html` directly. It is the same app in one file
 with everything inlined, so it works from disk with no server.
 
 ## Files
@@ -23,7 +23,7 @@ with everything inlined, so it works from disk with no server.
 - `styles.css` theme tokens, layout, motion
 - `app.js` state, providers, streaming, markdown renderer, search
 - `lucide.min.js` icon library, vendored so the app works offline
-- `nova-standalone.html` portable single file build
+- `impose-standalone.html` portable single file build
 - `build_inline.py` rebuilds the single file build
 
 Rebuild with:
@@ -47,7 +47,7 @@ Settings has a Providers tab. Adding one works like this:
    and the base address. Nothing it fills in is locked.
 2. Paste a key. Keys stay in this browser's local storage. They are sent
    to your provider, nowhere else.
-3. Tap Check models. Nova asks the provider what your key can actually
+3. Tap Check models. Impose asks the provider what your key can actually
    use, and shows the answer as a list. Tap one to check it; only a
    model that answers is kept. Nothing is typed from memory.
 4. Save. The kept model is checked once more with one real request

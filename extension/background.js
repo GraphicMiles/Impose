@@ -1,5 +1,5 @@
-/* Nova Agent Bridge service worker: routes Nova page commands to X tabs.
-   No page is touched until the user approves the action in Nova. */
+/* Impose Agent Bridge service worker: routes Impose page commands to X tabs.
+   No page is touched until the user approves the action in Impose. */
 "use strict";
 
 var X_URLS = ["https://x.com/*", "https://twitter.com/*"];
@@ -60,7 +60,7 @@ function touch(status) {
   try {
     var s = status || {};
     s.at = Date.now();
-    chrome.storage.local.set({ novaStatus: s });
+    chrome.storage.local.set({ imposeStatus: s });
   } catch (e) { /* status is a nicety */ }
 }
 

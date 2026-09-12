@@ -3,22 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Nova</title>
-<meta name="description" content="Nova chat client. Bring your own key and chat with any provider.">
+<title>Impose</title>
+<meta name="description" content="Impose chat client. Bring your own key and chat with any provider.">
 <link rel="canonical" href="https://impose-web.onrender.com/">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Nova">
-<meta property="og:title" content="Nova">
-<meta property="og:description" content="Nova chat client. Bring your own key and chat with any provider.">
+<meta property="og:site_name" content="Impose">
+<meta property="og:title" content="Impose">
+<meta property="og:description" content="Impose chat client. Bring your own key and chat with any provider.">
 <meta property="og:url" content="https://impose-web.onrender.com/">
-<meta property="og:image" content="https://impose-web.onrender.com/og-image.png">
+<meta property="og:image" content="https://impose-web.onrender.com/og-image.jpg">
+<meta property="og:image:secure_url" content="https://impose-web.onrender.com/og-image.jpg">
+<meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Nova: bring your own key and chat with any provider.">
+<meta property="og:image:alt" content="Impose: bring your own key and chat with any provider.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Nova">
-<meta name="twitter:description" content="Nova chat client. Bring your own key and chat with any provider.">
-<meta name="twitter:image" content="https://impose-web.onrender.com/og-image.png">
+<meta name="twitter:title" content="Impose">
+<meta name="twitter:description" content="Impose chat client. Bring your own key and chat with any provider.">
+<meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta name="color-scheme" content="dark light">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-apple.png">
@@ -28,7 +30,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="./manifest.json">
 <style>
-/* Nova chat client. Motion tokens follow Emil Kowalski's animation guidance:
+/* Impose chat client. Motion tokens follow Emil Kowalski's animation guidance:
    strong ease-out for entrances, short durations, transform and opacity only. */
 
 :root,
@@ -1705,7 +1707,7 @@ details.snap pre { margin: 8px 0 2px; max-height: 180px; overflow: auto; font-si
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
-   translated to Nova tokens, Lucide icons, hairline borders, no shadows. */
+   translated to Impose tokens, Lucide icons, hairline borders, no shadows. */
 
 :root,
 html[data-theme="dark"] {
@@ -2235,7 +2237,7 @@ html.reduce-motion .agent-trace.working .trace-progress span { animation: none; 
 </style>
 <script>
 try {
-  var saved = JSON.parse(localStorage.getItem("nova.clone.v1") || "{}");
+  var saved = JSON.parse(localStorage.getItem("impose.clone.v1") || "{}");
   var theme = (saved.settings && saved.settings.theme) || "dark";
   document.documentElement.setAttribute("data-theme", theme);
 } catch (err) {
@@ -2353,7 +2355,7 @@ try {
   <input type="file" id="filePicker" hidden multiple>
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
-    <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Nova"></textarea>
+    <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Impose"></textarea>
     <div class="composer-row">
       <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
         <i data-lucide="plus"></i>
@@ -2374,7 +2376,7 @@ try {
       </button>
     </div>
   </div>
-  <p class="disclaimer">Nova can make mistakes. Check important info.</p>
+  <p class="disclaimer">Impose can make mistakes. Check important info.</p>
 </div>
 
 <div class="pop" id="modelMenu" role="menu" aria-label="Choose model" hidden>
@@ -2422,7 +2424,7 @@ try {
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
   <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
   <button class="pop-item danger" id="acctWipe" role="menuitem"><i data-lucide="trash-2"></i><span>Delete all chats</span></button>
-  <p class="acct-foot">Nova 1.2 · Keys and chats stay in this browser.</p>
+  <p class="acct-foot">Impose 1.2 · Keys and chats stay in this browser.</p>
 </div>
 
 <div class="overlay" id="palette" hidden>
@@ -2495,7 +2497,7 @@ try {
             <button class="btn" id="exportBtn"><i data-lucide="download"></i><span>Export</span></button>
           </div>
           <div class="setting-row">
-            <div class="setting-text"><strong>Import backup</strong><span>Restore a Nova JSON export</span></div>
+            <div class="setting-text"><strong>Import backup</strong><span>Restore a Impose JSON export</span></div>
             <button class="btn" id="importBtn"><i data-lucide="upload"></i><span>Import</span></button>
           </div>
           <input type="file" id="importPicker" accept="application/json,.json" hidden>
@@ -2504,7 +2506,7 @@ try {
             <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
           </div>
         </section>
-        <p class="version">Nova 1.2. Keys and chats stay in this browser.</p>
+        <p class="version">Impose 1.2. Keys and chats stay in this browser.</p>
       </div>
     </div>
   </div>
@@ -2578,7 +2580,7 @@ try {
           </div>
           <div class="field">
             <label class="flabel" for="pfHeaders">Extra headers</label>
-            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Nova" spellcheck="false"></textarea>
+            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Impose" spellcheck="false"></textarea>
             <p class="fhelp">One per line, written as Name: value.</p>
           </div>
           <p class="flabel gap">Relay</p>
@@ -2676,10 +2678,10 @@ try {
     <div class="settings-body">
       <div class="ext-status" id="extStatus">
         <span class="ext-dot lg off" id="extDotLg"></span>
-        <div class="ext-status-text"><strong id="extStatusTitle">Extension not connected</strong><span id="extStatusSub">Install the Nova bridge to act in your tabs.</span></div>
+        <div class="ext-status-text"><strong id="extStatusTitle">Extension not connected</strong><span id="extStatusSub">Install the Impose bridge to act in your tabs.</span></div>
         <button class="btn small" id="extPingBtn" type="button"><i data-lucide="plug"></i><span>Retry</span></button>
       </div>
-      <div id="extSetup" class="pane-note">Load the companion extension once: open chrome://extensions, turn on Developer mode, Load unpacked, and pick the extension folder from the Nova repo. Then press Retry. You log in on the sites themselves; the bridge never sees passwords.</div>
+      <div id="extSetup" class="pane-note">Load the companion extension once: open chrome://extensions, turn on Developer mode, Load unpacked, and pick the extension folder from the Impose repo. Then press Retry. You log in on the sites themselves; the bridge never sees passwords.</div>
       <div id="extMain" hidden>
         <div class="field">
           <label class="flabel" for="extTabs">X tab</label>
@@ -2702,7 +2704,7 @@ try {
           <label class="flabel" for="extInstr">Instruction for the draft</label>
           <input type="text" class="text-input" id="extInstr" placeholder="e.g. accept politely and ask for Thursday" autocomplete="off">
         </div>
-        <button class="btn small" id="extDraftBtn" type="button"><i data-lucide="bot"></i><span>Draft with Nova</span></button>
+        <button class="btn small" id="extDraftBtn" type="button"><i data-lucide="bot"></i><span>Draft with Impose</span></button>
         <div class="field">
           <label class="flabel" for="extReply">Reply to send</label>
           <textarea class="text-input mono text-area" id="extReply" rows="3" placeholder="The exact text that will be sent."></textarea>
@@ -2738,7 +2740,7 @@ try {
 
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<noscript><p style="padding:24px;font-family:sans-serif">Nova needs JavaScript to run.</p></noscript>
+<noscript><p style="padding:24px;font-family:sans-serif">Impose needs JavaScript to run.</p></noscript>
 <script>
 /**
  * @license lucide v1.45.0 - ISC
@@ -2765,7 +2767,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
 </script>
 <script>
-/* Nova agent pipeline visualization: beautifului Thinking trace plus Task rows,
+/* Impose agent pipeline visualization: beautifului Thinking trace plus Task rows,
    translated to vanilla JS. This module drives from plain calls and knows
    nothing about the agent runtime. Phase 2 binds the runtime event bus here;
    until then playDemo acts as the binder with a scripted sample run. */
@@ -3165,7 +3167,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return trace;
   }
 
-  window.NovaTrace = {
+  window.ImposeTrace = {
     mountTrace: mountTrace,
     mountSettled: mountSettled,
     mountPlan: mountPlan,
@@ -3175,10 +3177,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
 </script>
 <script>
-/* Nova agent harness: a tiny plugin registry plus the one tool that exists
+/* Impose agent harness: a tiny plugin registry plus the one tool that exists
    today (websearch). A second tool later is one registerTool call and
    nothing else. Nothing here touches the DOM; the app injects search,
-   complete, and emit. Loads in the browser as window.NovaHarness and
+   complete, and emit. Loads in the browser as window.ImposeHarness and
    under node via require. */
 (function () {
   "use strict";
@@ -3285,7 +3287,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           });
           if (results.length === 0) {
             deps.emit({ t: "settle", text: "Searched the web" });
-            var bare = "You are Nova, a helpful assistant. The web search found nothing for this question. " +
+            var bare = "You are Impose, a helpful assistant. The web search found nothing for this question. " +
               "Say so in one short line, then answer from your own knowledge anyway. " +
               "Never refuse a question you can answer, and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
             return deps.complete(bare, withContext(question), deps.onDelta, deps.onThink).then(function () {
@@ -3301,7 +3303,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           var lines = results.map(function (r, i) {
             return "[" + (i + 1) + "] " + (r.title || r.url) + "\n" + r.url + "\n" + (r.snippet || "");
           }).join("\n\n");
-          var system = "You are Nova, a helpful assistant. Use the evidence below when it answers the question, " +
+          var system = "You are Impose, a helpful assistant. Use the evidence below when it answers the question, " +
             "and cite sources by number like [1]. If the evidence is off topic or too thin, say the search missed " +
             "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
             "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns.";
@@ -3341,17 +3343,18 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   api.harness.registerTool(websearchTool);
 
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-  else getRoot().NovaHarness = api;
+  else getRoot().ImposeHarness = api;
 })();
 
 </script>
 <script>
-/* Nova chat client. Bring your own key: providers speak OpenAI style,
+/* Impose chat client. Bring your own key: providers speak OpenAI style,
    Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
   "use strict";
 
-  var STORE_KEY = "nova.clone.v1";
+  var STORE_KEY = "impose.clone.v1";
+  var LEGACY_STORE_KEY = "nova.clone.v1";
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /* anime.js (vendored) drives JS motion; CSS owns hovers and reveals. */
@@ -3373,7 +3376,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   function yesTrans(els) {
     for (var i = 0; i < els.length; i++) els[i].style.transition = "";
   }
-  var SYS_MSG = "You are Nova, a helpful assistant.";
+  var SYS_MSG = "You are Impose, a helpful assistant.";
 
   /* ---------- canned replies (demo mode, no provider set) ---------- */
 
@@ -3525,11 +3528,14 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   var store = {
     read: function () {
-      try { return window.localStorage.getItem(STORE_KEY); }
+      try { return window.localStorage.getItem(STORE_KEY) || window.localStorage.getItem(LEGACY_STORE_KEY); }
       catch (e) { return null; }
     },
     write: function (v) {
-      try { window.localStorage.setItem(STORE_KEY, v); }
+      try {
+        window.localStorage.setItem(STORE_KEY, v);
+        window.localStorage.removeItem(LEGACY_STORE_KEY);
+      }
       catch (e) { /* sandboxed iframe: keep everything in memory */ }
     }
   };
@@ -3719,7 +3725,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   /* Log every network request the app makes. Keys in URLs are redacted. */
   (function wrapFetch() {
-    if (!window.fetch || window.fetch.__novaWrapped) return;
+    if (!window.fetch || window.fetch.__imposeWrapped) return;
     var nativeFetch = window.fetch.bind(window);
     function wrapped(input, opts) {
       var url = typeof input === "string" ? input : (input && input.url) || "";
@@ -3743,7 +3749,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         throw err;
       });
     }
-    wrapped.__novaWrapped = true;
+    wrapped.__imposeWrapped = true;
     window.fetch = wrapped;
   })();
 
@@ -5287,7 +5293,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function restoreTrace(row, msg) {
-    if (!window.NovaTrace || !msg || !msg.sources || !msg.sources.length) return;
+    if (!window.ImposeTrace || !msg || !msg.sources || !msg.sources.length) return;
     if (row.querySelector(".agent-trace")) return;
     var rows = msg.sources.map(function (s, i) {
       return { primary: s.title || s.url, secondary: hostOf(s.url), href: s.url, si: i + 1 };
@@ -5300,7 +5306,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         query: null,
         rows: rows
       };
-    window.NovaTrace.mountSettled(row, snap);
+    window.ImposeTrace.mountSettled(row, snap);
     refreshIcons();
   }
 
@@ -5733,13 +5739,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   function playTraceDemo() {
     clearTraceDemo();
-    if (!window.NovaTrace || !window.NovaTrace.playDemo) {
+    if (!window.ImposeTrace || !window.ImposeTrace.playDemo) {
       dnote("app", "Trace demo unavailable.");
       return;
     }
     showDock();
     dnote("app", "Playing the agent trace demo.");
-    window.NovaTrace.playDemo(messagesEl, {
+    window.ImposeTrace.playDemo(messagesEl, {
       refreshIcons: refreshIcons,
       renderMarkdown: renderMarkdown,
       pin: function () { if (isNearBottom()) scrollBottom(); }
@@ -5850,7 +5856,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       if (oldPanel) oldPanel.remove();
       row.querySelector(".msg-body").innerHTML = "";
     }
-    var trace = window.NovaTrace.mountTrace(row, { active: "Thinking" });
+    var trace = window.ImposeTrace.mountTrace(row, { active: "Thinking" });
     refreshIcons();
     trace.setElapsed();
     var tickTimer = setInterval(function () { trace.setElapsed(); }, 100);
@@ -5923,7 +5929,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     }
 
     var signal = s.controller ? s.controller.signal : undefined;
-    window.NovaHarness.harness.runAgent({
+    window.ImposeHarness.harness.runAgent({
       query: userText,
       context: agentContext(chat, userText),
       signal: signal,
@@ -6077,7 +6083,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       chat.model = providerDisplay(t.provider);
       chat.providerId = t.provider.id;
       save();
-      if (state.settings.searchMode && window.NovaHarness && window.NovaTrace) {
+      if (state.settings.searchMode && window.ImposeHarness && window.ImposeTrace) {
         dnote("chat", "Research via " + providerDisplay(t.provider));
         streamResearched(chat, t.provider, t.model, text, replaceIdx);
       } else {
@@ -7394,7 +7400,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var chat = getChat(activeId);
     if (!chat || !chat.messages.length) { toast("Nothing to share yet."); return; }
     var text = chat.title + "\n\n" + chat.messages.map(function (m) {
-      return (m.role === "user" ? "You: " : "Nova: ") + m.content;
+      return (m.role === "user" ? "You: " : "Impose: ") + m.content;
     }).join("\n\n");
     if (navigator.share) {
       navigator.share({ title: chat.title, text: text }).then(function () {
@@ -7486,7 +7492,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (!chat) return;
     var lines = ["# " + chat.title, ""];
     chat.messages.forEach(function (m) {
-      lines.push(m.role === "user" ? "You:" : "Nova:");
+      lines.push(m.role === "user" ? "You:" : "Impose:");
       lines.push(m.content || "");
       lines.push("");
     });
@@ -7720,7 +7726,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   });
 
   function fbContextLine() {
-    return "Nova 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
+    return "Impose 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
   }
 
   function fbDraft() {
@@ -7759,12 +7765,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   var ext = { connected: false, version: "", tabs: [], tabId: 0, threadUrl: "", snapshot: "", log: [] };
 
   try {
-    var savedActions = JSON.parse(localStorage.getItem("nova.actions.v1") || "[]");
+    var savedActions = JSON.parse(localStorage.getItem("impose.actions.v1") || localStorage.getItem("nova.actions.v1") || "[]");
     if (Array.isArray(savedActions)) ext.log = savedActions.slice(-30);
   } catch (e) { ext.log = []; }
 
   function extSaveLog() {
-    try { localStorage.setItem("nova.actions.v1", JSON.stringify(ext.log.slice(-30))); } catch (e) { /* noop */ }
+    try { localStorage.setItem("impose.actions.v1", JSON.stringify(ext.log.slice(-30))); localStorage.removeItem("nova.actions.v1"); } catch (e) { /* noop */ }
   }
 
   function renderExtLog() {
@@ -7797,7 +7803,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   window.addEventListener("message", function (e) {
     if (e.origin !== location.origin) return;
     var m = e.data;
-    if (!m || m.src !== "nova-ext" || !m.id || !extPending[m.id]) return;
+    if (!m || m.src !== "impose-ext" || !m.id || !extPending[m.id]) return;
     var p = extPending[m.id];
     delete extPending[m.id];
     clearTimeout(p.timer);
@@ -7814,7 +7820,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }, EXT_TIMEOUT);
       if (timer.unref) { try { timer.unref(); } catch (e) { /* browsers lack unref */ } }
       extPending[id] = { resolve: resolve, reject: reject, timer: timer };
-      window.postMessage({ src: "nova-page", id: id, method: method, params: params || {} }, location.origin);
+      window.postMessage({ src: "impose-page", id: id, method: method, params: params || {} }, location.origin);
     });
   }
 
@@ -7835,7 +7841,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       return true;
     }, function (err) {
       setExtStatus(false, "Extension not connected",
-        silent ? "Install the Nova bridge to act in your tabs." : String((err && err.message) || err));
+        silent ? "Install the Impose bridge to act in your tabs." : String((err && err.message) || err));
       return false;
     });
   }
@@ -7965,7 +7971,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function extDraft() {
-    if (!ext.snapshot) { toast("Read the page first so Nova can see the conversation."); return; }
+    if (!ext.snapshot) { toast("Read the page first so Impose can see the conversation."); return; }
     var instr = $("extInstr").value.trim();
     var p = draftReply(ext.snapshot, instr);
     if (!p) return;
@@ -8077,7 +8083,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
-    a.download = "nova-chats.json";
+    a.download = "impose-chats.json";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -8127,7 +8133,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         toast.success(added === 1 ? "Imported 1 chat." : "Imported " + added + " chats.");
         dnote("app", "Imported " + added + " chats");
       } catch (e) {
-        toast.error("That file is not a Nova backup.");
+        toast.error("That file is not a Impose backup.");
       }
     };
     r.readAsText(f);
@@ -8317,10 +8323,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
     var help = $("pfKindHelp");
     if (edKind === "gemini") {
-      help.textContent = "Gemini speaks its own shape. Nova handles that for you.";
+      help.textContent = "Gemini speaks its own shape. Impose handles that for you.";
       help.hidden = false;
     } else if (edKind === "anthropic") {
-      help.textContent = "Anthropic speaks its own shape. Nova handles that for you.";
+      help.textContent = "Anthropic speaks its own shape. Impose handles that for you.";
       help.hidden = false;
     } else {
       help.hidden = true;

@@ -10,8 +10,8 @@ preserved here in condensed but faithful form so later phases do not lose it.
 ## Locked decisions
 
 - UI: translate beautifului agent pipeline visualization only (Thinking trace
-  plus Task rows, composed). Lucide icons, no shadows, Nova tokens.
-- Runtime home: browser JS inside the Nova web app (`agent/` modules, no
+  plus Task rows, composed). Lucide icons, no shadows, Impose tokens.
+- Runtime home: browser JS inside the Impose web app (`agent/` modules, no
   build step). Checkpoints in localStorage. Uses existing provider keys and
   the relay.
 - Search provider: headless browser style, zero API keys. The provider

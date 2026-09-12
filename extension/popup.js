@@ -7,10 +7,10 @@
     return Math.round(s / 60) + "m ago";
   }
   try {
-    chrome.storage.local.get("novaStatus", function (out) {
+    chrome.storage.local.get("imposeStatus", function (out) {
       var el = document.getElementById("st");
-      var s = out && out.novaStatus;
-      if (!s) { el.textContent = "Installed. Open Nova and connect it."; return; }
+      var s = out && out.imposeStatus;
+      if (!s) { el.textContent = "Installed. Open Impose and connect it."; return; }
       el.textContent = "X tabs seen: " + (s.tabs == null ? "?" : s.tabs) +
         (s.last ? " · last action " + s.last + (s.ok ? " ok" : " failed") : "") +
         " · " + ago(s.at);

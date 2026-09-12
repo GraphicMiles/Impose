@@ -1,4 +1,4 @@
-/* Nova X driver: runs inside x.com pages and only acts when Nova, with the
+/* Impose X driver: runs inside x.com pages and only acts when Impose, with the
    user's approval, sends a command. Every selector has fallbacks, and a
    miss reports plainly instead of clicking blindly. */
 (function () {
