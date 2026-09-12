@@ -1458,7 +1458,6 @@ html.reduce-motion .think-head .lucide, html.reduce-motion .think-head i[data-lu
 .health-dot.ok { background: var(--ok); }
 .health-dot.bad { background: var(--danger); }
 .toast.warn .lucide, .toast.warn i[data-lucide] { color: var(--warn); }
-.row-model { font-size: 11px; color: var(--text-3); flex: none; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder { margin: 2px 0 6px; }
 .folder-head { display: flex; align-items: center; gap: 2px; }
 .folder-toggle { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text-2); padding: 6px 8px; border-radius: 8px; text-align: left; }

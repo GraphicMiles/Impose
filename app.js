@@ -1513,11 +1513,6 @@
     openBtn.addEventListener("click", function () { openChat(c.id); });
     row.appendChild(openBtn);
 
-    var badge = document.createElement("span");
-    badge.className = "row-model";
-    badge.textContent = String(c.model || "Demo").slice(0, 16);
-    row.appendChild(badge);
-
     var menuBtn = document.createElement("button");
     menuBtn.className = "row-menu";
     menuBtn.type = "button";
