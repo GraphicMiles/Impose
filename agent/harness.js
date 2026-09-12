@@ -73,7 +73,7 @@
        deps: query, search(q, limit), complete(system, user, onDelta),
        emit(event), onDelta(chunk), rewrite(text) (optional, a promise of a
        search query; empty or rejected falls back to the raw words),
-       signal (optional AbortSignal). */
+       signal (optional AbortSignal), excluded (optional array of domains). */
     function runAgent(deps) {
       var tool;
       try { tool = resolve("search"); }
@@ -98,29 +98,34 @@
         deps.emit({ t: "status", text: "Searching the web" });
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
-          if (!out.results || out.results.length === 0) {
+          var results = (out.results || []).filter(function (r) {
+            if (!deps.excluded || !deps.excluded.length) return true;
+            return deps.excluded.indexOf(domainOf(r.url)) === -1;
+          });
+          if (results.length === 0) {
             deps.emit({ t: "settle", text: "Searched the web" });
             var bare = "You are Nova, a helpful assistant. The web search found nothing for this question. " +
               "Say so in one short line, then answer from your own knowledge anyway. " +
               "Never refuse a question you can answer, and never ask the user to provide evidence.";
-            return deps.complete(bare, question, deps.onDelta).then(function () {
+            return deps.complete(bare, question, deps.onDelta, deps.onThink).then(function () {
               return { sources: [], provider: out.provider || "" };
             });
           }
-          out.results.forEach(function (r) {
+          deps.emit({ t: "status", text: "Reading " + results.length + " sources", provider: out.provider || "" });
+          results.forEach(function (r) {
             deps.emit({ t: "source", title: r.title || r.url, sub: domainOf(r.url), href: r.url });
           });
-          if (out.results.length > 5) deps.emit({ t: "more", n: out.results.length - 5 });
+          if (results.length > 5) deps.emit({ t: "more", n: results.length - 5 });
           deps.emit({ t: "settle", text: "Searched the web" });
-          var lines = out.results.map(function (r, i) {
+          var lines = results.map(function (r, i) {
             return "[" + (i + 1) + "] " + (r.title || r.url) + "\n" + r.url + "\n" + (r.snippet || "");
           }).join("\n\n");
           var system = "You are Nova, a helpful assistant. Use the evidence below when it answers the question, " +
             "and cite sources by number like [1]. If the evidence is off topic or too thin, say the search missed " +
             "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
             "and never ask the user to provide evidence.";
-          return deps.complete(system, question + "\n\nEvidence:\n" + lines, deps.onDelta).then(function () {
-            return { sources: out.results, provider: out.provider };
+          return deps.complete(system, question + "\n\nEvidence:\n" + lines, deps.onDelta, deps.onThink).then(function () {
+            return { sources: results, provider: out.provider };
           });
         });
       });

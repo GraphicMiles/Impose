@@ -79,6 +79,7 @@
       def = def || {};
       var row = document.createElement(def.href ? "a" : "div");
       row.className = "trace-row" + (def.kind === "query" ? " trace-query" : "");
+      if (def.si) row.setAttribute("data-si", def.si);
       row.style.setProperty("--d", (count * 120) + "ms");
       count++;
       var html = leftFor(def) + '<span class="trace-primary' + (def.mono ? " mono" : "") + '">' + esc(def.primary) + "</span>";
@@ -132,6 +133,9 @@
     return {
       el: box,
       setStatus: function (t) { statusEl.textContent = t; },
+      setElapsed: function () {
+        if (working) timeEl.textContent = Math.max(1, Math.round((Date.now() - t0) / 1000)) + "s";
+      },
       addRow: addRow,
       setStep: setStep,
       setMore: setMore,

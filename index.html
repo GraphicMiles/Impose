@@ -6,7 +6,13 @@
 <title>Nova</title>
 <meta name="description" content="Nova chat client. Bring your own key and chat with any provider.">
 <meta name="color-scheme" content="dark light">
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-apple.png">
+<meta name="theme-color" content="#171717">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="./manifest.json">
 <link rel="stylesheet" href="./styles.css">
 <link rel="stylesheet" href="./agent/trace.css">
 <script>
@@ -37,6 +43,9 @@ try {
           <i data-lucide="panel-left-close"></i>
         </button>
         <div class="sidebar-top-right">
+          <button class="icon-btn" id="paletteBtn" title="Commands" aria-label="Commands">
+            <i data-lucide="command"></i>
+          </button>
           <button class="icon-btn" id="searchChatsBtn" title="Search chats" aria-label="Search chats">
             <i data-lucide="search"></i>
           </button>
@@ -50,9 +59,9 @@ try {
       <div class="chat-groups" id="chatGroups" role="list"></div>
 
       <div class="sidebar-foot">
-        <button class="profile-row" id="profileBtn">
-          <span class="avatar avatar-sm">A</span>
-          <span class="profile-name">Adaeze</span>
+        <button class="profile-row" id="profileBtn" aria-haspopup="menu">
+          <span class="avatar avatar-sm" id="profileAvatar">Y</span>
+          <span class="profile-name" id="profileName">You</span>
         </button>
       </div>
     </div>
@@ -65,7 +74,7 @@ try {
           <i data-lucide="panel-left"></i>
         </button>
         <button class="model-btn" id="modelBtn" aria-haspopup="menu">
-          <span id="modelName">Demo</span>
+          <span class="health-dot" id="healthDot" hidden></span><span id="modelName">Demo</span>
           <i data-lucide="chevron-down" class="chev"></i>
         </button>
       </div>
@@ -73,10 +82,11 @@ try {
         <button class="share-btn" id="shareBtn">
           <i data-lucide="share"></i><span>Share</span>
         </button>
-        <button class="avatar avatar-btn" id="avatarBtn" title="Account" aria-label="Account">A</button>
+        <button class="avatar avatar-btn" id="avatarBtn" title="Account" aria-label="Account" aria-haspopup="menu">Y</button>
       </div>
     </header>
 
+    <div id="banners" aria-live="polite"></div>
     <div class="chat-scroll" id="chatScroll">
       <div class="empty" id="emptyState">
         <h1 class="greeting">What can I help with?</h1>
@@ -104,6 +114,7 @@ try {
     </div>
 
     <div class="composer-dock" id="composerDock" hidden>
+      <button id="jumpPill" class="jump-pill" hidden><i data-lucide="arrow-down"></i><span>Latest</span></button>
       <div class="dock-slot" id="dockSlot"></div>
     </div>
   </main>
@@ -111,6 +122,7 @@ try {
 
 <div class="composer-block" id="composerBlock">
   <input type="file" id="filePicker" hidden multiple>
+  <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
     <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message Nova"></textarea>
     <div class="composer-row">
@@ -120,6 +132,7 @@ try {
       <button class="icon-btn" id="searchBtn" title="Deep search the web" aria-label="Deep search the web" aria-pressed="false">
         <i data-lucide="search"></i>
       </button>
+      <span id="tokEst" class="tok-est" title="Estimated tokens" hidden></span>
       <div class="composer-spacer"></div>
       <button class="icon-btn" id="micBtn" title="Voice input" aria-label="Voice input" aria-pressed="false">
         <i data-lucide="mic"></i>
@@ -145,9 +158,53 @@ try {
   <button class="pop-item" id="renameItem" role="menuitem">
     <i data-lucide="pencil"></i><span>Rename</span>
   </button>
+  <button class="pop-item" id="pinItem" role="menuitem">
+    <i data-lucide="pin"></i><span>Pin</span>
+  </button>
+  <button class="pop-item" id="moveItem" role="menuitem">
+    <i data-lucide="folder-input"></i><span>Move to folder</span>
+  </button>
+  <button class="pop-item" id="exportMdItem" role="menuitem">
+    <i data-lucide="file-text"></i><span>Export Markdown</span>
+  </button>
   <button class="pop-item danger" id="deleteItem" role="menuitem">
     <i data-lucide="trash-2"></i><span>Delete</span>
   </button>
+</div>
+
+<div class="pop pop-sm" id="folderMenu" role="menu" aria-label="Move to folder" hidden>
+  <p class="pop-label">Move to folder</p>
+  <div id="folderMenuList"></div>
+  <button class="pop-item" id="folderNew" role="menuitem">
+    <i data-lucide="folder-plus"></i><span>New folder</span>
+  </button>
+</div>
+
+<div class="pop pop-sm" id="accountMenu" role="menu" aria-label="Account" hidden>
+  <div class="acct-head">
+    <span class="avatar" id="acctAvatar">Y</span>
+    <div class="acct-id">
+      <input id="acctName" class="acct-name" maxlength="24" autocomplete="off" aria-label="Display name" value="You">
+      <span class="acct-sub">Local profile</span>
+    </div>
+  </div>
+  <button class="pop-item" id="acctTheme" role="menuitem"><i data-lucide="moon"></i><span>Appearance: Dark</span></button>
+  <button class="pop-item" id="acctSettings" role="menuitem"><i data-lucide="settings"></i><span>Settings</span></button>
+  <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
+  <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
+  <button class="pop-item danger" id="acctWipe" role="menuitem"><i data-lucide="trash-2"></i><span>Delete all chats</span></button>
+  <p class="acct-foot">Nova 1.2 · Keys and chats stay in this browser.</p>
+</div>
+
+<div class="overlay" id="palette" hidden>
+  <div class="sheet palette-sheet" role="dialog" aria-modal="true" aria-label="Commands">
+    <div class="search-bar">
+      <i data-lucide="command"></i>
+      <input id="paletteInput" placeholder="Type a command" aria-label="Commands" autocomplete="off">
+      <kbd>esc</kbd>
+    </div>
+    <div class="search-results" id="paletteResults" role="listbox" aria-label="Commands"></div>
+  </div>
 </div>
 
 <div class="overlay" id="searchModal" hidden>
@@ -209,11 +266,16 @@ try {
             <button class="btn" id="exportBtn"><i data-lucide="download"></i><span>Export</span></button>
           </div>
           <div class="setting-row">
+            <div class="setting-text"><strong>Import backup</strong><span>Restore a Nova JSON export</span></div>
+            <button class="btn" id="importBtn"><i data-lucide="upload"></i><span>Import</span></button>
+          </div>
+          <input type="file" id="importPicker" accept="application/json,.json" hidden>
+          <div class="setting-row">
             <div class="setting-text"><strong>Delete all chats</strong><span>Press and hold to confirm</span></div>
             <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
           </div>
         </section>
-        <p class="version">Nova 1.1. Keys and chats stay in this browser.</p>
+        <p class="version">Nova 1.2. Keys and chats stay in this browser.</p>
       </div>
     </div>
   </div>
