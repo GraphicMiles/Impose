@@ -493,7 +493,7 @@
        and images out of the box, rate limited per person. Owners add their
        control key for the wake, the proxy, and the reader. */
     return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "https://impose-relay.onrender.com", relayKey: "", searchMode: false, displayName: "You",
-      redactPII: false, followupsSmart: true, autoName: true, retentionDays: 0, failover: true };
+      redactPII: false, followupsSmart: true, imageTools: true, autoName: true, retentionDays: 0, failover: true };
   }
 
   function loadState() {
@@ -2685,7 +2685,7 @@
       row = document.createElement("div");
       row.className = "msg assistant";
       row.dataset.i = idx;
-      row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></div>';
+      row.innerHTML = '<div class="msg-body"></div>';
       messagesEl.appendChild(row);
     } else {
       idx = replaceIdx;
@@ -2699,7 +2699,7 @@
       if (oldPanel) oldPanel.remove();
       var oldTrace = row.querySelector(".agent-trace");
       if (oldTrace) oldTrace.remove();
-      row.querySelector(".msg-body").innerHTML = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
+      row.querySelector(".msg-body").innerHTML = "";
     }
 
     setStreamingUI(true);
@@ -2709,6 +2709,10 @@
        can legitimately take a while (blocked provider, relay hop, waking the
        gateway model) and a bare pixel grid hides all of it. */
     var trace = window.ImposeTrace ? window.ImposeTrace.mountTrace(row, { active: "Thinking" }) : null;
+    if (!trace) {
+      var fb = row.querySelector(".msg-body");
+      if (fb && !fb.firstChild) fb.innerHTML = dotsHtml;
+    }
     refreshIcons();
     var tickTimer = trace ? setInterval(function () { trace.setElapsed(); }, 100) : 0;
     var slowTimer = setTimeout(function () {
@@ -2967,8 +2971,15 @@
 
   function syncSearchBtn() {
     var on = !!state.settings.searchMode;
-    $("searchBtn").setAttribute("aria-pressed", on ? "true" : "false");
-    $("searchBtn").title = on ? "Deep search is on" : "Deep search the web";
+    var btn = $("searchBtn");
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.title = on ? "Web search is on" : "Assistant tools";
+    var face = on ? "globe" : "search";
+    if (btn.getAttribute("data-face") !== face) {
+      btn.setAttribute("data-face", face);
+      btn.innerHTML = '<i data-lucide="' + face + '"></i>';
+      refreshIcons();
+    }
   }
 
   function fetchSearchViaRelay(query, limit, signal) {
@@ -3183,7 +3194,7 @@
       signal: signal,
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
-      images: function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
+      images: state.settings.imageTools === false ? undefined : function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
       excluded: chat.excluded,
       rewrite: function (text, context) {
         return new Promise(function (resolve) {
@@ -4323,15 +4334,16 @@
     updateCtxMeter();
   }
 
-  /* Thin meter under the composer: how much of the model window the next
-     request would take, history included. */
+  /* Context meter as a thin ring around the send button: how much of the
+     model window the next request would take, history included. */
+  var RING_C = 2 * Math.PI * 20; /* r=20 in the 44x44 viewBox */
   function updateCtxMeter() {
-    var wrap = $("ctxMeter");
-    if (!wrap) return;
+    var ring = $("sendRing");
+    if (!ring) return;
     var F = window.ImposeFeatures;
     var t = getTarget();
     var chat = getChat(activeId);
-    if (!F || !t || !chat || (!chat.messages.length && !input.value)) { wrap.hidden = true; return; }
+    if (!F || !t || !chat || (!chat.messages.length && !input.value)) { ring.setAttribute("hidden", ""); return; }
     var hist = historyFor(chat.messages, t.provider.kind || "openai", t.model);
     var used = 600; /* system prompt, roughly */
     hist.forEach(function (m) {
@@ -4340,14 +4352,19 @@
     used += F.estimateTokens(input.value, pendingImages);
     var ctx = F.modelContext(t.model);
     var pct = Math.min(100, Math.round(used / ctx * 100));
-    wrap.hidden = pct < 4;
-    var fill = wrap.querySelector(".ctx-fill");
+    /* NB: #sendRing is an <svg>; SVGElement has no hidden IDL attribute, so
+       ring.hidden = false would only set an expando and the [hidden] CSS rule
+       would keep it display:none forever. Toggle the content attribute. */
+    if (pct < 4) ring.setAttribute("hidden", ""); else ring.removeAttribute("hidden");
+    var fill = $("sendRingFill");
     if (fill) {
-      fill.style.width = pct + "%";
-      wrap.classList.toggle("warn", pct >= 60 && pct < 85);
-      wrap.classList.toggle("danger", pct >= 85);
+      fill.style.strokeDasharray = RING_C.toFixed(1);
+      fill.style.strokeDashoffset = (RING_C * (1 - pct / 100)).toFixed(1);
+      ring.classList.toggle("warn", pct >= 60 && pct < 85);
+      ring.classList.toggle("danger", pct >= 85);
     }
-    wrap.title = "About " + (used >= 1000 ? (used / 1000).toFixed(1) + "k" : used) + " of " +
+    $("sendBtn").title = "Send message. About " +
+      (used >= 1000 ? (used / 1000).toFixed(1) + "k" : used) + " of " +
       (ctx >= 1000 ? (ctx / 1000) + "k" : ctx) + " tokens (" + pct + "%)";
   }
 
@@ -5286,12 +5303,29 @@
   }
 
   $("searchBtn").addEventListener("click", function () {
-    state.settings.searchMode = !state.settings.searchMode;
-    save();
-    syncSearchBtn();
-    if (state.settings.searchMode) warmRelay();
-    toast(state.settings.searchMode ? "Deep search on. Answers will cite the web." : "Deep search off.");
+    showPop($("toolMenu"), $("searchBtn"), { side: "top", align: "end" });
   });
+
+  function syncToolMenu() {
+    var web = !!state.settings.searchMode;
+    var photos = state.settings.imageTools !== false;
+    var follow = !!state.settings.followupsSmart;
+    $("toolWeb").setAttribute("aria-checked", web ? "true" : "false");
+    $("toolPhotos").setAttribute("aria-checked", photos ? "true" : "false");
+    $("toolFollow").setAttribute("aria-checked", follow ? "true" : "false");
+  }
+
+  function toggleTool(setting, btn) {
+    state.settings[setting] = !state.settings[setting];
+    save();
+    syncToolMenu();
+    syncSearchBtn();
+    if (setting === "searchMode" && state.settings.searchMode) warmRelay();
+    dnote("chat", (btn || setting) + " " + (state.settings[setting] ? "on" : "off"));
+  }
+  $("toolWeb").addEventListener("click", function () { toggleTool("searchMode", "web-search"); });
+  $("toolPhotos").addEventListener("click", function () { toggleTool("imageTools", "photo-galleries"); });
+  $("toolFollow").addEventListener("click", function () { toggleTool("followupsSmart", "follow-ups"); });
 
   $("settingsClose").addEventListener("click", function () { closeModal(settingsModal); });
   settingsModal.addEventListener("pointerdown", function (e) {

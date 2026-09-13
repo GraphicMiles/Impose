@@ -1713,22 +1713,27 @@ details.snap pre { margin: 8px 0 2px; max-height: 180px; overflow: auto; font-si
 
 /* ---------- feature kit: meter, slash, library, usage, relay, memory ---------- */
 
-.ctx-meter {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--border-soft);
-  margin: 0 16px 6px;
-  overflow: hidden;
+/* Context meter: a thin ring around the send button. Only the dash
+   offset changes (on typing, not per frame), transitions are brief. */
+.send-wrap { position: relative; flex: none; display: flex; }
+.send-ring {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  pointer-events: none;
+  transform: rotate(-90deg);
 }
-.ctx-fill {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--text-3);
-  transition: width var(--dur-2) var(--ease-out);
+.send-ring-bg, .send-ring-fill {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
 }
-.ctx-meter.warn .ctx-fill { background: var(--warn); }
-.ctx-meter.danger .ctx-fill { background: var(--danger); }
+.send-ring-bg { stroke: var(--border-soft); }
+.send-ring-fill { stroke: var(--text-3); transition: stroke-dashoffset var(--dur-2) var(--ease-out), stroke 160ms ease; }
+.send-ring.warn .send-ring-fill { stroke: var(--warn); }
+.send-ring.danger .send-ring-fill { stroke: var(--danger); }
+html.reduce-motion .send-ring-fill { transition: none; }
 
 .slash-pop {
   position: absolute;
@@ -1962,3 +1967,8 @@ html.reduce-motion .imgbox-fig { transform: none; transition: none; }
 .onboard-sheet { transform: scale(0.96); opacity: 0; transition: transform 140ms ease, opacity 140ms ease; }
 .overlay.open .onboard-sheet { transform: scale(1); opacity: 1; transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out); }
 html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms ease; }
+
+/* ---------- tools menu ---------- */
+.pop-item .tool-check { margin-left: auto; width: 16px; height: 16px; opacity: 0; color: var(--text-2); transition: opacity 120ms ease; }
+.pop-item[aria-checked="true"] .tool-check { opacity: 1; }
+.pop-item[aria-checked="true"] span { color: var(--text); }
