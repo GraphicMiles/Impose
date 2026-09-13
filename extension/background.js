@@ -32,26 +32,51 @@ function pickTab(tabId) {
 
 /* Navigation happens here, not in the page, because navigating kills the
    content script context that would have to continue the work. */
+function validThreadUrl(raw) {
+  try {
+    var u = new URL(String(raw || ""));
+    return u.protocol === "https:" && (u.hostname === "x.com" || u.hostname === "twitter.com") &&
+      /^\/messages(?:\/|$)/.test(u.pathname) ? u.href : "";
+  } catch (e) { return ""; }
+}
+
 function gotoThread(tab, url) {
   if (!url) return Promise.resolve(tab);
+  var target = validThreadUrl(url);
+  if (!target) return Promise.reject(new Error("Refused a thread URL outside X messages."));
   var cur = (tab.url || "").split("?")[0];
-  if (cur === String(url).split("?")[0]) return Promise.resolve(tab);
-  return chrome.tabs.update(tab.id, { url: url }).then(function () {
-    return new Promise(function (resolve, reject) {
-      var to = setTimeout(function () {
-        chrome.tabs.onUpdated.removeListener(onU);
-        reject(new Error("Timed out opening the thread."));
-      }, 20000);
-      function onU(id, info) {
-        if (id === tab.id && info.status === "complete") {
-          clearTimeout(to);
-          chrome.tabs.onUpdated.removeListener(onU);
-          setTimeout(function () {
-            chrome.tabs.get(tab.id).then(resolve, function () { resolve(tab); });
-          }, 800);
-        }
-      }
-      chrome.tabs.onUpdated.addListener(onU);
+  if (cur === target.split("?")[0]) return Promise.resolve(tab);
+  /* Register before update: a cached navigation can complete before the
+     update promise settles, which previously left the listener waiting for
+     an event that had already happened. */
+  return new Promise(function (resolve, reject) {
+    var done = false;
+    var to = setTimeout(function () { finish(new Error("Timed out opening the thread.")); }, 20000);
+    function clean() {
+      clearTimeout(to);
+      chrome.tabs.onUpdated.removeListener(onU);
+      chrome.tabs.onRemoved.removeListener(onR);
+    }
+    function finish(err, value) {
+      if (done) return;
+      done = true;
+      clean();
+      if (err) reject(err); else resolve(value);
+    }
+    function onR(id) { if (id === tab.id) finish(new Error("The X tab was closed.")); }
+    function onU(id, info) {
+      if (id !== tab.id || info.status !== "complete") return;
+      setTimeout(function () {
+        chrome.tabs.get(tab.id).then(function (fresh) {
+          if ((fresh.url || "").split("?")[0] !== target.split("?")[0]) return;
+          finish(null, fresh);
+        }, function () { finish(new Error("The X tab is no longer available.")); });
+      }, 800);
+    }
+    chrome.tabs.onUpdated.addListener(onU);
+    chrome.tabs.onRemoved.addListener(onR);
+    chrome.tabs.update(tab.id, { url: target }).catch(function (err) {
+      finish(new Error(String((err && err.message) || err || "Could not open the thread.")));
     });
   });
 }

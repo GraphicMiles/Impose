@@ -5,7 +5,7 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v3";
+var CACHE = "impose-shell-v4";
 var CORE = [
   "./",
   "./index.html",
@@ -100,7 +100,12 @@ self.addEventListener("fetch", function (e) {
       return res;
     }).catch(function () {
       return caches.match(e.request).then(function (hit) {
-        return hit || caches.match("./index.html");
+        /* Never answer a JavaScript or CSS request with index.html. With
+           nosniff that fails anyway, and without it it is dangerous. */
+        return hit || new Response("Core asset unavailable while offline.", {
+          status: 503,
+          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+        });
       });
     }));
     return;

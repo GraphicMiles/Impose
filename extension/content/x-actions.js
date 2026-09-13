@@ -81,24 +81,55 @@
     return out;
   }
 
+  function normalizedText(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+
+  function matchingMessageCount(text, composer) {
+    var wanted = normalizedText(text);
+    var nodes = document.querySelectorAll('[data-testid="messageEntry"], [data-testid^="messageEntry"], [data-testid="cellInnerDiv"]');
+    var count = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i] === composer || nodes[i].contains(composer)) continue;
+      if (normalizedText(txt(nodes[i])).indexOf(wanted) !== -1) count++;
+    }
+    return count;
+  }
+
+  function confirmSent(box, text, before) {
+    var start = Date.now();
+    return new Promise(function (resolve) {
+      (function poll() {
+        if (matchingMessageCount(text, box) > before) {
+          resolve({ ok: true, sent: true, confirmed: true });
+          return;
+        }
+        if (Date.now() - start >= 6000) {
+          resolve(txt(box).trim()
+            ? { ok: false, error: "Send was clicked but the composer still holds text. The message was not confirmed." }
+            : { ok: false, uncertain: true, error: "Send was clicked and the composer cleared, but no new message could be confirmed. Check the thread before retrying." });
+          return;
+        }
+        setTimeout(poll, 250);
+      })();
+    });
+  }
+
   function dmSend(p) {
     var text = String((p && p.text) || "").trim();
     if (!text) return Promise.resolve({ ok: false, error: "Empty reply text." });
+    if (text.length > 10000) return Promise.resolve({ ok: false, error: "The reply is longer than X's 10,000 character DM limit." });
     return waitFor(SEL.composer, 10000).then(function (box) {
       if (!box) {
         return { ok: false, error: "No DM composer on this page. Open a message thread first (X may also have changed their markup)." };
       }
+      var before = matchingMessageCount(text, box);
       if (!typeInto(box, text)) return { ok: false, error: "Could not type into the composer." };
       return waitFor(SEL.send, 5000).then(function (btn) {
         if (!btn) return { ok: false, error: "Composer filled but no send button found. The draft is in the box; send it by hand." };
+        if (btn.disabled || btn.getAttribute("aria-disabled") === "true") {
+          return { ok: false, error: "X's send button is disabled. The draft is still in the composer." };
+        }
         btn.click();
-        return new Promise(function (resolve) {
-          setTimeout(function () {
-            resolve(txt(box).trim()
-              ? { ok: false, error: "Send clicked but the composer still holds text. Check the thread." }
-              : { ok: true, sent: true });
-          }, 1500);
-        });
+        return confirmSent(box, text, before);
       });
     });
   }

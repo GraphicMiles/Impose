@@ -27,6 +27,7 @@ Env (Render dashboard, or .env for local):
   LIGHTNING_API_KEY / LIGHTNING_USER_ID / LIGHTNING_USERNAME /
   LIGHTNING_STUDIO / LIGHTNING_TEAMSPACE / LIGHTNING_MACHINE (default T4)
 """
+import asyncio
 import hmac
 import ipaddress
 import json
@@ -514,9 +515,17 @@ async def chat(request: Request):
     touch_activity()
     req = httpx.Request("POST", f"{GATEWAY_URL}/v1/chat/completions",
                         headers=_gateway_headers(), json=body)
-    client = httpx.AsyncClient(timeout=None)
+    timeout = httpx.Timeout(timeout=None, connect=15.0, read=70.0, write=30.0, pool=15.0)
+    client = httpx.AsyncClient(timeout=timeout)
     try:
         resp = await client.send(req, stream=True)
+    except asyncio.CancelledError:
+        await client.aclose()
+        raise
+    except httpx.TimeoutException:
+        await client.aclose()
+        mark_gateway_down()
+        raise HTTPException(status_code=504, detail="upstream LLM timed out")
     except Exception:
         await client.aclose()
         mark_gateway_down()
@@ -659,8 +668,13 @@ _FETCH_BODY_CAP = 8 * 1024 * 1024
 
 
 def _resolve_public_ips(host: str) -> list:
-    """Every address `host` resolves to that is not on the block list. Empty
-    means unresolvable or private: both are refused."""
+    """Resolve a target only when *every* answer is globally routable.
+
+    Accepting one public answer beside a private answer leaves mixed-DNS and
+    rebinding routes to the internal network. ``is_global`` also covers
+    ranges beyond the hand-written RFC1918 list (carrier NAT, multicast,
+    reserved, documentation, unspecified, and mapped addresses).
+    """
     host = (host or "").strip().rstrip(".").lower()
     if not host:
         return []
@@ -673,15 +687,15 @@ def _resolve_public_ips(host: str) -> list:
         try:
             ip = ipaddress.ip_address(info[4][0])
         except Exception:
-            continue
-        if any(ip in block for block in _SSRF_BLOCKS):
-            continue
-        ips.append(str(ip))
+            return []
+        if (not ip.is_global or ip.is_private or ip.is_loopback or
+                ip.is_link_local or ip.is_multicast or ip.is_reserved or
+                ip.is_unspecified or any(ip in block for block in _SSRF_BLOCKS)):
+            return []
+        value = str(ip)
+        if value not in ips:
+            ips.append(value)
     return ips
-
-
-def _public_host(host: str) -> bool:
-    return bool(_resolve_public_ips(host))
 
 
 @app.post("/v1/fetch")
@@ -720,8 +734,7 @@ async def fetch_proxy(request: Request):
     # Dial the IP we validated, not the name: a DNS rebinding answer between
     # the check and the connect would otherwise still reach an inside
     # address. SNI and Host keep pointing at the real name so TLS and
-    # virtual hosts stay intact. If the pinned dial cannot be done on this
-    # httpx/httpcore, fall back to the name (re-checked) with redirects off.
+    # virtual hosts stay intact. Never fall back to a fresh hostname lookup.
     ip = ips[0]
     pinned_netloc = f"[{ip}]" if ":" in ip else ip
     if parts.port:
@@ -733,13 +746,8 @@ async def fetch_proxy(request: Request):
     r = None
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=False) as client:
-            try:
-                r = await client.request(method, pinned_url, headers=pinned_headers,
-                                         content=content, extensions=ext)
-            except Exception:
-                if not _public_host(host):
-                    raise HTTPException(status_code=400, detail="private or unresolvable host")
-                r = await client.request(method, url, headers=fwd, content=content)
+            r = await client.request(method, pinned_url, headers=pinned_headers,
+                                     content=content, extensions=ext)
     except HTTPException:
         raise
     except httpx.TimeoutException:

@@ -111,6 +111,18 @@ html[data-theme="warm"] {
 
 html, body { height: 100%; }
 
+.sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -1395,6 +1407,11 @@ textarea:focus-visible {
 .msg-error-text strong { color: var(--text); font-size: 14px; }
 .msg-error-text p { margin: 0; font-size: 13.5px; }
 .msg-error-text .btn { align-self: flex-start; margin-top: 6px; }
+.msg-state { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; margin-top: 7px; color: var(--text-2); font-size: 12px; }
+.msg-state .lucide, .msg-state i[data-lucide] { width: 14px; height: 14px; flex: none; }
+.msg-state.stopped { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--code); }
+.msg-state.stopped span { flex: 1; }
+.msg-state.stopped .btn { flex: none; }
 .btn.small { font-size: 12.5px; padding: 6px 12px; border-radius: 8px; }
 .btn.small .lucide, .btn.small i[data-lucide] { width: 13px; height: 13px; }
 .pager { display: inline-flex; align-items: center; color: var(--text-3); font-size: 12px; }
