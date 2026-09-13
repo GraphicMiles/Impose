@@ -419,8 +419,43 @@ test("total image failure emits imagesfail and bans fabricated links", function 
     complete: function (system) { completed = system; return Promise.resolve(); }
   }).then(function () {
     ok(failed, "imagesfail emitted");
-    ok(completed.indexOf("never fabricate") !== -1, "no fabricated links note");
+    ok(completed.indexOf("could not be retrieved") !== -1 && completed.indexOf("must come verbatim from the evidence") !== -1, "no fabricated links note");
     ok(completed.indexOf("image gallery") === -1, "no gallery note when none exists");
+  });
+});
+
+test("runAgent harvests a gallery from read pages when engines fail", function () {
+  var s = searchStub([{ results: [
+    { title: "Wiki page", url: "https://wiki.io/simu", snippet: "s" }
+  ], provider: "p" }]);
+  var emitted = [];
+  var out = null;
+  return H.harness.runAgent({
+    query: "find me photos of simu liu",
+    search: s.fn,
+    images: function () { return Promise.reject(new Error("502")); },
+    read: function () {
+      return Promise.resolve({ title: "Simu Liu - Wiki", text: "He is an actor.",
+        images: [
+          { image: "https://upload.wikimedia.org/headshot.jpg", thumb: "https://upload.wikimedia.org/t.jpg", title: "headshot" },
+          { image: "not-a-url", title: "junk" },
+          { image: "https://upload.wikimedia.org/redcarpet.jpg", title: "red carpet" }
+        ], meta: {}, refs: [{ title: "cited link", url: "https://wiki.io/other" }] });
+    },
+    emit: function (e) { emitted.push(e); },
+    onDelta: function () {},
+    complete: function (system, user) {
+      out = { system: system, user: user };
+      return Promise.resolve();
+    }
+  }).then(function (res) {
+    var ev = emitted.find(function (e) { return e.t === "images"; });
+    ok(ev && ev.provider === "page", "gallery event says page");
+    eq(ev.images.length, 2, "junk dropped, real photos kept");
+    eq(ev.images[0].image, "https://upload.wikimedia.org/headshot.jpg", "first photo");
+    eq(res.images.length, 2, "gallery on the result");
+    ok(emitted.every(function (e) { return e.t !== "imagesfail"; }), "no failure row when harvested");
+    ok(out.user.indexOf("cited link") !== -1, "page refs reached the evidence");
   });
 });
 

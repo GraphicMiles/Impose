@@ -31,6 +31,7 @@ import hmac
 import ipaddress
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -112,6 +113,31 @@ def _rate_hit(bucket: str, key: str, limit: int, window: float) -> bool:
             events.pop(0)
         events.append(now)
         return len(events) > limit
+
+
+_CACHE = {}  # (kind, key) -> (expires_at_epoch, value); a small TTL memo so
+             # repeats and regenerates skip the wobbly upstream engines
+_cache_lock = threading.Lock()
+
+
+def _cache_get(kind: str, key: str):
+    with _cache_lock:
+        hit = _CACHE.get((kind, key))
+        if not hit:
+            return None
+        expires, value = hit
+        if expires < time.time():
+            _CACHE.pop((kind, key), None)
+            return None
+        return value
+
+
+def _cache_put(kind: str, key: str, value, ttl: float):
+    with _cache_lock:
+        if len(_CACHE) > 256:
+            for stale, _ in sorted(_CACHE.items(), key=lambda kv: kv[1][0])[:64]:
+                _CACHE.pop(stale, None)
+        _CACHE[(kind, key)] = (time.time() + ttl, value)
 
 
 def _rate_over(bucket: str, key: str, limit: int, window: float) -> bool:
@@ -468,13 +494,19 @@ async def search_proxy(request: Request):
         raise HTTPException(status_code=400, detail="limit must be 1..20")
     if domains is not None and not isinstance(domains, list):
         raise HTTPException(status_code=400, detail="domains must be a list")
+    ckey = query.lower() + "|" + str(limit) + "|" + ",".join(sorted(domains or []))
+    cached = _cache_get("search", ckey)
+    if cached is not None:
+        return cached
     try:
-        return await engine_search(query, limit=limit, domains=domains,
+        out = await engine_search(query, limit=limit, domains=domains,
                                    freshness=freshness,
                                    language=str(language or "en"),
                                    region=region)
     except SearchFailed as e:
         raise HTTPException(status_code=502, detail=str(e))
+    _cache_put("search", ckey, out, 120.0)
+    return out
 
 
 @app.api_route("/v1/images", methods=["GET", "POST"])
@@ -502,10 +534,16 @@ async def images_proxy(request: Request):
         limit = max(1, min(20, int(limit)))
     except Exception:
         raise HTTPException(status_code=400, detail="limit must be 1..20")
+    ckey = query.lower() + "|" + str(limit)
+    cached = _cache_get("images", ckey)
+    if cached is not None:
+        return cached
     try:
-        return await engine_images(query, limit=limit)
+        out = await engine_images(query, limit=limit)
     except ImagesFailed as e:
         raise HTTPException(status_code=502, detail=str(e))
+    _cache_put("images", ckey, out, 180.0)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -623,19 +661,203 @@ async def fetch_proxy(request: Request):
 
 _IGNORE_TAGS = ("script", "style", "noscript", "template", "svg", "iframe")
 
+_JUNK_CLASS = re.compile(
+    r"(^|[-_ ])(nav|navbar|menu|sidebar|side-bar|footer|cookie|consent|gdpr|"
+    r"promo|subscribe|newsletter|share|sharing|social|related|recommend|"
+    r"comment|advert|ads?[-_ ]|banner|breadcrumb|pagination|pager|toc|"
+    r"infobox|reflist|navbox|metadata|sistersitebox|mw-)( |$|[-_])", re.I)
 
-def html_to_text(html: str, cap: int = 12000) -> dict:
-    """HTML to readable text: scripts and styles out, main content in,
-    original spacing approximated. Pure function so it is easy to test."""
+_CONTENT_SEL = "article, main, [role=main], #content, .content"
+
+
+def _absolutize(url: str, base: str) -> str:
+    try:
+        from urllib.parse import urljoin
+        out = urljoin(base or "", url or "")
+        return out if out.startswith(("http://", "https://")) else ""
+    except Exception:
+        return ""
+
+
+def _parse_srcset(ss: str) -> str:
+    """'a.jpg 480w, b.jpg 800w' -> the widest candidate."""
+    best, best_w = "", -1
+    for part in (ss or "").split(","):
+        bits = part.strip().split()
+        if not bits:
+            continue
+        w = 0
+        if len(bits) > 1 and bits[1].rstrip("w").isdigit():
+            w = int(bits[1].rstrip("w"))
+        elif len(bits) == 1:
+            w = 1  # bare url: still a candidate
+        if w > best_w:
+            best, best_w = bits[0], w
+    return best
+
+
+def _pick_container(soup):
+    """The content node: article-like first, body only as a fallback."""
+    for sel in ("article", "main", "[role=main]"):
+        node = soup.select_one(sel)
+        if node and len(node.get_text(" ", strip=True)) >= 200:
+            return node
+    body = soup.body or soup
+    best, best_len = body, len(body.get_text(" ", strip=True))
+    for node in body.find_all(True, recursive=False):
+        n = len(node.get_text(" ", strip=True))
+        if n > best_len:
+            best, best_len = node, n
+    return best
+
+
+def _prune(soup, container):
+    """Fit-style noise pruning: chrome out, content in. Two passes - junk
+    nodes by role/class, then menu-like link-farm blocks inside the
+    container. Conservative on purpose: cutting a real paragraph costs
+    more than keeping a stray aside."""
+    for tag in soup.find_all(_IGNORE_TAGS):
+        tag.decompose()
+    for tag in soup.find_all(["nav", "footer", "aside", "form", "button",
+                              "select", "noscript"]):
+        tag.decompose()
+    for tag in soup.find_all(attrs={"role": ["navigation", "banner",
+                                             "contentinfo", "complementary",
+                                             "menubar"]}):
+        tag.decompose()
+    for tag in soup.find_all(class_=_JUNK_CLASS):
+        if tag.name in ("html", "body", "head"):
+            continue  # a feature-flag class must not take the document down
+        tag.decompose()
+    for tag in soup.find_all(id=_JUNK_CLASS):
+        if tag.name in ("html", "body", "head"):
+            continue
+        tag.decompose()
+    if container is not None:
+        for block in list(container.find_all(["div", "section", "ul", "table"])):
+            txt = block.get_text(" ", strip=True)
+            if not txt:
+                continue
+            link_txt = " ".join(a.get_text(" ", strip=True) for a in block.find_all("a"))
+            if len(link_txt) > len(txt) * 0.6 and len(txt) < 400:
+                block.decompose()
+
+
+def _collect_images(container, base, meta):
+    """og:image first, then content images (srcset aware, lazy-load aware)."""
+    out, seen = [], set()
+    def add(u, alt="", thumb=""):
+        u = _absolutize(u, base)
+        if not u or u in seen:
+            return
+        low = u.rsplit("?", 1)[0].lower()
+        if low.endswith((".svg", ".ico")) or any(w in low for w in ("sprite", "logo", "icon", "pixel", "blank.gif", "1x1")):
+            return
+        seen.add(u)
+        out.append({"image": u, "thumb": _absolutize(thumb, base) or u,
+                    "title": (alt or "").strip()[:160], "page": base,
+                    "source": urlparse(base).hostname or ""})
+    if meta.get("image"):
+        add(meta["image"], "cover")
+    if container is not None:
+        for img in container.find_all("img"):
+            u = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
+            srcset = img.get("srcset") or img.get("data-srcset") or ""
+            if srcset:
+                u = _parse_srcset(srcset) or u
+            try:
+                w = int(img.get("width") or 0)
+            except Exception:
+                w = 0
+            if not u or (w and w < 120):
+                continue
+            add(u, img.get("alt") or "")
+    return out[:12]
+
+
+def _collect_refs(container, base, cap=20):
+    """Numbered references: the page's own links, absolute and deduped."""
+    out, seen = [], set()
+    if container is None:
+        return out
+    for a in container.find_all("a", href=True):
+        u = _absolutize(a["href"], base)
+        if not u or u in seen or u.rstrip("/") == base.rstrip("/"):
+            continue
+        title = " ".join(a.get_text(" ", strip=True).split())
+        if not title and a.get("title"):
+            title = a["title"]
+        if not title:
+            continue
+        seen.add(u)
+        out.append({"title": title[:160], "url": u})
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _collect_meta(soup):
+    meta = {}
+    def put(k, v):
+        v = " ".join(str(v or "").split())
+        if v:
+            meta.setdefault(k, v[:300])
+    for prop, key in (("og:site_name", "site"), ("og:image", "image"),
+                      ("og:description", "description"),
+                      ("article:published_time", "date"),
+                      ("article:author", "author")):
+        tag = soup.find("meta", attrs={"property": prop})
+        if tag:
+            put(key, tag.get("content"))
+    tag = soup.find("meta", attrs={"name": re.compile("^author$", re.I)})
+    if tag:
+        put("author", tag.get("content"))
+    tag = soup.find("meta", attrs={"name": re.compile("^description$", re.I)})
+    if tag:
+        put("description", tag.get("content"))
+    tag = soup.find("link", attrs={"rel": "canonical"})
+    if tag:
+        put("canonical", tag.get("href"))
+    tag = soup.find("time", attrs={"datetime": True})
+    if tag:
+        put("date", tag.get("datetime"))
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except Exception:
+            continue
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        if not isinstance(data, dict):
+            continue
+        put("date", data.get("datePublished"))
+        author = data.get("author")
+        if isinstance(author, dict):
+            put("author", author.get("name"))
+        elif isinstance(author, str):
+            put("author", author)
+    return meta
+
+
+def html_to_text(html: str, cap: int = 12000, base_url: str = "") -> dict:
+    """HTML to fit text: scripts, styles and page chrome out, main content
+    in, links kept as numbered references, metadata and content images
+    extracted. Pure function so it is easy to test."""
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html or "", "html.parser")
     title = " ".join(soup.title.string.split()) if (soup.title and soup.title.string) else ""
-    for tag in soup.find_all(_IGNORE_TAGS):
-        tag.decompose()
-    for block in soup.find_all(["p", "div", "section", "article", "li", "tr",
-                                "h1", "h2", "h3", "h4", "h5", "h6", "br"]):
+    meta = _collect_meta(soup)
+    if not title and meta.get("og:title"):
+        title = meta["og:title"]
+    container = _pick_container(soup)
+    _prune(soup, container)
+    where = container if container is not None else (soup.body or soup)
+    refs = _collect_refs(where, base_url or meta.get("canonical", ""))
+    images = _collect_images(where, base_url, meta)
+    for block in where.find_all(["p", "div", "section", "article", "li", "tr",
+                                 "h1", "h2", "h3", "h4", "h5", "h6", "br"]):
         block.append("\n")
-    text = soup.get_text(" ")
+    text = where.get_text(" ")
     lines = []
     for line in text.splitlines():
         line = " ".join(line.split())
@@ -646,7 +868,8 @@ def html_to_text(html: str, cap: int = 12000) -> dict:
     out = "\n".join(lines).strip()
     if len(out) > cap:
         out = out[:cap] + "\n..."
-    return {"title": title[:300], "text": out}
+    return {"title": title[:300], "text": out, "meta": meta,
+            "refs": refs, "images": images}
 
 
 @app.post("/v1/read")
@@ -707,8 +930,15 @@ async def read_proxy(request: Request):
     if "html" not in ctype and "text" not in ctype and ctype:
         return {"url": url, "status": r.status_code, "title": "", "text": "",
                 "note": "the page is not text (" + ctype.split(";")[0] + ")"}
-    page = html_to_text(r.text)
-    return {"url": url, "status": r.status_code, "title": page["title"], "text": page["text"]}
+    cached = _cache_get("read", url)
+    if cached is not None:
+        return cached
+    page = html_to_text(r.text, base_url=url)
+    out = {"url": url, "status": r.status_code, "title": page["title"],
+           "text": page["text"], "meta": page["meta"], "refs": page["refs"],
+           "images": page["images"]}
+    _cache_put("read", url, out, 300.0)
+    return out
 
 
 @app.get("/admin/status")

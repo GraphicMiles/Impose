@@ -226,9 +226,10 @@
               });
           }
           return attempt(0).then(criticRound, function () {
-            /* No gallery after every attempt, but silence reads as broken. */
+            /* No gallery after every attempt. The verdict (and the honest
+               failure row, if it stays a failure) lands after the reading
+               phase gets its chance to donate page photos. */
             galleryFailed = true;
-            deps.emit({ t: "imagesfail" });
           }).then(function (g) {
             if (g && g.images && g.images.length) {
               gallery = g;
@@ -252,10 +253,11 @@
                 "talk about the subject naturally instead.";
             }
             if (galleryFailed) {
-              note += " The user asked for photos but the image search failed after several attempts. " +
-                "Do NOT invent, guess, or paste any image URLs, stock photo links, or thumbnails - fabricated links " +
-                "render broken and mislead. Answer in text only; naming a site in prose is fine, but never fabricate " +
-                "a link or a gallery table.";
+              note += " The user asked for photos but they could not be retrieved this time. Open with one short " +
+                "line saying so plainly. Do NOT invent, guess, or paste any image URLs, stock photo links, " +
+                "thumbnails, or markdown images; do not describe, list, or tabulate photos you cannot show, and do " +
+                "not promise a gallery. Answer in plain text; naming a site in prose is fine, but every link or " +
+                "image you output must come verbatim from the evidence above, and image links never may.";
             }
             return note;
           }
@@ -312,7 +314,9 @@
                 return Promise.resolve().then(function () { return readFn(r.url); }).then(function (page) {
                   if (!page) return null;
                   if (typeof page === "string") return { url: r.url, title: r.title || r.url, text: page };
-                  return { url: r.url, title: page.title || r.title || r.url, text: page.text || "" };
+                  return { url: r.url, title: page.title || r.title || r.url, text: page.text || "",
+                    images: Array.isArray(page.images) ? page.images : [],
+                    meta: page.meta || {}, refs: Array.isArray(page.refs) ? page.refs : [] };
                 }, function () { return null; });
               }))
             : Promise.resolve([]);
@@ -326,12 +330,44 @@
               if (!pg || !pg.text || pageBudget <= 0) return;
               var body = String(pg.text).slice(0, Math.min(4500, pageBudget));
               pageBudget -= body.length;
-              pageBlocks.push("[" + (results.indexOf(results.filter(function (x) { return x.url === pg.url; })[0]) + 1) + "] " +
-                pg.title + "\n" + pg.url + "\n" + body);
+              var head = "[" + (results.indexOf(results.filter(function (x) { return x.url === pg.url; })[0]) + 1) + "] " +
+                pg.title + "\n" + pg.url;
+              if (pg.meta && pg.meta.date) head += "\nPublished: " + String(pg.meta.date).slice(0, 10);
+              if (pg.meta && pg.meta.author) head += "\nBy: " + pg.meta.author;
+              var block = head + "\n" + body;
+              if (pg.refs && pg.refs.length) {
+                var links = pg.refs.slice(0, 6).map(function (rf) {
+                  return "  - " + rf.title + ": " + rf.url;
+                }).join("\n");
+                block += "\nLinks from this page:\n" + links;
+              }
+              pageBlocks.push(block);
             });
             var evidence = lines.join("\n\n");
             if (pageBlocks.length) evidence += "\n\nPage contents:\n\n" + pageBlocks.join("\n\n");
             return (galleryJob || Promise.resolve()).then(function () {
+              /* The engines failed, but the pages just read may carry the
+                 subject's photos themselves - og:image and content images
+                 from the reader. That beats an honest failure. */
+              if (wantImages && !gallery && galleryFailed) {
+                var picked = [], seen = {};
+                pages.forEach(function (pg) {
+                  (pg && pg.images || []).forEach(function (im) {
+                    if (picked.length >= 8) return;
+                    var u = im && im.image;
+                    if (!u || !/^https?:\/\//i.test(u) || seen[u]) return;
+                    seen[u] = 1;
+                    picked.push({ title: im.title || pg.title || "photo", image: u,
+                      thumb: im.thumb || u, page: pg.url, source: domainOf(pg.url) });
+                  });
+                });
+                if (picked.length) {
+                  galleryFailed = false;
+                  gallery = { images: picked, provider: "page", query: question };
+                  deps.emit({ t: "images", n: picked.length, provider: "page", images: picked });
+                }
+              }
+              if (galleryFailed && !gallery) deps.emit({ t: "imagesfail" });
               deps.emit({ t: "settle", text: "Searched the web" });
               var system = "You are Impose, a helpful assistant running in a web app that renders rich content; never call yourself a CLI or terminal. Use the evidence below when it answers the question, " +
                 "and cite sources by number like [1]. Page contents, when present, outrank the short snippets. " +

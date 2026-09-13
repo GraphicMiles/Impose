@@ -2982,6 +2982,29 @@
     refreshIcons();
   }
 
+  function fetchReadViaRelay(url, signal) {
+    /* Page reader: the relay fetches (same SSRF guards as fetch) and
+       returns fit text plus its own links, metadata, and photos. Owner
+       key only - visitors keep the snippet-only path. */
+    var cfg = relayCfg();
+    if (!cfg.url || !cfg.key) return Promise.reject(new Error("Page reading needs a relay key."));
+    var opts = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      body: JSON.stringify({ url: url })
+    };
+    if (signal) opts.signal = signal;
+    return fetch(stripSlash(cfg.url) + "/v1/read", opts).then(function (res) {
+      if (res.status === 401) throw new Error("That relay key was rejected.");
+      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+        throw new Error("The page came back unreadable.");
+      });
+    }).then(function (env) {
+      if (env.status !== 200) throw new Error((env.data && env.data.detail) || ("Page read failed (" + env.status + ")."));
+      return env.data;
+    });
+  }
+
   function fetchSearchViaRelay(query, limit, signal) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
@@ -3199,6 +3222,12 @@
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
       images: state.settings.imageTools === false ? undefined : function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
+      read: function (url) {
+        /* Deep reading: the top cited sources become fit text the answer
+           can cite into. Owner key only; failures fall back to snippets
+           inside the harness. */
+        return fetchReadViaRelay(url, signal);
+      },
       critique: function (prompt) {
         /* The critic: one small unstreamed completion. Answers GO, or
            QUERY: with a better search. Any failure reads as GO. One user
