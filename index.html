@@ -155,7 +155,6 @@ try {
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
     <textarea id="input" rows="1" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
-    <div class="ctx-meter" id="ctxMeter" hidden><span class="ctx-fill"></span></div>
     <div class="composer-row">
       <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
         <i data-lucide="plus"></i>
@@ -168,12 +167,18 @@ try {
       <button class="icon-btn" id="micBtn" title="Voice input" aria-label="Voice input" aria-pressed="false">
         <i data-lucide="mic"></i>
       </button>
-      <button class="send-btn" id="sendBtn" title="Send message" aria-label="Send message" disabled>
-        <i data-lucide="arrow-up"></i>
-      </button>
-      <button class="send-btn" id="stopBtn" title="Stop generating" aria-label="Stop generating" hidden>
-        <i data-lucide="square"></i>
-      </button>
+      <div class="send-wrap">
+        <svg class="send-ring" id="sendRing" viewBox="0 0 44 44" aria-hidden="true" hidden>
+          <circle class="send-ring-bg" cx="22" cy="22" r="20"></circle>
+          <circle class="send-ring-fill" id="sendRingFill" cx="22" cy="22" r="20"></circle>
+        </svg>
+        <button class="send-btn" id="sendBtn" title="Send message" aria-label="Send message" disabled>
+          <i data-lucide="arrow-up"></i>
+        </button>
+        <button class="send-btn" id="stopBtn" title="Stop generating" aria-label="Stop generating" hidden>
+          <i data-lucide="square"></i>
+        </button>
+      </div>
     </div>
   </div>
   <p class="disclaimer">Impose can make mistakes. Check important info.</p>
@@ -221,6 +226,18 @@ try {
   </button>
 </div>
 
+<div class="pop pop-sm" id="toolMenu" role="menu" aria-label="Assistant tools" hidden>
+  <p class="pop-label">Tools</p>
+  <button class="pop-item" id="toolWeb" type="button" role="menuitemcheckbox" aria-checked="false">
+    <i data-lucide="globe"></i><span>Web search</span><i data-lucide="check" class="tool-check"></i>
+  </button>
+  <button class="pop-item" id="toolPhotos" type="button" role="menuitemcheckbox" aria-checked="true">
+    <i data-lucide="image"></i><span>Photo galleries</span><i data-lucide="check" class="tool-check"></i>
+  </button>
+  <button class="pop-item" id="toolFollow" type="button" role="menuitemcheckbox" aria-checked="true">
+    <i data-lucide="message-circle"></i><span>Smart follow-ups</span><i data-lucide="check" class="tool-check"></i>
+  </button>
+</div>
 <div class="pop pop-sm" id="accountMenu" role="menu" aria-label="Account" hidden>
   <div class="acct-head">
     <span class="avatar" id="acctAvatar">Y</span>
