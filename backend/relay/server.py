@@ -142,6 +142,40 @@ def _authed(request: Request) -> None:
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
+# Public demo tier: the keyless read-only surface for site visitors. Search
+# and image search only, tight per-IP limits, and every expensive or
+# dangerous endpoint (chat proxy, page reader, fetch proxy, admin) stays
+# behind the control key. PUBLIC_TIER=0 turns the whole thing off.
+PUBLIC_TIER = os.environ.get("PUBLIC_TIER", "1").strip().lower() not in ("0", "false", "no")
+PUB_SEARCH_LIMIT = int(os.environ.get("PUB_SEARCH_LIMIT", "10"))
+PUB_IMAGES_LIMIT = int(os.environ.get("PUB_IMAGES_LIMIT", "10"))
+PUB_WINDOW = 60.0
+
+
+def _is_owner(request: Request) -> bool:
+    """True when the request carries the control key. Never raises."""
+    if not CONTROL_KEY:
+        return True
+    supplied = request.headers.get("Authorization", "")
+    return hmac.compare_digest(supplied, "Bearer " + CONTROL_KEY)
+
+
+def _tier_auth(request: Request, owner_bucket: str, pub_bucket: str,
+               owner_limit: int, pub_limit: int) -> None:
+    """Owner key: the normal bucket and limit. Anyone else: the public tier,
+    if it is on, with the tight bucket. A wrong key is treated as public on
+    purpose: guessing at the search endpoints wins nothing."""
+    ip = _client_ip(request)
+    if _is_owner(request):
+        if _rate_hit(owner_bucket, ip, owner_limit, PUB_WINDOW):
+            raise HTTPException(status_code=429, detail="rate limit reached; wait a minute")
+        return
+    if not PUBLIC_TIER:
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
+    if _rate_hit(pub_bucket, ip, pub_limit, PUB_WINDOW):
+        raise HTTPException(status_code=429, detail="public search limit reached; wait a minute")
+
+
 def _gateway_headers() -> dict:
     headers = {"Content-Type": "application/json"}
     if GATEWAY_KEY:
@@ -400,10 +434,9 @@ async def chat(request: Request):
 
 @app.api_route("/v1/search", methods=["GET", "POST"])
 async def search_proxy(request: Request):
-    """Keyless web search for the agent (SearXNG, Bing HTML, DDG HTML)."""
-    _authed(request)
-    if _rate_hit("search", _client_ip(request), 60, 60.0):
-        raise HTTPException(status_code=429, detail="search rate limit reached; wait a minute")
+    """Web search for the agent (SearXNG, Bing HTML, DDG HTML). Owners get
+    the normal key and limits; visitors get the public tier."""
+    _tier_auth(request, "search", "pubsearch", 60, PUB_SEARCH_LIMIT)
     if request.method == "POST":
         try:
             data = await request.json()
@@ -446,10 +479,9 @@ async def search_proxy(request: Request):
 
 @app.api_route("/v1/images", methods=["GET", "POST"])
 async def images_proxy(request: Request):
-    """Keyless image search for the agent (Bing Images, DDG Images, Openverse)."""
-    _authed(request)
-    if _rate_hit("images", _client_ip(request), 60, 60.0):
-        raise HTTPException(status_code=429, detail="image search rate limit reached; wait a minute")
+    """Image search for the agent (Bing Images, DDG Images, Openverse).
+    Owners get the normal key and limits; visitors get the public tier."""
+    _tier_auth(request, "images", "pubimages", 60, PUB_IMAGES_LIMIT)
     if request.method == "POST":
         try:
             data = await request.json()
