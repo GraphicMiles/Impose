@@ -3176,6 +3176,10 @@
         s.galleryImages = ev.images || null;
         trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
       }
+      else if (ev.t === "imagestry") {
+        trace.addRow({ primary: ev.better ? "Critic asked for better photos" : "Photos did not land - trying again",
+          secondary: ev.q || "" });
+      }
       else if (ev.t === "imagesfail") trace.addRow({ primary: "Image search failed", secondary: "answered without photos" });
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
@@ -3195,6 +3199,19 @@
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
       images: state.settings.imageTools === false ? undefined : function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
+      critique: function (prompt) {
+        /* The critic: one small unstreamed completion. Answers GO, or
+           QUERY: with a better search. Any failure reads as GO. One user
+           message on purpose - the provider shapes reject a second
+           system role, and the gate instruction rides inside it. */
+        return new Promise(function (resolve) {
+          var out = "";
+          var settled = false;
+          function done(v) { if (!settled) { settled = true; resolve(v); } }
+          setTimeout(function () { done("GO"); }, 14000);
+          streamChat(provider, model, [{ role: "user", content: "You are a strict quality gate for a search pipeline. Reply with exactly GO, or exactly QUERY: followed by one better search query. No other words.\n\n" + prompt }], signal, function (c) { out += c; }).then(function () { done(out); }, function () { done("GO"); });
+        });
+      },
       excluded: chat.excluded,
       rewrite: function (text, context) {
         return new Promise(function (resolve) {
