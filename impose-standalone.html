@@ -3831,7 +3831,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
                 gallery = g;
                 deps.emit({ t: "images", n: g.images.length, provider: g.provider, images: g.images });
               }
-            }, function () { /* no gallery is fine */ });
+            }, function () {
+              /* No gallery is fine, but silence reads as broken. */
+              deps.emit({ t: "imagesfail" });
+            });
         })() : null;
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
@@ -7514,6 +7517,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         s.galleryImages = ev.images || null;
         trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
       }
+      else if (ev.t === "imagesfail") trace.addRow({ primary: "Image search failed", secondary: "answered without photos" });
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
         clearTimeout(slowTimer);

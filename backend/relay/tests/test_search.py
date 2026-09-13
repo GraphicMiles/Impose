@@ -62,7 +62,7 @@ async def fake_search(query, limit=8, domains=None, freshness=None,
 srv.engine_search = fake_search
 c = TestClient(srv.app)
 r = c.post("/v1/search", json={"query": "x"})
-check("route needs relay key", r.status_code == 401, r.status_code)
+check("keyless search serves the public tier", r.status_code == 200, r.status_code)
 H = {"Authorization": "Bearer test123"}
 r = c.post("/v1/search", json={"query": "  "}, headers=H)
 check("route rejects empty query", r.status_code == 400, r.status_code)

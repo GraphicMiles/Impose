@@ -3165,6 +3165,7 @@
         s.galleryImages = ev.images || null;
         trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
       }
+      else if (ev.t === "imagesfail") trace.addRow({ primary: "Image search failed", secondary: "answered without photos" });
       else if (ev.t === "more") trace.setMore(ev.n);
       else if (ev.t === "settle") {
         clearTimeout(slowTimer);
