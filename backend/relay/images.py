@@ -2,11 +2,10 @@
 Openverse, Wikimedia Commons.
 
 Same contract as search.py: parsers are pure functions tested against
-fixtures, fetchers raise AttemptFail, tiers race inside the tier and the
-first provider that answers with results wins. The API tiers (Openverse,
-Wikimedia Commons) survive when the HTML engines challenge datacenter
-IPs - Bing serves a junk promo page and DDG 403s whole ranges - so the
-retry pass asks the APIs first.
+fixtures, fetchers raise AttemptFail, and independent providers race until
+the first one returns relevant results. Openverse and Wikimedia Commons
+usually survive when HTML engines challenge datacenter IPs, while Bing may
+serve a promo page and DDG may block whole address ranges.
 
 Each result: {title, image (full res), thumb (small), page (source page),
 source (domain), w, h}. Only http(s) URLs are ever returned.
@@ -24,6 +23,7 @@ from relay.search import AttemptFail, UA, _significant
 
 OPENVERSE = "https://api.openverse.org/v1/images/"
 WIKIMEDIA = "https://commons.wikimedia.org/w/api.php"
+IMAGE_SEARCH_TIMEOUT_SECONDS = 13.0
 
 
 def _http_ok(url):
@@ -250,38 +250,78 @@ class ImagesFailed(Exception):
     pass
 
 
-async def engine_images(query, limit=8, _retried=False):
-    t0 = time.time()
+async def _first_image_result(providers, attempts):
+    """Return the first provider with results and cancel slower work."""
+    tasks = [asyncio.create_task(_run(name, job)) for name, job in providers]
+    try:
+        for completed in asyncio.as_completed(tasks):
+            name, ok, payload, elapsed_ms = await completed
+            if ok and payload:
+                return name, payload
+            attempts.append({
+                "provider": name,
+                "ok": False,
+                "error": payload,
+                "ms": elapsed_ms,
+            })
+        return None
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def engine_images(query, limit=8):
+    """Race independent engines and return the first relevant result set."""
+    started_at = time.time()
     attempts = []
-    async with httpx.AsyncClient(headers=UA, follow_redirects=True, max_redirects=3) as client:
-        api_tier = [("openverse", partial_open(client, query, limit)),
-                    ("wikimedia", partial_wiki(client, query, limit))]
-        scraper_tier = [("bing-images", partial_bing(client, query, limit)),
-                        ("ddg-images", partial_ddg(client, query, limit))]
-        tiers = [scraper_tier, api_tier]
-        if _retried:
-            # The scrapers just failed; the APIs answer when HTML is walled.
-            tiers = [api_tier, scraper_tier]
-        for tier in tiers:
-            runs = await asyncio.gather(*[_run(name, job) for name, job in tier])
-            for name, ok, err, ms in runs:
-                if not ok:
-                    attempts.append({"provider": name, "ok": False, "error": err, "ms": ms})
-            for name, ok, results, ms in runs:
-                if ok and results:
-                    total = int((time.time() - t0) * 1000)
-                    print("[relay] images '%s' via %s -> %d (%dms)"
-                          % (query[:60], name, len(results), total), flush=True)
-                    return {"results": results, "provider": name,
-                            "query": query, "count": len(results), "ms": total}
-    # The HTML engines wobble (one-off challenges, cold free-tier egress).
-    # One quiet retry: a second ask a beat later usually gets through, and
-    # visitors have no retry button of their own.
-    if not _retried:
-        await asyncio.sleep(1.2)
-        return await engine_images(query, limit=limit, _retried=True)
-    raise ImagesFailed("all image providers failed: " + "; ".join(
-        a["provider"] + "=" + a["error"] for a in attempts))
+    async with httpx.AsyncClient(
+        headers=UA,
+        follow_redirects=True,
+        max_redirects=3,
+    ) as client:
+        providers = [
+            ("openverse", partial_open(client, query, limit)),
+            ("wikimedia", partial_wiki(client, query, limit)),
+            ("bing-images", partial_bing(client, query, limit)),
+            ("ddg-images", partial_ddg(client, query, limit)),
+        ]
+        try:
+            found = await asyncio.wait_for(
+                _first_image_result(providers, attempts),
+                timeout=IMAGE_SEARCH_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            attempts.append({
+                "provider": "overall",
+                "ok": False,
+                "error": "deadline exceeded",
+                "ms": int(IMAGE_SEARCH_TIMEOUT_SECONDS * 1000),
+            })
+            found = None
+
+    if found:
+        provider, results = found
+        total_ms = int((time.time() - started_at) * 1000)
+        print(
+            "[relay] images '%s' via %s -> %d (%dms)"
+            % (query[:60], provider, len(results), total_ms),
+            flush=True,
+        )
+        return {
+            "results": results,
+            "provider": provider,
+            "query": query,
+            "count": len(results),
+            "ms": total_ms,
+        }
+
+    detail = "; ".join(
+        attempt["provider"] + "=" + attempt["error"]
+        for attempt in attempts
+    )
+    raise ImagesFailed("all image providers failed: " + detail)
 
 
 def partial_bing(client, query, limit):
