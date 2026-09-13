@@ -154,7 +154,7 @@ try {
   <input type="file" id="filePicker" hidden multiple>
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
-    <textarea id="input" rows="1" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
+    <textarea id="input" rows="1" maxlength="200000" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
     <div class="composer-row">
       <button class="icon-btn" id="searchBtn" title="Assistant tools" aria-label="Assistant tools" aria-haspopup="menu">
         <i data-lucide="plus"></i>
@@ -740,6 +740,7 @@ try {
   </div>
 </div>
 
+<div id="opStatus" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
 <noscript><p style="padding:24px;font-family:sans-serif">Impose needs JavaScript to run.</p></noscript>
