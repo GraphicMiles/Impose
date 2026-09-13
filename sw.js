@@ -5,7 +5,7 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v4";
+var CACHE = "impose-shell-v5";
 var CORE = [
   "./",
   "./index.html",
@@ -13,7 +13,8 @@ var CORE = [
   "./styles.css",
   "./agent/trace.js",
   "./agent/harness.js",
-  "./agent/features.js"
+  "./agent/features.js",
+  "./agent/browser-agent.js"
 ];
 
 /* The full precache list: core files plus the assets that rarely change. */
@@ -25,6 +26,7 @@ var PRECACHE = [
   "./agent/trace.js",
   "./agent/harness.js",
   "./agent/features.js",
+  "./agent/browser-agent.js",
   "./agent/trace.css",
   "./lucide.min.js",
   "./anime.min.js",

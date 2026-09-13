@@ -2692,12 +2692,12 @@
   }
 
   function setStreamingUI(on) {
-    /* Generation is cancellable, not resumable execution. Call it Stop so
-       the control never promises a suspended request that can be resumed. */
-    if (on) announceOperation("Generating response.");
+    /* Generation and browser tasks are cancellable, not paused execution. */
+    var browserTask = !!(on && stream && stream.browser);
+    if (on) announceOperation(browserTask ? "Running browser task." : "Generating response.");
     var face = on ? "square" : "arrow-up";
     sendBtn.disabled = on ? false : input.value.trim().length === 0;
-    sendBtn.title = on ? "Stop generating" : "Send message";
+    sendBtn.title = on ? (browserTask ? "Stop browser task" : "Stop generating") : "Send message";
     sendBtn.setAttribute("aria-label", sendBtn.title);
     sendBtn.classList.toggle("working", !!on);
     sendWasDisabled = sendBtn.disabled;
@@ -2717,6 +2717,24 @@
     var s = stream;
     stream = null;
     setStreamingUI(false);
+    if (s.browser) {
+      s.stopped = true;
+      s.stopNoted = true;
+      if (s.controller) {
+        try { s.controller.abort(); } catch (e) { /* Already stopped. */ }
+      }
+      if (s.executionStarted && (!s.runRecord || !s.runRecord.pendingAction)) saveBrowserRun(null);
+      var browserChat = getChat(s.chatId);
+      if (browserChat) {
+        appendBrowserMessage(browserChat, s.phase === "execute" && s.executionStarted
+          ? "**Browser task stopped**\n\nNo further actions will run. Inspect the current page before creating another plan because an in-flight external action may have an uncertain outcome."
+          : (s.phase === "execute"
+            ? "Browser execution stopped before it began. The approved plan is still waiting."
+            : "Browser planning stopped. No browser actions were run."));
+      }
+      announceOperation("Browser task stopped.");
+      return;
+    }
     if (s.live) {
       s.stopped = true;
       checkpointLive(s, true);
@@ -3656,6 +3674,11 @@
 
     var target = getTarget();
     var offline = typeof navigator.onLine === "boolean" && !navigator.onLine;
+    var browserCommand = browserTaskCommand(text);
+    if (offline && browserCommand && browserCommand.type !== "reject") {
+      toast("Browser tasks need a live connection. Your instruction is still in the composer.");
+      return;
+    }
     var chat = getChat(activeId);
     if (offline && target && chat && state.outbox.some(function (o) { return o && o.v === 2 && o.chatId === chat.id; })) {
       toast("This chat already has a queued message. Reconnect and send it before adding another; your draft is still here.");
@@ -3748,6 +3771,21 @@
     clearFollowups();
     stopSpeak();
     var t = override ? { provider: override, model: activeModelOf(override) } : getTarget();
+    var browserCommand = browserTaskCommand(text);
+    if (browserCommand && replaceIdx != null) {
+      abortReplace(chat, replaceIdx);
+      toast("Browser plans and execution reports cannot be regenerated. Start a new `/agent` task instead.");
+      return;
+    }
+    if (browserCommand && browserCommand.type === "reject") {
+      rejectBrowserPlan(chat);
+      return;
+    }
+    if (browserCommand && !t) {
+      appendBrowserMessage(chat, "Browser tasks need a configured model. Add a provider, then try the instruction again.");
+      toast("Add a provider before running browser tasks.");
+      return;
+    }
     if (t && t.missingKey) {
       dwarn("provider", "Missing key for " + t.provider.label + ", chat not sent");
       if (replaceIdx != null) abortReplace(chat, replaceIdx);
@@ -3759,6 +3797,11 @@
       chat.model = providerDisplay(t.provider);
       chat.providerId = t.provider.id;
       save();
+      if (browserCommand) {
+        if (browserCommand.type === "plan") startBrowserPlan(chat, t, browserCommand.goal);
+        else approveBrowserPlan(chat, t);
+        return;
+      }
       var useSearch = options && options.searchMode != null ? !!options.searchMode : !!state.settings.searchMode;
       if (useSearch && window.ImposeHarness && window.ImposeTrace) {
         dnote("chat", "Research via " + providerDisplay(t.provider));
@@ -4891,11 +4934,11 @@
   sendBtn.addEventListener("click", function (e) {
     if (stream) {
       /* Ignore only the second click of the original double-click. A new
-         single click must be allowed to stop immediately, even on a fast
-         provider or an unreliable mobile connection. */
+         single click must be allowed to stop immediately. */
       if (e.detail > 1 && Date.now() - lastSendAt < 650) return;
+      var browserTask = !!stream.browser;
       stopStream();
-      toast("Generation stopped. Any partial reply was saved.");
+      toast(browserTask ? "Browser task stopped." : "Generation stopped. Any partial reply was saved.");
       return;
     }
     send(input.value);
@@ -5511,12 +5554,15 @@
       if (state.chats[i].id === id) { idx = i; break; }
     }
     if (idx === -1) return;
+    if (activeId === id && stream) stopStream();
     var removed = state.chats.splice(idx, 1)[0];
     var queued = state.outbox.filter(function (o) { return o && o.chatId === id; });
+    pendingBrowserPlan = loadPendingBrowserPlan();
+    var removedBrowserPlan = pendingBrowserPlan && pendingBrowserPlan.chatId === id ? pendingBrowserPlan : null;
     state.outbox = state.outbox.filter(function (o) { return !o || o.chatId !== id; });
+    if (removedBrowserPlan) savePendingBrowserPlan(null);
     if (activeId === id) {
       rememberActiveChat(null, "push");
-      stopStream();
       messagesEl.innerHTML = "";
       showEmpty();
     }
@@ -5527,6 +5573,7 @@
     toast(queued.length ? "Chat and its queued message deleted" : "Chat deleted", "Undo", function () {
       state.chats.splice(Math.min(idx, state.chats.length), 0, removed);
       state.outbox = state.outbox.concat(queued);
+      if (removedBrowserPlan && !pendingBrowserPlan) savePendingBrowserPlan(removedBrowserPlan);
       save();
       updateBanners();
       renderList();
@@ -5878,7 +5925,7 @@
   /* ---------- agent actions via the companion extension ---------- */
 
   var EXT_TIMEOUT = 30000;
-  var EXT_SEND_TIMEOUT = 55000;
+  var EXT_SEND_TIMEOUT = 65000;
   var extSeq = 0;
   var extPending = {};
   var ext = { connected: false, version: "", tabs: [], tabId: 0, threadUrl: "", snapshot: "", log: [] };
@@ -5942,18 +5989,25 @@
     delete extPending[m.id];
     clearTimeout(p.timer);
     if (m.ok) p.resolve(("result" in m) ? m.result : m);
-    else p.reject(new Error(m.error || "Extension error."));
+    else {
+      var error = new Error(m.error || "Extension error.");
+      error.uncertain = !!m.uncertain;
+      p.reject(error);
+    }
   });
 
-  function extSend(method, params) {
+  function extSend(method, params, timeoutMs) {
     return new Promise(function (resolve, reject) {
       var id = "x" + (++extSeq);
+      var externalEffect = /^(?:dm\.send|x\.(?:post|reply))$/.test(method) || !!(params && params.public);
       var timer = setTimeout(function () {
         delete extPending[id];
-        reject(new Error(method === "dm.send"
-          ? "Delivery is uncertain because the extension did not confirm in time. Check the thread before trying again."
-          : "Extension did not answer. Is it installed and enabled?"));
-      }, method === "dm.send" ? EXT_SEND_TIMEOUT : EXT_TIMEOUT);
+        var error = new Error(externalEffect
+          ? "The external action did not confirm in time. Check the page before trying again because its outcome is uncertain."
+          : "Extension did not answer. Is it installed and enabled?");
+        error.uncertain = externalEffect;
+        reject(error);
+      }, Number(timeoutMs) > 0 ? Number(timeoutMs) : (externalEffect ? EXT_SEND_TIMEOUT : EXT_TIMEOUT));
       if (timer.unref) { try { timer.unref(); } catch (e) { /* browsers lack unref */ } }
       extPending[id] = { resolve: resolve, reject: reject, timer: timer };
       window.postMessage({ src: "impose-page", id: id, method: method, params: params || {} }, location.origin);
@@ -5973,7 +6027,7 @@
   function extPing(silent) {
     return extSend("ping").then(function (r) {
       ext.version = (r && r.version) || "";
-      setExtStatus(true, "Extension connected", "Bridge v" + ext.version + " \u00b7 protocol 1");
+      setExtStatus(true, "Extension connected", "Bridge v" + ext.version + " \u00b7 protocol " + Number((r && r.protocol) || 1));
       return true;
     }, function (err) {
       setExtStatus(false, "Extension not connected",
@@ -5981,6 +6035,414 @@
       return false;
     });
   }
+
+  /* Plan-once browser tasks use the existing chat as their approval surface.
+     The extension owns browser I/O; this page owns planning, approval, and
+     lifecycle state. No public action runs before the saved plan is approved. */
+  var BROWSER_PLAN_KEY = "impose.browser-plan.v1";
+  var BROWSER_RUN_KEY = "impose.browser-run.v1";
+  var pendingBrowserPlan = loadPendingBrowserPlan();
+  var interruptedBrowserRun = loadBrowserRun();
+  var browserPendingActions = 0;
+  var browserRecoveryHoldUntil = 0;
+
+  function browserTaskCommand(text) {
+    var value = String(text || "").trim();
+    var plan = value.match(/^\/(?:agent|browse|automate)(?:\s+([\s\S]*))?$/i);
+    if (plan) return { type: "plan", goal: String(plan[1] || "").trim() };
+    if (/^\/approve\s*$/i.test(value)) return { type: "approve" };
+    if (/^\/(?:reject|cancel-plan)\s*$/i.test(value)) return { type: "reject" };
+    return null;
+  }
+
+  function loadPendingBrowserPlan() {
+    try {
+      var parsed = JSON.parse(localStorage.getItem(BROWSER_PLAN_KEY) || "null");
+      if (!parsed || parsed.version !== 1 || !parsed.id || !parsed.chatId || !parsed.goal || !parsed.plan) return null;
+      return parsed;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function savePendingBrowserPlan(value) {
+    var next = value || null;
+    try {
+      if (next) localStorage.setItem(BROWSER_PLAN_KEY, JSON.stringify(next));
+      else localStorage.removeItem(BROWSER_PLAN_KEY);
+      pendingBrowserPlan = next;
+      return true;
+    } catch (e) {
+      dwarn("extension", "Could not persist browser plan state");
+      return false;
+    }
+  }
+
+  function loadBrowserRun() {
+    try {
+      var parsed = JSON.parse(localStorage.getItem(BROWSER_RUN_KEY) || "null");
+      if (!parsed || parsed.version !== 1 || !parsed.chatId || !parsed.startedAt) return null;
+      return parsed;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveBrowserRun(value) {
+    try {
+      if (value) localStorage.setItem(BROWSER_RUN_KEY, JSON.stringify(value));
+      else localStorage.removeItem(BROWSER_RUN_KEY);
+      return true;
+    } catch (e) {
+      dwarn("extension", "Could not persist browser execution state");
+      return false;
+    }
+  }
+
+  function appendBrowserMessage(chat, content) {
+    if (!chat) return;
+    chat.messages.push({ role: "assistant", content: String(content || "") });
+    chat.updated = Date.now();
+    save();
+    renderList();
+    if (activeId === chat.id) {
+      renderMessages(chat);
+      showDock();
+      scrollDown();
+    }
+  }
+
+  function describeBrowserPlan(goal, plan) {
+    var lines = [
+      "**Browser plan ready**",
+      "",
+      "Goal: " + goal,
+      "",
+      "**Bounded route (maximum 20 execution steps)**"
+    ];
+    (plan.steps || []).forEach(function (step, index) {
+      lines.push((index + 1) + ". " + step);
+    });
+    lines.push("", "**Approved site origins**");
+    (plan.allowedOrigins || []).forEach(function (origin) { lines.push("- " + origin); });
+    lines.push("", "**Public or external side effects**");
+    if (plan.sideEffects && plan.sideEffects.length) {
+      plan.sideEffects.forEach(function (effect) {
+        var detail = "**" + effect.kind + "** to " + (effect.target || "the stated target");
+        if (effect.text) detail += " — exact content: `" + JSON.stringify(effect.text) + "`";
+        lines.push("- " + detail);
+      });
+    } else {
+      lines.push("- None planned.");
+    }
+    lines.push("", "Type `/approve` once to execute this plan, or `/reject` to discard it. The agent will stop if the approved bounds, safety rules, or verification checks fail.");
+    return lines.join("\n");
+  }
+
+  function browserAgentRunner(target, operation, onStep) {
+    var api = window.ImposeBrowserAgent;
+    if (!api || typeof api.createBrowserAgent !== "function") throw new Error("Browser agent module is unavailable. Reload Impose and try again.");
+    return api.createBrowserAgent({
+      signal: operation.controller.signal,
+      onStep: onStep || function () {},
+      complete: function (prompt) {
+        return completeOnce(target.provider, target.model, [{ role: "user", content: prompt }], {
+          signal: operation.controller.signal,
+          timeout: 45000,
+          stage: "browser-agent"
+        });
+      },
+      act: function (method, params) {
+        var logId = extLog(method, "Browser agent", null);
+        var slow = /^(?:page\.navigate|x\.|dm\.send$)/.test(method);
+        var timeout = slow ? EXT_SEND_TIMEOUT : EXT_TIMEOUT;
+        if (operation.runRecord) {
+          operation.runRecord.pendingAction = method;
+          operation.runRecord.settleUntil = Date.now() + timeout;
+          if (!saveBrowserRun(operation.runRecord)) {
+            finishExtLog(logId, "Execution state could not be checkpointed", false);
+            return Promise.reject(new Error("Execution state could not be checkpointed safely. The browser action was not sent."));
+          }
+        }
+        browserPendingActions += 1;
+        function settleAction() {
+          browserPendingActions = Math.max(0, browserPendingActions - 1);
+          if (!operation.runRecord) return;
+          if (operation.stopped) {
+            saveBrowserRun(null);
+            return;
+          }
+          operation.runRecord.pendingAction = "";
+          operation.runRecord.settleUntil = 0;
+          saveBrowserRun(operation.runRecord);
+        }
+        return extSend(method, params, timeout).then(function (result) {
+          settleAction();
+          finishExtLog(logId, "Completed", true);
+          return result;
+        }, function (error) {
+          settleAction();
+          finishExtLog(logId, error && error.message, false);
+          throw error;
+        });
+      }
+    });
+  }
+
+  function beginBrowserOperation(chat, phase) {
+    var operation = {
+      browser: true,
+      chatId: chat.id,
+      phase: phase,
+      controller: new AbortController(),
+      stopped: false,
+      stopNoted: false,
+      executionStarted: false
+    };
+    stream = operation;
+    setStreamingUI(true);
+    dnote("extension", phase === "plan" ? "Planning browser task" : "Executing approved browser plan");
+    return operation;
+  }
+
+  function finishBrowserOperation(operation) {
+    if (stream !== operation) return;
+    stream = null;
+    setStreamingUI(false);
+    syncSend();
+  }
+
+  function browserFailureText(error, executionStarted) {
+    var detail = sanitizeLogDetail(error && error.message ? error.message : error).slice(0, 400);
+    if (executionStarted) {
+      return "**Browser task stopped**\n\n" + (detail || "The approved plan could not be completed.") +
+        "\n\nNo further actions will run. Inspect the page before planning another task; a timed-out external action may have an uncertain outcome.";
+    }
+    return "**Browser planning failed**\n\n" + (detail || "The plan could not be created.");
+  }
+
+  function withBrowserExecutionLock(work) {
+    if (!navigator.locks || typeof navigator.locks.request !== "function") {
+      return Promise.reject(new Error("This browser cannot guarantee single-tab execution. Use a current Chromium browser before approving a browser plan."));
+    }
+    return navigator.locks.request("impose-browser-execution", {
+      mode: "exclusive",
+      ifAvailable: true
+    }, function (lock) {
+      if (!lock) throw new Error("Another Impose tab is already running a browser task.");
+      return work();
+    });
+  }
+
+  function browserRecoveryBlocked(chat) {
+    var remaining = browserRecoveryHoldUntil - Date.now();
+    if (remaining <= 0) return false;
+    appendBrowserMessage(chat, "An interrupted extension action may still be settling. Inspect the page and wait about " +
+      Math.max(1, Math.ceil(remaining / 1000)) + " seconds before starting another browser task.");
+    return true;
+  }
+
+  function startBrowserPlan(chat, target, goal) {
+    if (!goal) {
+      appendBrowserMessage(chat, "Tell me the browser goal after the command, for example: `/agent find the official project page and summarize it`.");
+      return;
+    }
+    if (browserRecoveryBlocked(chat)) return;
+    if (browserPendingActions) {
+      appendBrowserMessage(chat, "A stopped browser action is still waiting for its final extension response. Inspect the page and wait for it to settle before starting another plan.");
+      return;
+    }
+    var existing = loadPendingBrowserPlan();
+    pendingBrowserPlan = existing;
+    if (existing && existing.chatId === chat.id && !savePendingBrowserPlan(null)) {
+      appendBrowserMessage(chat, "The previous browser plan could not be replaced safely. Reload Impose; no browser actions were run.");
+      return;
+    }
+    var operation = beginBrowserOperation(chat, "plan");
+    var runner;
+    extPing(false).then(function (connected) {
+      if (!connected) throw new Error("The Impose browser extension is not connected to this tab.");
+      runner = browserAgentRunner(target, operation);
+      return runner.plan(goal);
+    }).then(function (plan) {
+      if (operation.stopped) return;
+      var record = {
+        version: 1,
+        id: uid(),
+        chatId: chat.id,
+        goal: goal,
+        plan: plan,
+        createdAt: Date.now()
+      };
+      if (!savePendingBrowserPlan(record)) throw new Error("The browser plan could not be saved safely for approval.");
+      appendBrowserMessage(chat, describeBrowserPlan(goal, plan));
+      announceOperation("Browser plan ready for approval.");
+      toast("Browser plan ready. Review it before approving.");
+    }).catch(function (error) {
+      if (operation.stopNoted) return;
+      appendBrowserMessage(chat, browserFailureText(error, false));
+      toast.error("Browser planning failed.");
+    }).then(function () {
+      finishBrowserOperation(operation);
+    });
+  }
+
+  function approveBrowserPlan(chat, target) {
+    var record = loadPendingBrowserPlan();
+    pendingBrowserPlan = record;
+    if (!record) {
+      appendBrowserMessage(chat, "There is no browser plan waiting for approval. Start one with `/agent …`.");
+      return;
+    }
+    if (!getChat(record.chatId)) {
+      appendBrowserMessage(chat, savePendingBrowserPlan(null)
+        ? "The waiting browser plan belonged to a deleted chat, so it was discarded without running."
+        : "The stale browser plan could not be cleared safely. Reload Impose; no browser actions were run.");
+      return;
+    }
+    if (record.chatId !== chat.id) {
+      appendBrowserMessage(chat, "The waiting browser plan belongs to another chat. Open that chat to approve or reject it.");
+      return;
+    }
+    if (browserRecoveryBlocked(chat)) return;
+    if (browserPendingActions) {
+      appendBrowserMessage(chat, "A previous browser action is still waiting for its final extension response. Inspect the page and wait for it to settle before approving this plan.");
+      return;
+    }
+
+    /* Consume approval immediately before execution. A failed or interrupted
+       public action cannot be retried accidentally with another /approve. */
+    var operation = beginBrowserOperation(chat, "execute");
+    var runner;
+    var completed = [];
+    withBrowserExecutionLock(function () {
+      return extPing(false).then(function (connected) {
+      if (!connected) throw new Error("The Impose browser extension is not connected to this tab.");
+      var latest = loadPendingBrowserPlan();
+      if (!latest || latest.id !== record.id) {
+        pendingBrowserPlan = latest;
+        throw new Error("This plan was already approved, rejected, or replaced in another Impose tab.");
+      }
+      var runRecord = {
+        version: 1,
+        chatId: chat.id,
+        goal: record.goal,
+        plan: record.plan,
+        startedAt: Date.now(),
+        pendingAction: "",
+        settleUntil: 0
+      };
+      if (!saveBrowserRun(runRecord)) {
+        throw new Error("Execution state could not be saved safely. No browser actions were run.");
+      }
+      operation.runRecord = runRecord;
+      if (!savePendingBrowserPlan(null)) {
+        saveBrowserRun(null);
+        operation.runRecord = null;
+        throw new Error("Approval state could not be consumed safely. No browser actions were run.");
+      }
+      operation.executionStarted = true;
+      runner = browserAgentRunner(target, operation, function (event) {
+        if (!event || event.type !== "result" || !event.action) return;
+        completed.push(event.action.action);
+        dnote("extension", "Browser step " + event.index + ": " + event.action.action);
+      });
+      return runner.run(record.goal, record.plan);
+      });
+    }).then(function (result) {
+      if (operation.stopped) return;
+      saveBrowserRun(null);
+      var lines = [
+        "**Browser task complete**",
+        "",
+        String(result.result || "The approved task completed."),
+        "",
+        "Executed " + completed.length + " action" + (completed.length === 1 ? "" : "s") + " within the approved bounds."
+      ];
+      if (result.tabId) lines.push("Final browser tab: " + result.tabId + ".");
+      appendBrowserMessage(chat, lines.join("\n"));
+      announceOperation("Browser task complete.");
+      toast.success("Browser task complete.");
+    }).catch(function (error) {
+      if (operation.stopNoted) return;
+      if (operation.executionStarted) {
+        saveBrowserRun(null);
+        appendBrowserMessage(chat, browserFailureText(error, true));
+      } else {
+        var waiting = loadPendingBrowserPlan();
+        pendingBrowserPlan = waiting;
+        appendBrowserMessage(chat, "**Browser execution did not start**\n\n" +
+          sanitizeLogDetail(error && error.message ? error.message : error).slice(0, 400) +
+          (waiting && waiting.id === record.id
+            ? "\n\nThe approved plan is still waiting, so you can reconnect the extension and use `/approve` again."
+            : "\n\nNo actions started in this tab, and this plan is no longer waiting for approval."));
+      }
+      toast.error("Browser task stopped before completion.");
+    }).then(function () {
+      finishBrowserOperation(operation);
+    });
+  }
+
+  function rejectBrowserPlan(chat) {
+    pendingBrowserPlan = loadPendingBrowserPlan();
+    if (!pendingBrowserPlan) {
+      appendBrowserMessage(chat, "There is no browser plan waiting for approval.");
+      return;
+    }
+    if (!getChat(pendingBrowserPlan.chatId)) {
+      appendBrowserMessage(chat, savePendingBrowserPlan(null)
+        ? "The waiting browser plan belonged to a deleted chat, so it was discarded without running."
+        : "The stale browser plan could not be cleared safely. Reload Impose; no browser actions were run.");
+      return;
+    }
+    if (pendingBrowserPlan.chatId !== chat.id) {
+      appendBrowserMessage(chat, "The waiting browser plan belongs to another chat. Open that chat to reject it.");
+      return;
+    }
+    if (!savePendingBrowserPlan(null)) {
+      appendBrowserMessage(chat, "The browser plan could not be discarded safely. Reload Impose before trying again; no browser actions were run.");
+      return;
+    }
+    appendBrowserMessage(chat, "Browser plan discarded. No browser actions were run.");
+    announceOperation("Browser plan discarded.");
+  }
+
+  var browserRecoveryChecking = false;
+  function recoverInterruptedBrowserRun() {
+    var record = interruptedBrowserRun;
+    if (!record || browserRecoveryChecking) return;
+    if (!navigator.locks || typeof navigator.locks.request !== "function") return;
+    browserRecoveryChecking = true;
+    navigator.locks.request("impose-browser-execution", {
+      mode: "exclusive",
+      ifAvailable: true
+    }, function (lock) {
+      if (!lock) return;
+      var current = loadBrowserRun();
+      if (!current || current.startedAt !== record.startedAt || current.chatId !== record.chatId) {
+        interruptedBrowserRun = null;
+        return;
+      }
+      interruptedBrowserRun = null;
+      browserRecoveryHoldUntil = Math.max(browserRecoveryHoldUntil, Number(current.settleUntil) || 0);
+      saveBrowserRun(null);
+      var chat = getChat(record.chatId);
+      if (!chat) return;
+      appendBrowserMessage(chat,
+        "**Browser task interrupted**\n\nThe page closed or reloaded while an approved plan was running. No automatic resume will occur because an external action may have completed without returning its confirmation. Inspect the browser page, then create a new plan if work remains.");
+      dwarn("extension", "Recovered an interrupted browser execution");
+    }).catch(function () {
+      dwarn("extension", "Could not check browser execution recovery lock");
+    }).then(function () {
+      browserRecoveryChecking = false;
+    });
+  }
+
+  recoverInterruptedBrowserRun();
+  window.addEventListener("focus", recoverInterruptedBrowserRun);
+  window.addEventListener("storage", function (event) {
+    if (event.key === BROWSER_PLAN_KEY) pendingBrowserPlan = loadPendingBrowserPlan();
+  });
 
   function setExtBusy(busy) {
     ["extTabsBtn", "extReadBtn", "extThreadsBtn", "extProbeBtn", "extDraftBtn", "extSendBtn", "extPasteDraft"].forEach(function (id) {
@@ -7542,6 +8004,7 @@
     window.addEventListener("popstate", restoreFromHistory);
     window.addEventListener("hashchange", restoreFromHistory);
     window.addEventListener("pagehide", function () {
+      if (stream && stream.browser) return; /* Persistent recovery state already marks this run. */
       if (stream && stream.live) checkpointLive(stream, true);
       else if (stream) checkpointCanned(stream);
     });

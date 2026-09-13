@@ -11,7 +11,7 @@
       var el = document.getElementById("st");
       var s = out && out.imposeStatus;
       if (!s) { el.textContent = "Installed. Open Impose and connect it."; return; }
-      el.textContent = "X tabs seen: " + (s.tabs == null ? "?" : s.tabs) +
+      el.textContent = "Web tabs seen: " + (s.tabs == null ? "?" : s.tabs) +
         (s.last ? " · last action " + s.last + (s.ok ? " ok" : " failed") : "") +
         " · " + ago(s.at);
     });

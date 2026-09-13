@@ -3,8 +3,8 @@
 (function () {
   "use strict";
   if (window.__imposeBridge) return;
-  var VERSION = "0.1.0";
-  window.__imposeBridge = { version: VERSION, protocol: 1 };
+  var VERSION = "0.2.0";
+  window.__imposeBridge = { version: VERSION, protocol: 2 };
   var ORIGIN = location.origin;
 
   window.addEventListener("message", function (e) {
@@ -12,7 +12,7 @@
     var m = e.data;
     if (!m || m.src !== "impose-page" || !m.id) return;
     if (m.method === "ping") {
-      window.postMessage({ src: "impose-ext", id: m.id, ok: true, result: { version: VERSION, protocol: 1 } }, ORIGIN);
+      window.postMessage({ src: "impose-ext", id: m.id, ok: true, result: { version: VERSION, protocol: 2 } }, ORIGIN);
       return;
     }
     chrome.runtime.sendMessage({ id: m.id, method: m.method, params: m.params || {} }, function (resp) {
@@ -25,7 +25,8 @@
         id: (resp && resp.id) || m.id,
         ok: !!(resp && resp.ok),
         result: resp && ("result" in resp ? resp.result : resp),
-        error: resp && resp.error
+        error: resp && resp.error,
+        uncertain: !!(resp && resp.uncertain)
       }, ORIGIN);
     });
   });

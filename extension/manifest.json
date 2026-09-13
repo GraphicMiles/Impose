@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Impose Agent Bridge",
-  "version": "0.1.0",
-  "description": "Lets the Impose web app read pages and perform your approved actions in logged-in tabs. Never sees passwords.",
+  "version": "0.2.0",
+  "description": "Executes user-approved browser plans in signed-in tabs without reading passwords or payment fields.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon-16.png",
@@ -14,11 +14,7 @@
     "default_popup": "popup.html"
   },
   "permissions": ["tabs", "storage"],
-  "host_permissions": [
-    "https://impose-web.onrender.com/*",
-    "https://x.com/*",
-    "https://twitter.com/*"
-  ],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
@@ -26,6 +22,11 @@
     {
       "matches": ["https://impose-web.onrender.com/*"],
       "js": ["content/impose-bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content/generic-actions.js"],
       "run_at": "document_idle"
     },
     {
