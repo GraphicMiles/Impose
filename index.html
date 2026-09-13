@@ -3,28 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Impose</title>
-<meta name="description" content="Impose chat client. Bring your own key and chat with any provider.">
+<title>Impose AI | Small agents. Massive work.</title>
+<meta name="description" content="Ask anything. Research with sources. Small agents, massive work.">
 <link rel="canonical" href="https://impose-web.onrender.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Impose">
-<meta property="og:title" content="Impose">
-<meta property="og:description" content="Impose chat client. Bring your own key and chat with any provider.">
+<meta property="og:title" content="Impose AI | Small agents. Massive work.">
+<meta property="og:description" content="Ask anything. Research with sources. Three times faster research, zero extra tabs.">
 <meta property="og:url" content="https://impose-web.onrender.com/">
 <meta property="og:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:secure_url" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Impose: bring your own key and chat with any provider.">
+<meta property="og:image:alt" content="Agent Atlas carries a massive boulder beside the message: 3X faster research, zero extra tabs.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Impose">
-<meta name="twitter:description" content="Impose chat client. Bring your own key and chat with any provider.">
+<meta name="twitter:title" content="Impose AI | Small agents. Massive work.">
+<meta name="twitter:description" content="Ask anything. Research with sources. Three times faster research, zero extra tabs.">
 <meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta name="color-scheme" content="dark light">
+<link rel="icon" type="image/png" sizes="64x64" href="./favicon-64.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
-<link rel="apple-touch-icon" href="./icon-apple.png">
-<meta name="theme-color" content="#171717">
+<link rel="apple-touch-icon" sizes="180x180" href="./icon-apple.png">
+<meta name="theme-color" content="#075c46">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -96,6 +97,7 @@ try {
         <button class="icon-btn" id="openSidebarBtn" title="Open sidebar" aria-label="Open sidebar">
           <i data-lucide="panel-left"></i>
         </button>
+        <img class="app-brand-mark" src="./favicon-64.png" width="32" height="32" alt="" aria-hidden="true">
         <button class="model-btn" id="modelBtn" aria-haspopup="menu">
           <span class="health-dot" id="healthDot" hidden></span><span id="modelName">Demo</span>
           <i data-lucide="chevron-down" class="chev"></i>
@@ -119,6 +121,7 @@ try {
     <div id="banners" aria-live="polite"></div>
     <div class="chat-scroll" id="chatScroll">
       <div class="empty" id="emptyState">
+        <img class="empty-brand-mark" src="./icon-192.png" width="88" height="88" alt="Impose Agent Atlas">
         <h1 class="greeting">What can I help with?</h1>
         <div class="empty-slot" id="emptySlot"></div>
         <div class="chips" id="chips">

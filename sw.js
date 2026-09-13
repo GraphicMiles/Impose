@@ -5,7 +5,7 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v3";
+var CACHE = "impose-shell-v4";
 var CORE = [
   "./",
   "./index.html",
@@ -30,8 +30,11 @@ var PRECACHE = [
   "./anime.min.js",
   "./og-image.jpg",
   "./manifest.json",
+  "./favicon-64.png",
+  "./icon-apple.png",
   "./icon-192.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./icon-maskable.png"
 ];
 
 self.addEventListener("install", function (e) {
