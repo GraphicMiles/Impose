@@ -2004,6 +2004,9 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 .pop-item .tool-check { margin-left: auto; width: 16px; height: 16px; opacity: 0; color: var(--text-2); transition: opacity 120ms ease; }
 .pop-item[aria-checked="true"] .tool-check { opacity: 1; }
 .pop-item[aria-checked="true"] span { color: var(--text); }
+.pop-item.soon { opacity: 0.55; }
+.soon-pill { margin-left: auto; font-style: normal; font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em;
+  padding: 2px 8px; border-radius: 999px; background: var(--border-soft); color: var(--text-2); }
 
 </style>
 <style>
@@ -2661,11 +2664,8 @@ try {
   <div class="composer" id="composer">
     <textarea id="input" rows="1" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
     <div class="composer-row">
-      <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
+      <button class="icon-btn" id="searchBtn" title="Assistant tools" aria-label="Assistant tools" aria-haspopup="menu">
         <i data-lucide="plus"></i>
-      </button>
-      <button class="icon-btn" id="searchBtn" title="Deep search the web" aria-label="Deep search the web" aria-pressed="false">
-        <i data-lucide="search"></i>
       </button>
       <span id="tokEst" class="tok-est" title="Estimated tokens" hidden></span>
       <div class="composer-spacer"></div>
@@ -2733,14 +2733,21 @@ try {
 
 <div class="pop pop-sm" id="toolMenu" role="menu" aria-label="Assistant tools" hidden>
   <p class="pop-label">Tools</p>
+  <button class="pop-item" id="toolAttach" type="button" role="menuitem">
+    <i data-lucide="image-plus"></i><span>Add photos</span>
+  </button>
   <button class="pop-item" id="toolWeb" type="button" role="menuitemcheckbox" aria-checked="false">
     <i data-lucide="globe"></i><span>Web search</span><i data-lucide="check" class="tool-check"></i>
   </button>
-  <button class="pop-item" id="toolPhotos" type="button" role="menuitemcheckbox" aria-checked="true">
-    <i data-lucide="image"></i><span>Photo galleries</span><i data-lucide="check" class="tool-check"></i>
+  <div class="pop-sep" role="separator"></div>
+  <button class="pop-item soon" id="toolImgGen" type="button" role="menuitem" aria-disabled="true">
+    <i data-lucide="sparkles"></i><span>Image gen</span><em class="soon-pill">Soon</em>
   </button>
-  <button class="pop-item" id="toolFollow" type="button" role="menuitemcheckbox" aria-checked="true">
-    <i data-lucide="message-circle"></i><span>Smart follow-ups</span><i data-lucide="check" class="tool-check"></i>
+  <button class="pop-item soon" id="toolVidGen" type="button" role="menuitem" aria-disabled="true">
+    <i data-lucide="clapperboard"></i><span>Video gen</span><em class="soon-pill">Soon</em>
+  </button>
+  <button class="pop-item soon" id="toolGit" type="button" role="menuitem" aria-disabled="true">
+    <i data-lucide="git-branch"></i><span>Code x Git</span><em class="soon-pill">Soon</em>
   </button>
 </div>
 <div class="pop pop-sm" id="accountMenu" role="menu" aria-label="Account" hidden>
@@ -7349,16 +7356,16 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function syncSearchBtn() {
-    var on = !!state.settings.searchMode;
+    /* The tools button wears one face: plus. The menu carries the state. */
     var btn = $("searchBtn");
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.title = on ? "Web search is on" : "Assistant tools";
-    var face = on ? "globe" : "search";
-    if (btn.getAttribute("data-face") !== face) {
-      btn.setAttribute("data-face", face);
-      btn.innerHTML = '<i data-lucide="' + face + '"></i>';
-      refreshIcons();
-    }
+    if (btn.getAttribute("data-face") === "plus") return;
+    btn.setAttribute("data-face", "plus");
+    btn.innerHTML = '<i data-lucide="plus"></i>';
+    btn.title = "Assistant tools";
+    btn.setAttribute("aria-label", "Assistant tools");
+    btn.setAttribute("aria-haspopup", "menu");
+    btn.removeAttribute("aria-pressed");
+    refreshIcons();
   }
 
   function fetchSearchViaRelay(query, limit, signal) {
@@ -9259,7 +9266,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
   }
 
-  $("attachBtn").addEventListener("click", function () { filePicker.click(); });
   filePicker.addEventListener("change", function () {
     var files = filePicker.files;
     filePicker.value = "";
@@ -9687,24 +9693,26 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   function syncToolMenu() {
     var web = !!state.settings.searchMode;
-    var photos = state.settings.imageTools !== false;
-    var follow = !!state.settings.followupsSmart;
     $("toolWeb").setAttribute("aria-checked", web ? "true" : "false");
-    $("toolPhotos").setAttribute("aria-checked", photos ? "true" : "false");
-    $("toolFollow").setAttribute("aria-checked", follow ? "true" : "false");
   }
 
   function toggleTool(setting, btn) {
     state.settings[setting] = !state.settings[setting];
     save();
     syncToolMenu();
-    syncSearchBtn();
     if (setting === "searchMode" && state.settings.searchMode) warmRelay();
     dnote("chat", (btn || setting) + " " + (state.settings[setting] ? "on" : "off"));
   }
   $("toolWeb").addEventListener("click", function () { toggleTool("searchMode", "web-search"); });
-  $("toolPhotos").addEventListener("click", function () { toggleTool("imageTools", "photo-galleries"); });
-  $("toolFollow").addEventListener("click", function () { toggleTool("followupsSmart", "follow-ups"); });
+  $("toolAttach").addEventListener("click", function () {
+    hidePop(true);
+    filePicker.click();
+  });
+  [["toolImgGen", "Image generation"], ["toolVidGen", "Video generation"], ["toolGit", "Code x Git"]].forEach(function (pair) {
+    $(pair[0]).addEventListener("click", function () {
+      toast(pair[1] + " is coming soon.");
+    });
+  });
 
   $("settingsClose").addEventListener("click", function () { closeModal(settingsModal); });
   settingsModal.addEventListener("pointerdown", function (e) {

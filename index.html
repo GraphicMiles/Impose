@@ -156,11 +156,8 @@ try {
   <div class="composer" id="composer">
     <textarea id="input" rows="1" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
     <div class="composer-row">
-      <button class="icon-btn" id="attachBtn" title="Attach files" aria-label="Attach files">
+      <button class="icon-btn" id="searchBtn" title="Assistant tools" aria-label="Assistant tools" aria-haspopup="menu">
         <i data-lucide="plus"></i>
-      </button>
-      <button class="icon-btn" id="searchBtn" title="Deep search the web" aria-label="Deep search the web" aria-pressed="false">
-        <i data-lucide="search"></i>
       </button>
       <span id="tokEst" class="tok-est" title="Estimated tokens" hidden></span>
       <div class="composer-spacer"></div>
@@ -228,14 +225,21 @@ try {
 
 <div class="pop pop-sm" id="toolMenu" role="menu" aria-label="Assistant tools" hidden>
   <p class="pop-label">Tools</p>
+  <button class="pop-item" id="toolAttach" type="button" role="menuitem">
+    <i data-lucide="image-plus"></i><span>Add photos</span>
+  </button>
   <button class="pop-item" id="toolWeb" type="button" role="menuitemcheckbox" aria-checked="false">
     <i data-lucide="globe"></i><span>Web search</span><i data-lucide="check" class="tool-check"></i>
   </button>
-  <button class="pop-item" id="toolPhotos" type="button" role="menuitemcheckbox" aria-checked="true">
-    <i data-lucide="image"></i><span>Photo galleries</span><i data-lucide="check" class="tool-check"></i>
+  <div class="pop-sep" role="separator"></div>
+  <button class="pop-item soon" id="toolImgGen" type="button" role="menuitem" aria-disabled="true">
+    <i data-lucide="sparkles"></i><span>Image gen</span><em class="soon-pill">Soon</em>
   </button>
-  <button class="pop-item" id="toolFollow" type="button" role="menuitemcheckbox" aria-checked="true">
-    <i data-lucide="message-circle"></i><span>Smart follow-ups</span><i data-lucide="check" class="tool-check"></i>
+  <button class="pop-item soon" id="toolVidGen" type="button" role="menuitem" aria-disabled="true">
+    <i data-lucide="clapperboard"></i><span>Video gen</span><em class="soon-pill">Soon</em>
+  </button>
+  <button class="pop-item soon" id="toolGit" type="button" role="menuitem" aria-disabled="true">
+    <i data-lucide="git-branch"></i><span>Code x Git</span><em class="soon-pill">Soon</em>
   </button>
 </div>
 <div class="pop pop-sm" id="accountMenu" role="menu" aria-label="Account" hidden>

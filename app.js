@@ -2970,16 +2970,16 @@
   }
 
   function syncSearchBtn() {
-    var on = !!state.settings.searchMode;
+    /* The tools button wears one face: plus. The menu carries the state. */
     var btn = $("searchBtn");
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.title = on ? "Web search is on" : "Assistant tools";
-    var face = on ? "globe" : "search";
-    if (btn.getAttribute("data-face") !== face) {
-      btn.setAttribute("data-face", face);
-      btn.innerHTML = '<i data-lucide="' + face + '"></i>';
-      refreshIcons();
-    }
+    if (btn.getAttribute("data-face") === "plus") return;
+    btn.setAttribute("data-face", "plus");
+    btn.innerHTML = '<i data-lucide="plus"></i>';
+    btn.title = "Assistant tools";
+    btn.setAttribute("aria-label", "Assistant tools");
+    btn.setAttribute("aria-haspopup", "menu");
+    btn.removeAttribute("aria-pressed");
+    refreshIcons();
   }
 
   function fetchSearchViaRelay(query, limit, signal) {
@@ -4880,7 +4880,6 @@
     });
   }
 
-  $("attachBtn").addEventListener("click", function () { filePicker.click(); });
   filePicker.addEventListener("change", function () {
     var files = filePicker.files;
     filePicker.value = "";
@@ -5308,24 +5307,26 @@
 
   function syncToolMenu() {
     var web = !!state.settings.searchMode;
-    var photos = state.settings.imageTools !== false;
-    var follow = !!state.settings.followupsSmart;
     $("toolWeb").setAttribute("aria-checked", web ? "true" : "false");
-    $("toolPhotos").setAttribute("aria-checked", photos ? "true" : "false");
-    $("toolFollow").setAttribute("aria-checked", follow ? "true" : "false");
   }
 
   function toggleTool(setting, btn) {
     state.settings[setting] = !state.settings[setting];
     save();
     syncToolMenu();
-    syncSearchBtn();
     if (setting === "searchMode" && state.settings.searchMode) warmRelay();
     dnote("chat", (btn || setting) + " " + (state.settings[setting] ? "on" : "off"));
   }
   $("toolWeb").addEventListener("click", function () { toggleTool("searchMode", "web-search"); });
-  $("toolPhotos").addEventListener("click", function () { toggleTool("imageTools", "photo-galleries"); });
-  $("toolFollow").addEventListener("click", function () { toggleTool("followupsSmart", "follow-ups"); });
+  $("toolAttach").addEventListener("click", function () {
+    hidePop(true);
+    filePicker.click();
+  });
+  [["toolImgGen", "Image generation"], ["toolVidGen", "Video generation"], ["toolGit", "Code x Git"]].forEach(function (pair) {
+    $(pair[0]).addEventListener("click", function () {
+      toast(pair[1] + " is coming soon.");
+    });
+  });
 
   $("settingsClose").addEventListener("click", function () { closeModal(settingsModal); });
   settingsModal.addEventListener("pointerdown", function (e) {
