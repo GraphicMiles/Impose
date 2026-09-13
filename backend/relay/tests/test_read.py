@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # backend/
 os.environ.setdefault("CONTROL_KEY", "test123")
 
+from relay import server  # noqa: E402
 from relay.server import app, html_to_text  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -114,3 +115,56 @@ def test_read_requires_url_key():
 def test_read_bad_json_is_400():
     r = client.post("/v1/read", headers=H, content=b"{nope")
     assert r.status_code == 400
+
+
+def test_read_follows_relative_redirects_and_uses_cache(monkeypatch):
+    page = ("<html><head><title>Final</title></head><body><article>"
+            "<p>Enough final page content to extract normally after a relative redirect.</p>"
+            "<a href='child'>Child page</a></article></body></html>")
+
+    class FakeResponse:
+        def __init__(self, status, headers, text=""):
+            self.status_code = status
+            self.headers = headers
+            self.text = text
+            self.content = text.encode()
+
+    responses = [
+        FakeResponse(302, {"location": "/new/final", "content-type": "text/html"}),
+        FakeResponse(200, {"content-type": "text/html"}, page),
+    ]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.calls = []
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def get(self, url, **kwargs):
+            self.calls.append(url)
+            return responses.pop(0)
+
+    fake = FakeClient()
+    resolved = []
+    def resolve(host):
+        resolved.append(host)
+        return ["203.0.113.9"]
+    monkeypatch.setattr(server, "_resolve_public_ips", resolve)
+    monkeypatch.setattr(server.httpx, "AsyncClient", lambda *a, **k: fake)
+    server._CACHE.clear()
+    requested = "https://example.com/old/start"
+
+    r = client.post("/v1/read", headers=H, json={"url": requested})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["url"] == "https://example.com/new/final"
+    assert data["refs"][0]["url"] == "https://example.com/new/child"
+    assert len(fake.calls) == 2
+    resolved_before_cache = len(resolved)
+
+    # A second read must return the memo before DNS or network access.
+    r2 = client.post("/v1/read", headers=H, json={"url": requested})
+    assert r2.status_code == 200
+    assert len(fake.calls) == 2
+    assert len(resolved) == resolved_before_cache

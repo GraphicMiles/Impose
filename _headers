@@ -1,10 +1,12 @@
-# Render static custom headers. The CSP turns XSS bugs into non-events:
+# Static-host custom headers mirror. The CSP reduces the impact of XSS bugs:
 # scripts only from this origin plus the analytics beacon, and the two
 # first-paint inline scripts in index.html by exact content hash. If you
 # edit those inline scripts, recompute their hashes:
-#   python3 -c "import hashlib,re;print(['sha256-'+hashlib.sha256(b).hexdigest() for b in re.findall(r'<script>(.*?)</script>', open('index.html').read(), re.S)])"
+#   python3 -c "import base64,hashlib,re;print(['sha256-'+base64.b64encode(hashlib.sha256(b).digest()).decode() for b in re.findall(rb'<script>(.*?)</script>', open('index.html','rb').read(), re.S)])"
+# Render does not read this Netlify-style file; the same rules are declared
+# in render.yaml for the deployed static site.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-8cad3b878032725417ae8803d0d6e758b223a173a0e4d0fc01a2ceb9cca24f0f' 'sha256-163d11427d8f7903fea50bd13eb73d7216a918cc19759f4ef9c67619efd29c74' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-jK07h4AyclQXrogD0NbnWLIjoXOg5ND8AaLOucyiTw8=' 'sha256-Fj0RQn2PeQP+pQvRPrc9chapGMwZdZ9O+cZ2Ge/SnHQ=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(self), geolocation=()

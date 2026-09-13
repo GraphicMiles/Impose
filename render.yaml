@@ -4,11 +4,26 @@ services:
   - type: web
     name: impose-web
     env: static
-    # sw.js, the manifest, the icons and _headers ship too: without them the
-    # service worker never registers, the app is not installable, and the
-    # CSP never applies. Keep this list in sync with new root files.
+    # Ship the service worker, manifest, icons, and the legacy _headers mirror.
+    # Render's actual response headers are declared below. Keep this file list
+    # in sync with new root assets.
     buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js anime.min.js og-image.jpg manifest.json sw.js _headers dist/ && cp icon-*.png dist/ && cp agent/*.js agent/*.css dist/agent/
     staticPublishPath: ./dist
+    # Render ignores Netlify-style _headers files. Declare production headers
+    # in the Blueprint so they are actually present on the deployed site.
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self' 'sha256-jK07h4AyclQXrogD0NbnWLIjoXOg5ND8AaLOucyiTw8=' 'sha256-Fj0RQn2PeQP+pQvRPrc9chapGMwZdZ9O+cZ2Ge/SnHQ=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'"
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: "camera=(), microphone=(self), geolocation=()"
   - type: web
     name: impose-relay
     runtime: python
@@ -29,7 +44,7 @@ services:
         # domains here (comma separated) if you host the UI elsewhere.
         value: "https://impose-web.onrender.com"
       - key: WAKE_STUDIO
-        value: "0"                   # set "1" to let the relay start/stop the Studio
+        value: "1"                   # requires the LIGHTNING_* values below
       - key: WAKE_ON_CHAT
         value: "1"                   # wake the model when a request finds it down
       - key: IDLE_MONITOR
