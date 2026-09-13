@@ -16,6 +16,10 @@ function extractFunction(name, nextMarker) {
 var readSSE = extractFunction("readSSE", "\n\n  /* opts:");
 var safeImportedId = extractFunction("safeImportedId", "\n\n  function safeHttpUrl");
 var safeHttpUrl = extractFunction("safeHttpUrl", "\n\n  function normalizeImportedMessage");
+var sanitizeLogDetail = extractFunction("sanitizeLogDetail", "\n\n  function debugRow");
+var detailOf = extractFunction("detailOf", "\n\n  /* Someone else's HTTP code");
+global.detailOf = detailOf;
+var explain = extractFunction("explain", "\n\n  function fetchSentence");
 var tests = [];
 function test(name, fn) { tests.push([name, fn]); }
 function ok(value, message) { if (!value) throw new Error(message || "expected truthy"); }
@@ -45,6 +49,21 @@ test("import URLs allow only HTTP and HTTPS", async function () {
   ok(/^https:\/\//.test(safeHttpUrl("https://example.com/a")), "https kept");
   ok(safeHttpUrl("javascript:alert(1)") === "", "javascript rejected");
   ok(safeHttpUrl("data:text/html,boom") === "", "data rejected");
+});
+
+test("provider logs redact account IDs and credentials", async function () {
+  var fakeCredential = "gsk_" + "x".repeat(24);
+  var clean = sanitizeLogDetail("organization org_01abc token " + fakeCredential);
+  ok(clean.indexOf("org_01abc") === -1, "organization id redacted");
+  ok(clean.indexOf(fakeCredential) === -1, "credential redacted");
+});
+
+test("Groq token 413 is not mislabeled as chat length", async function () {
+  var payload = JSON.stringify({ error: { message: "Request too large on tokens per minute (TPM): Limit 6000, Requested 9000" } });
+  var sentence = explain({ kind: "openai", label: "Groq", baseUrl: "https://api.groq.com" }, 413, payload, "m");
+  ok(sentence.indexOf("Groq rejected") === 0, "provider named");
+  ok(sentence.indexOf("token allowance") > -1, "token cause explained");
+  ok(sentence.indexOf("Start a new chat") === -1, "misleading old remedy removed");
 });
 
 test("accepts explicit DONE", async function () {

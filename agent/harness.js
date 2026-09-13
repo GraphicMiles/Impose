@@ -24,6 +24,28 @@
     return s.trim();
   }
 
+  /* Keep enough of both ends to preserve a question wrapped around pasted
+     material. The marker tells the model that the middle is unavailable. */
+  function compactResearchText(text, maxChars) {
+    var value = String(text || "").trim();
+    var limit = Math.max(200, Number(maxChars) || 6000);
+    if (value.length <= limit) return value;
+    var marker = "\n[Middle of long request omitted for provider limits.]\n";
+    var side = Math.floor((limit - marker.length) / 2);
+    return value.slice(0, side).trimEnd() + marker + value.slice(-side).trimStart();
+  }
+
+  /* Planning can fail before producing a query. Never pass a whole pasted
+     document to a search engine as the fallback. */
+  function fallbackSearchQuery(text) {
+    var simplified = simplifyQuery(text);
+    if (simplified.length <= 240) return simplified;
+    var words = simplified.split(" ");
+    var compact = words.slice(0, 12).concat(words.slice(-12)).join(" ");
+    if (compact.length <= 240) return compact;
+    return (compact.slice(0, 119) + " " + compact.slice(-120)).trim();
+  }
+
   /* Does this request want pictures? Needs an image noun plus a request
      frame, so "who is Mark Rober" stays a plain search while "show me 4
      images of Mark Rober" flips the gallery on. */
@@ -155,13 +177,14 @@
       var tool;
       try { tool = resolve("search"); }
       catch (e) { return Promise.reject(e); }
-      var question = deps.query;
+      var question = String(deps.query || "");
+      var modelQuestion = compactResearchText(question, 6000);
+      var context = compactResearchText(deps.context || "", 2000);
       var imagesFn = (typeof deps.images === "function") ? function () {
         try { return resolve("images"); } catch (e) { return null; }
       }() : null;
       var wantImages = !!(imagesFn && (deps.forceImages || looksLikeImageRequest(question)));
-      var ctxBlock = deps.context && String(deps.context).trim()
-        ? "Conversation so far:\n" + String(deps.context).trim() + "\n\n" : "";
+      var ctxBlock = context ? "Conversation so far:\n" + context + "\n\n" : "";
       function withContext(q) { return ctxBlock + "Question: " + q; }
       function abortErr() {
         var err = new Error("stopped");
@@ -182,13 +205,17 @@
         return String(ans).replace(/^QUERY:\s*/i, "").trim().slice(0, 200);
       }
       function plan() {
-        if (typeof deps.rewrite !== "function") return Promise.resolve(question);
+        var fallback = fallbackSearchQuery(modelQuestion);
+        if (typeof deps.rewrite !== "function") return Promise.resolve(fallback);
         deps.emit({ t: "status", text: "Planning the search" });
-        return Promise.resolve().then(function () { return deps.rewrite(question, deps.context || ""); }).then(function (q) {
+        return Promise.resolve().then(function () { return deps.rewrite(modelQuestion, context); }).then(function (q) {
           q = q == null ? "" : String(q).trim();
-          if (!q || q.length > 500) return question;
+          if (!q || q.length > 500) return fallback;
           return q;
-        }, function () { return question; });
+        }, function () { return fallback; });
+      }
+      if (modelQuestion !== question.trim()) {
+        deps.emit({ t: "status", text: "Condensing a long request for research" });
       }
       return plan().then(function (planned) {
         if (deps.signal && deps.signal.aborted) throw abortErr();
@@ -269,7 +296,7 @@
             var lines = rows.slice(0, 8).map(function (r, i) {
               return (i + 1) + ". " + (r.title || "") + " [" + domainOf(r.url) + "] " + String(r.snippet || "").slice(0, 120);
             }).join("\n");
-            return askCritic("Request: " + question + "\nThe web search returned these sources:\n" + lines +
+            return askCritic("Request: " + modelQuestion + "\nThe web search returned these sources:\n" + lines +
               "\nAre these sources on topic and enough to answer the request well? " +
               "Answer exactly SUFFICIENT if they are. If not, answer exactly QUERY: followed by one better web search query.")
               .then(function (ans) {
@@ -298,7 +325,7 @@
                 "Say so in one short line, then answer from your own knowledge anyway. " +
                 "Never refuse a question you can answer, and never ask the user to provide evidence. Use the conversation to resolve names and pronouns." +
                 galleryNote();
-              return deps.complete(bare, withContext(question), deps.onDelta, deps.onThink).then(function () {
+              return deps.complete(bare, withContext(modelQuestion), deps.onDelta, deps.onThink).then(function () {
                 return { sources: [], provider: out.provider || "", images: gallery ? gallery.images : null };
               });
             });
@@ -364,7 +391,7 @@
                 });
                 if (picked.length) {
                   galleryFailed = false;
-                  gallery = { images: picked, provider: "page", query: question };
+                  gallery = { images: picked, provider: "page", query: planned };
                   deps.emit({ t: "images", n: picked.length, provider: "page", images: picked });
                 }
               }
@@ -377,7 +404,7 @@
                 "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
                 "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns." +
                 galleryNote();
-              return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + evidence, deps.onDelta, deps.onThink).then(function () {
+              return deps.complete(system, withContext(modelQuestion) + "\n\nEvidence:\n" + evidence, deps.onDelta, deps.onThink).then(function () {
                 return { sources: results, provider: out.provider, read: pages.filter(Boolean).length,
                          images: gallery ? gallery.images : null };
               });
@@ -411,6 +438,8 @@
   var api = {
     createHarness: createHarness,
     simplifyQuery: simplifyQuery,
+    compactResearchText: compactResearchText,
+    fallbackSearchQuery: fallbackSearchQuery,
     looksLikeImageRequest: looksLikeImageRequest,
     imageSubject: imageSubject,
     imagesTool: imagesTool,

@@ -55,6 +55,26 @@ test("simplifyQuery strips framing", function () {
   eq(H.simplifyQuery("???"), "", "empty");
 });
 
+test("long research text preserves bounded beginning and end", function () {
+  var text = "question at the beginning " + "middle ".repeat(2000) + "answer target at the end";
+  var compact = H.compactResearchText(text, 6000);
+  ok(compact.length <= 6000, "model input is bounded");
+  ok(compact.indexOf("question at the beginning") === 0, "beginning kept");
+  ok(compact.indexOf("answer target at the end") > -1, "end kept");
+  ok(compact.indexOf("omitted for provider limits") > -1, "omission is explicit");
+});
+
+test("fallback search query is short and keeps both ends", function () {
+  var query = "opening subject " + "filler ".repeat(200) + "closing target";
+  var fallback = H.fallbackSearchQuery(query);
+  ok(fallback.length <= 240, "search query is bounded");
+  ok(fallback.indexOf("opening subject") === 0, "opening kept");
+  ok(fallback.indexOf("closing target") > -1, "closing kept");
+  var unbroken = H.fallbackSearchQuery("start " + "x".repeat(1000) + " closing-target");
+  ok(unbroken.length <= 240 && unbroken.indexOf("closing-target") > -1,
+    "unbroken pasted data cannot displace the ending");
+});
+
 test("domainOf reads hosts", function () {
   eq(H.domainOf("https://www.jumia.com.ng/x"), "jumia.com.ng", "host");
   eq(H.domainOf("garbage"), "", "garbage");
@@ -306,6 +326,27 @@ test("runAgent falls back to raw words when rewrite fails", function () {
     complete: function () { return Promise.resolve(); }
   }).then(function () {
     eq(s.calls[0][0], "phones under 300k", "raw query searched");
+  });
+});
+
+test("runAgent bounds a long query when planning fails", function () {
+  var longQuery = "Find policy changes " + "pasted material ".repeat(2000) + "Nigeria tax reform 2026";
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "x" }] }]);
+  var plannerInput = "";
+  var answerInput = "";
+  return H.harness.runAgent({
+    query: longQuery,
+    rewrite: function (q) { plannerInput = q; return Promise.reject(new Error("provider 413")); },
+    search: s.fn,
+    emit: function () {},
+    onDelta: function () {},
+    complete: function (system, user) { answerInput = user; return Promise.resolve(); }
+  }).then(function () {
+    ok(plannerInput.length <= 6000, "planner input bounded");
+    ok(s.calls[0][0].length <= 240, "fallback query bounded");
+    ok(s.calls[0][0].indexOf("Nigeria tax reform 2026") > -1, "fallback keeps the final question");
+    ok(answerInput.indexOf("omitted for provider limits") > -1, "answer sees explicit compaction marker");
+    ok(answerInput.length < longQuery.length, "full pasted document is not resent");
   });
 });
 
