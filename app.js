@@ -189,11 +189,17 @@
       catch (e) { return null; }
     },
     write: function (v) {
+      /* Let save() see quota failures so it can trim old images and retry.
+         SecurityError (for example a sandboxed preview with storage blocked)
+         is harmless: state remains available in memory for this tab. */
       try {
         window.localStorage.setItem(STORE_KEY, v);
         window.localStorage.removeItem(LEGACY_STORE_KEY);
       }
-      catch (e) { /* sandboxed iframe: keep everything in memory */ }
+      catch (e) {
+        var quota = e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014);
+        if (quota) throw e;
+      }
     }
   };
 
@@ -805,9 +811,16 @@
   }
 
   function relayCfg() {
-    var url = ($("pfRelayUrl").value || "").trim() || (state.settings.relayUrl || "").trim();
-    var key = ($("pfRelayKey").value || "").trim() || (state.settings.relayKey || "").trim();
-    return { url: url, key: key };
+    /* Draft fields belong to the provider editor only while it is open.
+       Otherwise a cancelled edit must not silently replace the saved relay
+       for chat, search, health checks, or the status card. */
+    var editing = $("providerModal") && $("providerModal").classList.contains("open") && !$("providerForm").hidden;
+    var url = editing ? ($("pfRelayUrl").value || "").trim() : "";
+    var key = editing ? ($("pfRelayKey").value || "").trim() : "";
+    return {
+      url: url || (state.settings.relayUrl || "").trim(),
+      key: key || (state.settings.relayKey || "").trim()
+    };
   }
 
   function relayRefusal(code, payload) {
@@ -1292,9 +1305,10 @@
     req.headers["Content-Type"] = "application/json";
     body = {
       model: model,
-      messages: [{ role: "system", content: SYS_MSG }].concat(history),
+      messages: [{ role: "system", content: sys }].concat(history),
       stream: true
     };
+    if (F) F.applyGenParams(body, "openai", opts.genParams);
     return fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body), signal: signal })
       .then(function (res) {
         return throwIfHttpError(provider, model, res).then(function () {
@@ -6691,6 +6705,8 @@
       return;
     }
     wake.hidden = !cfg.key; /* waking the model is an owner move */
+    wake.disabled = false;
+    wake.title = "Wake the model";
     dot.className = "relay-dot busy";
     title.textContent = "Checking the relay...";
     sub.textContent = stripSlash(cfg.url);
@@ -6716,13 +6732,19 @@
       return r.json();
     }).then(function (d) {
       var out = window.ImposeFeatures.formatRelayStatus(d);
-      dot.className = "relay-dot " + (out.up ? "ok" : "bad");
+      dot.className = "relay-dot " + (out.up ? "ok" : out.waking ? "busy" : "bad");
       title.textContent = out.text;
-      sub.textContent = stripSlash(cfg.url);
-    }, function () {
+      sub.textContent = (d && d.note) ? d.note : stripSlash(cfg.url);
+      var cannotWake = d && d.gateway_up !== true &&
+        (d.gateway_configured === false || d.wake_studio === false || d.wake_configured === false);
+      wake.disabled = !!cannotWake || !!(d && d.waking);
+      if (cannotWake && d.note) wake.title = d.note;
+      else if (d && d.waking) wake.title = "A wake is already in progress";
+    }, function (err) {
       dot.className = "relay-dot bad";
-      title.textContent = "Relay unreachable";
+      title.textContent = String(err && err.message) === "401" ? "Relay key rejected" : "Relay unreachable";
       sub.textContent = stripSlash(cfg.url);
+      wake.disabled = false;
     });
   }
 
@@ -6735,12 +6757,23 @@
       headers: { "Authorization": "Bearer " + cfg.key },
       signal: withTimeout(9000)
     }).then(function (r) {
-      return r.json();
-    }).then(function (d) {
-      if (d && d.llm_up) toast.success("The model is already up.");
-      else toast("Wake request sent. First reply lands in 1 to 3 minutes.", null, null, 4200);
+      return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; }, function () {
+        return { ok: r.ok, status: r.status, data: {} };
+      });
+    }).then(function (env) {
+      var d = env.data || {};
+      if (!env.ok) throw new Error(d.detail || d.note || ("Wake failed (" + env.status + ")."));
+      if (d.llm_up) toast.success("The model is already up.");
+      else if (d.woke) toast("Wake request sent. First reply usually lands in 1 to 3 minutes.", null, null, 4200);
+      else throw new Error(d.note || "The relay did not start a wake.");
+      dnote("relay", d.llm_up ? "Model already up" : "Wake request accepted");
       renderRelayCard();
-    }, function () { toast.error("Could not reach the relay."); });
+    }, function (err) {
+      var msg = err && err.name === "AbortError" ? "The relay did not answer in time." : String((err && err.message) || "Could not reach the relay.");
+      dfail("relay", msg);
+      toast.error(msg);
+      renderRelayCard();
+    });
   });
 
   /* ---------- per chat generation settings ---------- */

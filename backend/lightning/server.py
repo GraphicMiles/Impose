@@ -41,6 +41,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -90,6 +91,7 @@ app.add_middleware(
 )
 STARTED_AT = time.time()
 LLM_PROC = None
+_spawn_lock = threading.Lock()
 
 
 def _reap_llm() -> None:
@@ -144,51 +146,80 @@ def llm_reachable() -> bool:
         return False
 
 
+def _model_path() -> Path:
+    """Resolve relative model paths from the gateway directory, not its cwd."""
+    path = Path(LLM_MODEL).expanduser()
+    return path.resolve() if path.is_absolute() else (BASE_DIR / path).resolve()
+
+
 def spawn_llm() -> bool:
-    """Start llama-server as a detached subprocess if it is not answering."""
+    """Start one llama-server process if it is not already answering."""
     global LLM_PROC
-    if llm_reachable():
-        return True
-    if not LLM_MODEL:
-        return False
-    cmd = [
-        "llama-server",
-        "-m", LLM_MODEL,
-        "--host", "127.0.0.1",
-        "--port", "8080",
-        "-c", LLM_CONTEXT,
-        "-ngl", LLM_NGL,
-        "--parallel", "1",
-        "--alias", LLM_ALIAS,
-    ]
-    if LLM_API_KEY:
-        cmd += ["--api-key", LLM_API_KEY]
-    log = open(BASE_DIR / "llama-server.log", "ab")
-    try:
-        LLM_PROC = subprocess.Popen(
-            cmd, cwd=str(Path(LLM_MODEL).parent) if "/" in LLM_MODEL else str(BASE_DIR),
-            stdout=log, stderr=log, start_new_session=True)
-    except FileNotFoundError:
-        # llama-server not on PATH, try the studio build path
-        found = False
-        for cand in (BASE_DIR / "llama-server", Path.home() / "llama.cpp/build/bin/llama-server"):
-            if cand.exists():
-                cmd[0] = str(cand)
-                LLM_PROC = subprocess.Popen(
-                    cmd, stdout=log, stderr=log, start_new_session=True)
-                found = True
-                break
-        if not found:
-            log.close()  # nobody will ever write through this handle
-    except Exception:
-        log.close()
-        raise
-    # give it a few seconds to bind
-    for _ in range(60):
+    with _spawn_lock:
         if llm_reachable():
             return True
-        time.sleep(1)
-    return llm_reachable()
+        if LLM_PROC is not None and LLM_PROC.poll() is None:
+            # Another request already launched a model that is still loading.
+            for _ in range(60):
+                if llm_reachable():
+                    return True
+                if LLM_PROC.poll() is not None:
+                    return False
+                time.sleep(1)
+            return llm_reachable()
+        if not LLM_MODEL:
+            return False
+        model_path = _model_path()
+        if not model_path.is_file():
+            print(f"[control-plane] model file not found: {model_path}", flush=True)
+            return False
+        cmd = [
+            "llama-server",
+            "-m", str(model_path),
+            "--host", "127.0.0.1",
+            "--port", "8080",
+            "-c", LLM_CONTEXT,
+            "-ngl", LLM_NGL,
+            "--parallel", "1",
+            "--alias", LLM_ALIAS,
+        ]
+        if LLM_API_KEY:
+            cmd += ["--api-key", LLM_API_KEY]
+        log = open(BASE_DIR / "llama-server.log", "ab")
+        started = False
+        try:
+            try:
+                LLM_PROC = subprocess.Popen(
+                    cmd, cwd=str(model_path.parent), stdout=log, stderr=log,
+                    start_new_session=True)
+                started = True
+            except FileNotFoundError:
+                # llama-server not on PATH, try the Studio build paths.
+                for cand in (BASE_DIR / "llama-server",
+                             Path.home() / "llama.cpp/build/bin/llama-server"):
+                    if cand.is_file():
+                        cmd[0] = str(cand)
+                        LLM_PROC = subprocess.Popen(
+                            cmd, cwd=str(model_path.parent), stdout=log,
+                            stderr=log, start_new_session=True)
+                        started = True
+                        break
+        finally:
+            # Popen duplicated the descriptor for the child; the gateway does
+            # not need to hold its own copy for the lifetime of the model.
+            log.close()
+        if not started:
+            print("[control-plane] llama-server binary not found", flush=True)
+            return False
+        # Give the model up to a minute to bind. Later requests can re-check a
+        # still-loading process without spawning a duplicate because of lock.
+        for _ in range(60):
+            if llm_reachable():
+                return True
+            if LLM_PROC is not None and LLM_PROC.poll() is not None:
+                return False
+            time.sleep(1)
+        return llm_reachable()
 
 
 # --------------------------------------------------------------------------- #
@@ -223,7 +254,7 @@ async def chat(request: Request):
         body = json.loads(raw)
     except Exception:
         raise HTTPException(status_code=400, detail="body must be JSON")
-    if not llm_reachable() and not spawn_llm():
+    if not await run_in_threadpool(llm_reachable) and not await run_in_threadpool(spawn_llm):
         raise HTTPException(status_code=503, detail="upstream LLM is down")
     req = httpx.Request("POST", f"{LLM_BASE_URL}/v1/chat/completions",
                         headers=_upstream_headers(), json=body)

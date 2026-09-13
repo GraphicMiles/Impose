@@ -35,12 +35,14 @@ import re
 import socket
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from relay.search import SearchFailed, engine_search
@@ -70,7 +72,32 @@ RESTART_SCRIPT = os.environ.get("RESTART_SCRIPT", "bash ~/impose/backend/lightni
 if not CONTROL_KEY:
     print("[relay] WARNING: no CONTROL_KEY, auth disabled (dev only)", flush=True)
 
-app = FastAPI(title="impose-relay")
+_lifecycle_lock = threading.Lock()
+_lifecycle_started = False
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    """Start background work whether launched with ``python`` or uvicorn.
+
+    Render imports ``relay.server:app`` directly, so setup hidden only in
+    main() never ran there. Keep this hook idempotent for tests and reloads.
+    """
+    global _lifecycle_started
+    with _lifecycle_lock:
+        if not _lifecycle_started:
+            _lifecycle_started = True
+            print(f"[relay] gateway: {GATEWAY_URL or 'UNSET'} | "
+                  f"auth: {'enabled' if CONTROL_KEY else 'DISABLED'} | "
+                  f"wake_studio: {WAKE_STUDIO}", flush=True)
+            if IDLE_MONITOR and WAKE_STUDIO:
+                threading.Thread(target=_idle_loop, daemon=True).start()
+                print(f"[relay] idle monitor every {IDLE_CHECK_MINUTES}m "
+                      f"(stop GPU after {IDLE_STOP_MINUTES}m idle)", flush=True)
+    yield
+
+
+app = FastAPI(title="impose-relay", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS or ["*"],
@@ -88,7 +115,8 @@ _waking = False
 # message slower and stampeded the box under load. Transport errors mark it
 # down at once; any successful probe marks it up.
 _GW_TTL = 10.0
-_gateway_state = {"up": None, "at": 0.0}
+_gateway_state = {"up": None, "llm_up": None, "at": 0.0,
+                  "status": None, "error": None}
 _state_lock = threading.Lock()
 
 # --- auth + proxy rate limiting (per client IP, in memory) ---
@@ -214,31 +242,67 @@ def _gateway_headers() -> dict:
 # --------------------------------------------------------------------------- #
 
 
+def _wake_missing() -> list[str]:
+    """Configuration fields needed before the relay can control a Studio."""
+    missing = []
+    for key in ("LIGHTNING_API_KEY", "LIGHTNING_STUDIO", "LIGHTNING_TEAMSPACE"):
+        if not os.environ.get(key, "").strip():
+            missing.append(key)
+    return missing
+
+
+def _gateway_snapshot() -> dict:
+    with _state_lock:
+        return dict(_gateway_state)
+
+
 def gateway_reachable(force: bool = False) -> bool:
-    """Whether the box gateway answers at all. Only a transport error (DNS,
-    connect, timeout) means it is down; any HTTP answer proves it is up.
-    Cached for a few seconds so every request is not a health poll."""
+    """Whether the real box gateway health endpoint answers correctly.
+
+    A CDN error page or an unrelated HTTP service is not a healthy gateway.
+    Cache probes briefly so concurrent chat requests do not stampede the box.
+    """
     if not GATEWAY_URL:
+        with _state_lock:
+            _gateway_state.update(up=False, llm_up=None, at=time.time(),
+                                  status=None, error="LLM_GATEWAY_URL is not set")
         return False
     now = time.time()
     with _state_lock:
-        if not force and _gateway_state["up"] is not None and now - _gateway_state["at"] < _GW_TTL:
+        if (not force and _gateway_state["up"] is not None
+                and now - _gateway_state["at"] < _GW_TTL):
             return bool(_gateway_state["up"])
+    up = False
+    llm_up = None
+    status = None
+    error = None
     try:
-        httpx.get(f"{GATEWAY_URL}/health", timeout=8.0)
-        up = True
-    except Exception:
-        up = False
+        response = httpx.get(f"{GATEWAY_URL}/health", timeout=8.0)
+        status = response.status_code
+        if response.status_code != 200:
+            error = f"gateway health returned HTTP {response.status_code}"
+        else:
+            try:
+                data = response.json()
+            except Exception:
+                data = None
+            if isinstance(data, dict) and data.get("ok") is True and data.get("service") == "impose-control-plane":
+                up = True
+                llm_up = data.get("llm_up") if isinstance(data.get("llm_up"), bool) else None
+            else:
+                error = "gateway health returned an unexpected response"
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {str(exc)[:180]}"
     with _state_lock:
-        _gateway_state["up"] = up
-        _gateway_state["at"] = now
+        _gateway_state.update(up=up, llm_up=llm_up, at=time.time(),
+                              status=status, error=error)
     return up
 
 
 def mark_gateway_down() -> None:
     with _state_lock:
-        _gateway_state["up"] = False
-        _gateway_state["at"] = time.time()
+        _gateway_state.update(up=False, llm_up=None, at=time.time(),
+                              error="gateway proxy request failed")
 
 
 def touch_activity() -> None:
@@ -329,8 +393,9 @@ def _wake_studio_once() -> bool:
     """1. Start the Studio if stopped. 2. Wait for Running. 3. Run the
     in-studio restart script (relaunches the gateway, whose watchdog spawns
     llama-server). 4. Poll the gateway until it answers."""
-    if not os.environ.get("LIGHTNING_API_KEY"):
-        print("[wake] lightning creds incomplete, set LIGHTNING_API_KEY", flush=True)
+    missing = _wake_missing()
+    if missing:
+        print("[wake] Lightning configuration incomplete: " + ", ".join(missing), flush=True)
         return False
     try:
         from lightning_sdk import Studio, Machine
@@ -370,13 +435,41 @@ def _wake_in_background() -> None:
     threading.Thread(target=wake_studio, daemon=True).start()
 
 
+def _start_gateway_llm() -> bool:
+    """Ask an already-running box gateway to start its local model."""
+    try:
+        response = httpx.post(f"{GATEWAY_URL}/admin/start-llm",
+                              headers=_gateway_headers(), timeout=90.0)
+        data = response.json() if response.status_code == 200 else {}
+        ok = data.get("llm_up") is True
+    except Exception as exc:
+        print(f"[wake] model start through gateway failed: {exc!r}", flush=True)
+        ok = False
+    with _state_lock:
+        _gateway_state["llm_up"] = ok
+        _gateway_state["at"] = time.time()
+    return ok
+
+
+def _start_gateway_llm_in_background() -> None:
+    threading.Thread(target=_start_gateway_llm, daemon=True).start()
+
+
 def _need_wake() -> None:
     """Raise the waking 503 (and kick a background wake) when the box is down."""
     if WAKE_ON_CHAT and WAKE_STUDIO:
+        missing = _wake_missing()
+        if missing:
+            raise HTTPException(status_code=503,
+                                detail="automatic wake is not configured: " + ", ".join(missing))
         _wake_in_background()
         raise HTTPException(status_code=503,
                             detail="model is waking up. Retry in a moment (usually 1-3 min)")
-    raise HTTPException(status_code=503, detail="upstream LLM is down")
+    if not WAKE_STUDIO:
+        raise HTTPException(status_code=503,
+                            detail="upstream LLM is down and automatic Studio wake is disabled")
+    raise HTTPException(status_code=503,
+                        detail="upstream LLM is down and wake on chat is disabled")
 
 
 # --------------------------------------------------------------------------- #
@@ -494,7 +587,12 @@ async def search_proxy(request: Request):
         raise HTTPException(status_code=400, detail="limit must be 1..20")
     if domains is not None and not isinstance(domains, list):
         raise HTTPException(status_code=400, detail="domains must be a list")
-    ckey = query.lower() + "|" + str(limit) + "|" + ",".join(sorted(domains or []))
+    domains = [str(d).strip().lower() for d in (domains or []) if str(d).strip()]
+    ckey = "|".join([
+        query.lower(), str(limit), ",".join(sorted(domains)),
+        str(freshness or "").lower(), str(language or "en").lower(),
+        str(region or "").lower(),
+    ])
     cached = _cache_get("search", ckey)
     if cached is not None:
         return cached
@@ -891,12 +989,16 @@ async def read_proxy(request: Request):
         raise HTTPException(status_code=400, detail="bad URL")
     if scheme not in ("http", "https") or user or not host:
         raise HTTPException(status_code=400, detail="URL must be http(s) with no credentials")
+    cached = _cache_get("read", url)
+    if cached is not None:
+        return cached
     ips = _resolve_public_ips(host)
     if not ips:
         raise HTTPException(status_code=400, detail="private or unresolvable host")
     # Manual redirect hops: every hop is SSRF checked again. Auto follow
     # would let a public page bounce us straight at an inside address.
     r = None
+    current_url = url
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
             for _hop in range(4):
@@ -912,12 +1014,15 @@ async def read_proxy(request: Request):
                                                           "User-Agent": "Mozilla/5.0 (compatible; ImposeAgent/1.0)"},
                                      extensions={"sni_hostname": host} if parts.scheme == "https" else {})
                 if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
-                    parts = urlparse(r.headers["location"])
+                    current_url = urljoin(current_url, r.headers["location"])
+                    parts = urlparse(current_url)
                     scheme, user, host = parts.scheme, parts.username, parts.hostname
                     if scheme not in ("http", "https") or user or not host:
                         raise HTTPException(status_code=400, detail="redirect to a bad URL")
                     continue
                 break
+            else:
+                raise HTTPException(status_code=502, detail="too many redirects")
     except HTTPException:
         raise
     except httpx.TimeoutException:
@@ -928,28 +1033,51 @@ async def read_proxy(request: Request):
     if len(r.content) > _FETCH_BODY_CAP:
         raise HTTPException(status_code=502, detail="target response too large")
     if "html" not in ctype and "text" not in ctype and ctype:
-        return {"url": url, "status": r.status_code, "title": "", "text": "",
+        return {"url": current_url, "status": r.status_code, "title": "", "text": "",
                 "note": "the page is not text (" + ctype.split(";")[0] + ")"}
-    cached = _cache_get("read", url)
-    if cached is not None:
-        return cached
-    page = html_to_text(r.text, base_url=url)
-    out = {"url": url, "status": r.status_code, "title": page["title"],
+    page = html_to_text(r.text, base_url=current_url)
+    out = {"url": current_url, "status": r.status_code, "title": page["title"],
            "text": page["text"], "meta": page["meta"], "refs": page["refs"],
            "images": page["images"]}
     _cache_put("read", url, out, 300.0)
     return out
 
 
+def _status_note(gateway_up: bool, snap: dict, missing: list[str]) -> str:
+    if gateway_up:
+        if snap.get("llm_up") is False:
+            return "The gateway is online but its model process is not ready."
+        return ""
+    if not GATEWAY_URL:
+        return "Set LLM_GATEWAY_URL to the Lightning gateway root (without /v1)."
+    if not WAKE_STUDIO:
+        return "Set WAKE_STUDIO=1 and add the Lightning credentials to enable automatic wake."
+    if missing:
+        return "Missing wake configuration: " + ", ".join(missing) + "."
+    if snap.get("error"):
+        return "Gateway probe failed: " + str(snap["error"])
+    return "The configured gateway did not answer."
+
+
 @app.get("/admin/status")
 def admin_status(request: Request):
     _authed(request)
-    return {"gateway_up": gateway_reachable(force=True),
+    gateway_up = gateway_reachable(force=True)
+    snap = _gateway_snapshot()
+    missing = _wake_missing()
+    return {"gateway_up": gateway_up,
+            "llm_up": snap.get("llm_up") if gateway_up else False,
+            "gateway_configured": bool(GATEWAY_URL),
+            "gateway_http_status": snap.get("status"),
+            "gateway_error": snap.get("error"),
             "idle_minutes": round(idle_minutes(), 1),
             "idle_stop_minutes": IDLE_STOP_MINUTES,
-            "idle_monitor": IDLE_MONITOR,
+            "idle_monitor": IDLE_MONITOR and WAKE_STUDIO,
             "wake_on_chat": WAKE_ON_CHAT,
             "wake_studio": WAKE_STUDIO,
+            "wake_configured": WAKE_STUDIO and not missing,
+            "waking": _waking,
+            "note": _status_note(gateway_up, snap, missing),
             "uptime_seconds": round(time.time() - STARTED_AT, 1)}
 
 
@@ -959,16 +1087,38 @@ def admin_wake(request: Request, background: bool = False):
     `?background=1` it returns immediately and the wake continues server-side."""
     _authed(request)
     if gateway_reachable():
-        return {"llm_up": True, "woke": False}
-    if WAKE_STUDIO:
-        if background:
-            _wake_in_background()
-            return {"llm_up": False, "woke": True, "state": "waking"}
-        ok = wake_studio()
-        return {"llm_up": ok, "woke": ok}
-    return {"llm_up": False, "woke": False,
-            "note": "gateway is down and WAKE_STUDIO is disabled. Set WAKE_STUDIO=1 "
-                    "and provide LIGHTNING_* credentials to auto-wake."}
+        snap = _gateway_snapshot()
+        if snap.get("llm_up") is False:
+            if background:
+                _start_gateway_llm_in_background()
+                return Response(
+                    content=json.dumps({"llm_up": False, "woke": True,
+                                        "state": "starting-model"}),
+                    media_type="application/json", status_code=202)
+            ok = _start_gateway_llm()
+            if not ok:
+                raise HTTPException(status_code=503,
+                                    detail="The gateway is online but its model failed to start.")
+            return {"llm_up": True, "woke": True}
+        return {"llm_up": True, "woke": False,
+                "note": "gateway and model are already online"}
+    if not WAKE_STUDIO:
+        raise HTTPException(
+            status_code=409,
+            detail="Automatic wake is disabled. Set WAKE_STUDIO=1 and add the Lightning credentials.")
+    missing = _wake_missing()
+    if missing:
+        raise HTTPException(status_code=409,
+                            detail="Missing wake configuration: " + ", ".join(missing))
+    if background:
+        _wake_in_background()
+        return Response(
+            content=json.dumps({"llm_up": False, "woke": True, "state": "waking"}),
+            media_type="application/json", status_code=202)
+    ok = wake_studio()
+    if not ok:
+        raise HTTPException(status_code=503, detail="The Studio wake attempt failed. Check the relay logs.")
+    return {"llm_up": True, "woke": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -978,12 +1128,6 @@ def admin_wake(request: Request, background: bool = False):
 
 def main() -> None:
     print(f"[relay] starting on 0.0.0.0:{PORT}", flush=True)
-    print(f"[relay] gateway: {GATEWAY_URL or 'UNSET'} | "
-          f"auth: {'enabled' if CONTROL_KEY else 'DISABLED'} | wake_studio: {WAKE_STUDIO}", flush=True)
-    if IDLE_MONITOR:
-        threading.Thread(target=_idle_loop, daemon=True).start()
-        print(f"[relay] idle monitor every {IDLE_CHECK_MINUTES}m "
-              f"(stop GPU after {IDLE_STOP_MINUTES}m idle)", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
 
 

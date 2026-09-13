@@ -73,3 +73,65 @@ def test_private_endpoints_stay_key_only():
     assert client.post("/v1/read", json={"url": "https://x.io/"}).status_code == 401
     assert client.post("/v1/fetch", json={}).status_code == 401
     assert client.get("/admin/status").status_code == 401
+
+
+def test_admin_status_explains_missing_gateway_and_disabled_wake(monkeypatch):
+    monkeypatch.setattr(server, "GATEWAY_URL", "")
+    monkeypatch.setattr(server, "WAKE_STUDIO", False)
+    r = client.get("/admin/status", headers=H)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["gateway_up"] is False
+    assert data["gateway_configured"] is False
+    assert data["wake_configured"] is False
+    assert "LLM_GATEWAY_URL" in data["note"]
+
+
+def test_manual_wake_is_an_error_when_disabled(monkeypatch):
+    monkeypatch.setattr(server, "GATEWAY_URL", "https://gateway.test")
+    monkeypatch.setattr(server, "WAKE_STUDIO", False)
+    monkeypatch.setattr(server, "gateway_reachable", lambda force=False: False)
+    r = client.post("/admin/wake-llm?background=1", headers=H)
+    assert r.status_code == 409
+    assert "disabled" in r.json()["detail"].lower()
+
+
+def test_gateway_probe_rejects_unrelated_http_pages(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"ok": True, "service": "not-the-gateway"}
+
+    monkeypatch.setattr(server, "GATEWAY_URL", "https://gateway.test")
+    monkeypatch.setattr(server.httpx, "get", lambda *a, **k: FakeResponse())
+    assert server.gateway_reachable(force=True) is False
+    assert "unexpected" in server._gateway_snapshot()["error"]
+
+
+def test_gateway_probe_records_model_state(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"ok": True, "service": "impose-control-plane", "llm_up": False}
+
+    monkeypatch.setattr(server, "GATEWAY_URL", "https://gateway.test")
+    monkeypatch.setattr(server.httpx, "get", lambda *a, **k: FakeResponse())
+    assert server.gateway_reachable(force=True) is True
+    assert server._gateway_snapshot()["llm_up"] is False
+
+
+def test_search_cache_varies_by_language_freshness_and_region(monkeypatch):
+    calls = []
+
+    async def fake_search(query, **kwargs):
+        calls.append((query, kwargs))
+        return {"query": query, "provider": "fake", "results": []}
+
+    monkeypatch.setattr(server, "engine_search", fake_search)
+    server._CACHE.clear()
+    base = {"query": "same query", "limit": 2}
+    assert client.post("/v1/search", headers=H, json={**base, "language": "en"}).status_code == 200
+    assert client.post("/v1/search", headers=H, json={**base, "language": "fr"}).status_code == 200
+    assert client.post("/v1/search", headers=H, json={**base, "language": "fr", "freshness": "week"}).status_code == 200
+    assert client.post("/v1/search", headers=H, json={**base, "language": "fr", "freshness": "week", "region": "FR"}).status_code == 200
+    assert len(calls) == 4

@@ -5,7 +5,7 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v2";
+var CACHE = "impose-shell-v3";
 var CORE = [
   "./",
   "./index.html",
@@ -80,9 +80,13 @@ self.addEventListener("fetch", function (e) {
     return;
   }
 
-  var path = url.pathname.replace(/^(.*)\/([^\/]*)$/, function (_, dir, file) {
-    return "./" + file;
-  });
+  /* Keep subdirectories when comparing with CORE. Reducing every URL to its
+     basename turned agent/features.js into ./features.js, so agent updates
+     were accidentally served stale for one load after every deploy. */
+  var scopePath = new URL(self.registration.scope).pathname;
+  var relative = url.pathname.indexOf(scopePath) === 0
+    ? url.pathname.slice(scopePath.length) : url.pathname.replace(/^\/+/, "");
+  var path = "./" + relative;
   var isCore = CORE.indexOf(path) !== -1;
 
   if (isCore) {

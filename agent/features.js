@@ -350,10 +350,15 @@
     if (!data || typeof data !== "object") return { ok: false, text: "The relay did not answer." };
     if (data.gateway_up === true) {
       var idle = data.idle_minutes != null ? Math.round(data.idle_minutes) : null;
-      return { ok: true, up: true, text: "Gateway up" + (idle != null ? " · idle " + idle + "m" : "") };
+      var model = data.llm_up === false ? " · model down" : "";
+      return { ok: true, up: true, text: "Gateway up" + model + (idle != null ? " · idle " + idle + "m" : "") };
     }
-    if (data.wake_studio === false && data.note) return { ok: true, up: false, text: "Gateway down · wake disabled" };
-    return { ok: true, up: false, text: "Gateway down · set to wake on chat" };
+    if (data.gateway_configured === false) return { ok: true, up: false, text: "Gateway not configured" };
+    if (data.waking === true) return { ok: true, up: false, waking: true, text: "Gateway is waking…" };
+    if (data.wake_studio === false) return { ok: true, up: false, text: "Gateway down · automatic wake disabled" };
+    if (data.wake_configured === false) return { ok: true, up: false, text: "Gateway down · wake credentials incomplete" };
+    if (data.wake_on_chat === false) return { ok: true, up: false, text: "Gateway down · wake on chat is off" };
+    return { ok: true, up: false, text: "Gateway down · ready to wake" };
   }
 
   /* ---------- misc helpers ---------- */

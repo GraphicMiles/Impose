@@ -143,7 +143,12 @@ ok(F.pruneChats(chats, 0).kept.length === 3, "pruneChats off when days 0");
 
   /* ---------- relay status ---------- */
   ok(F.formatRelayStatus({ gateway_up: true, idle_minutes: 2.4 }).text.indexOf("Gateway up") === 0, "formatRelayStatus up");
-  ok(F.formatRelayStatus({ gateway_up: false }).up === false, "formatRelayStatus down");
+  ok(F.formatRelayStatus({ gateway_up: true, llm_up: false }).text.indexOf("model down") > -1, "formatRelayStatus distinguishes model down");
+  ok(F.formatRelayStatus({ gateway_up: false, gateway_configured: false }).text === "Gateway not configured", "formatRelayStatus missing gateway");
+  ok(F.formatRelayStatus({ gateway_up: false, gateway_configured: true, wake_studio: false }).text.indexOf("disabled") > -1, "formatRelayStatus wake disabled");
+  ok(F.formatRelayStatus({ gateway_up: false, gateway_configured: true, wake_studio: true, wake_configured: false }).text.indexOf("incomplete") > -1, "formatRelayStatus missing wake credentials");
+  ok(F.formatRelayStatus({ gateway_up: false, gateway_configured: true, wake_studio: true, wake_configured: true, wake_on_chat: false }).text.indexOf("off") > -1, "formatRelayStatus wake-on-chat off");
+  ok(F.formatRelayStatus({ gateway_up: false, gateway_configured: true, waking: true }).waking === true, "formatRelayStatus waking");
   ok(F.formatRelayStatus(null).ok === false, "formatRelayStatus guards garbage");
 
   /* ---------- duplicate ---------- */

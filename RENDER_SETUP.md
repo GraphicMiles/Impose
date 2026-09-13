@@ -46,9 +46,9 @@ so use the relay once the box is live.
 | `CONTROL_KEY` | generated | The relay's own key. This is what you paste into the UI provider form. |
 | `LLM_GATEWAY_URL` | box root, no `/v1` | e.g. `https://9000-abcd.cloudspaces.litng.ai` |
 | `LLM_GATEWAY_KEY` | box `CONTROL_KEY` | Lets the relay talk to the box. |
-| `ALLOWED_ORIGINS` | `*` | Fine to leave open; the key is the lock. |
-| `WAKE_STUDIO` | `0` | Set `1` to let the relay start and stop the Studio itself. |
-| `WAKE_ON_CHAT` | `1` | A chat that finds the box down triggers a wake instead of failing. |
+| `ALLOWED_ORIGINS` | your web origin | The Blueprint defaults to `https://impose-web.onrender.com`. Add custom UI origins as a comma-separated list. |
+| `WAKE_STUDIO` | `1` | The Blueprint enables it so wake-on-chat can work. Make sure the `LIGHTNING_*` values below are present before deploying. |
+| `WAKE_ON_CHAT` | `1` | A chat triggers a wake only when `WAKE_STUDIO=1` and all Lightning values are configured. |
 | `IDLE_MONITOR` | `1` | Stops the GPU Studio after idle minutes. Needs `WAKE_STUDIO` set to `1`. |
 | `IDLE_STOP_MINUTES` | `5` | Idle minutes before the stop. |
 | `IDLE_CHECK_MINUTES` | `5` | How often the relay checks. |
@@ -81,14 +81,16 @@ UptimeRobot, and friends) to GET
 needs no key and the relay stays warm.
 
 Note the two different sleeps: the pinger keeps the relay warm;
-`WAKE_ON_CHAT` wakes the GPU box. They cover different halves.
+`WAKE_ON_CHAT=1` together with `WAKE_STUDIO=1` wakes the GPU box. They
+cover different halves.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 | --- | --- |
 | Relay answers 401 on every call | The key in the UI does not match the relay `CONTROL_KEY`. Copy it fresh from the Render dashboard. |
-| Chat says the box is down, retry | The box gateway is unreachable. With `WAKE_ON_CHAT` at `1`, wait a minute and retry; the wake is in flight. Otherwise check the Studio and `LLM_GATEWAY_URL`. |
+| Gateway card says automatic wake is disabled | Set `WAKE_STUDIO=1`, then provide `LIGHTNING_API_KEY`, `LIGHTNING_STUDIO`, and `LIGHTNING_TEAMSPACE`. Add the username/user ID too if your Studio lookup needs an explicit owner. |
+| Chat says the box is down | Read the Gateway card note. Check `LLM_GATEWAY_URL` first. A wake is actually in flight only when the card says **Gateway is waking**; `WAKE_ON_CHAT=1` alone cannot start a Studio. |
 | Blank page on the UI host | The static build failed. Check the `impose-web` build logs in Render; a manual redeploy from the dashboard usually clears it. |
 | Old UI after a push | Hard refresh (Ctrl Shift R). Render redeploys on push, your browser caches the rest. |
 | Search returns nothing | The box search chain found nothing, or the box is down. Keyless providers can be rate limited; add a search key on the box if it persists. |
