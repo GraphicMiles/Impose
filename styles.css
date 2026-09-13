@@ -524,10 +524,10 @@ html[data-theme="warm"] .greeting {
 @media (hover: hover) { .send-btn:not(:disabled):hover { transform: scale(1.05); } }
 .send-btn:not(:disabled):active { transform: scale(0.92); }
 .send-btn:disabled { cursor: default; }
-#stopBtn { background: var(--accent); color: var(--accent-fg); }
-@media (hover: hover) { #stopBtn:hover { transform: scale(1.05); } }
-#stopBtn:active { transform: scale(0.92); }
-#stopBtn .lucide, #stopBtn i[data-lucide] { width: 15px; height: 15px; }
+.send-btn.working { background: var(--accent); color: var(--accent-fg); }
+@media (hover: hover) { .send-btn.working:hover { transform: scale(1.05); } }
+.send-btn.working:active { transform: scale(0.92); }
+.send-btn.working .lucide, .send-btn.working i[data-lucide] { width: 15px; height: 15px; }
 
 .disclaimer {
   margin: 9px 0 0;

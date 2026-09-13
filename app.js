@@ -2130,7 +2130,6 @@
   var chipsEl = $("chips");
   var input = $("input");
   var sendBtn = $("sendBtn");
-  var stopBtn = $("stopBtn");
 
   function isNearBottom() {
     return chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 140;
@@ -2480,49 +2479,23 @@
   /* ---------- streaming: canned demo + live provider ---------- */
 
   function setStreamingUI(on) {
-    if (!motionOK()) {
-      sendBtn.hidden = on;
-      stopBtn.hidden = !on;
-      return;
-    }
-    var outEl = on ? sendBtn : stopBtn;
-    var inEl = on ? stopBtn : sendBtn;
-    if (outEl.hidden && !inEl.hidden) return;
-    try {
-      if (window.anime.remove) { window.anime.remove(outEl); window.anime.remove(inEl); }
-      outEl.style.transition = "none";
-      inEl.style.transition = "none";
-      play({
-        targets: outEl,
-        scale: [1, 0.5],
-        opacity: [1, 0],
-        duration: 130,
-        ease: EZ("inCubic"),
-        onComplete: function () {
-          outEl.hidden = true;
-          outEl.style.transition = "";
-          outEl.style.opacity = "";
-          outEl.style.transform = "";
-          inEl.hidden = false;
-          play({
-            targets: inEl,
-            scale: [0.5, 1],
-            opacity: [0, 1],
-            duration: 200,
-            ease: EZ("outExpo"),
-            onComplete: function () {
-              inEl.style.transition = "";
-              inEl.style.opacity = "";
-              inEl.style.transform = "";
-            }
-          });
-        }
-      });
-    } catch (e) {
-      outEl.style.transition = "";
-      inEl.style.transition = "";
-      sendBtn.hidden = on;
-      stopBtn.hidden = !on;
+    /* One button, one face: arrow-up sends, pause shows while the reply
+       runs. State lands synchronously - never behind an animation
+       callback, so the button can never promise "send" mid-stream. */
+    var face = on ? "pause" : "arrow-up";
+    sendBtn.disabled = on ? false : input.value.trim().length === 0;
+    sendBtn.title = on ? "Pause generating" : "Send message";
+    sendBtn.setAttribute("aria-label", sendBtn.title);
+    sendBtn.classList.toggle("working", !!on);
+    sendWasDisabled = sendBtn.disabled;
+    if (sendBtn.getAttribute("data-face") === face) return;
+    sendBtn.setAttribute("data-face", face);
+    sendBtn.innerHTML = '<i data-lucide="' + face + '"></i>';
+    refreshIcons();
+    if (motionOK()) {
+      try {
+        play({ targets: sendBtn, scale: [0.88, 1], duration: 200, ease: EZ("outExpo") });
+      } catch (e) { /* the swap alone reads fine */ }
     }
   }
 
@@ -2554,6 +2527,7 @@
     if (msg) {
       msg.content = content;
       msg.error = null;
+      msg.stopped = s.stopped ? true : null; /* paused partial: next send continues from it */
       if (msg.variants) msg.variants[msg.vi] = content;
       chat.updatedAt = Date.now();
       save();
@@ -2644,8 +2618,7 @@
     });
   }
 
-  function historyFor(messages, kind, model) {
-    kind = kind || "openai";
+  function historyFor(messages, kind, model) {    kind = kind || "openai";
     var F = window.ImposeFeatures;
     var msgs = messages;
     if (F) {
@@ -2675,6 +2648,28 @@
 
   /* replaceIdx null appends a fresh answer, otherwise regenerates in place.
      retried marks a failover attempt so a bad provider cannot loop forever. */
+  /* A paused reply keeps its half-written text in the transcript. This
+     tells the model, in its own voice, to pick the thread back up from
+     exactly where it stopped instead of starting the answer over. */
+  function withResumeHint(hist, chat, uptoIdx) {
+    var msgs = chat.messages;
+    var end = uptoIdx == null ? msgs.length : uptoIdx;
+    var src = null, i;
+    for (i = end - 1; i >= 0; i--) {
+      if (msgs[i] && msgs[i].role === "assistant") { src = msgs[i]; break; }
+    }
+    if (!src || !src.stopped || !src.content) return hist;
+    for (i = hist.length - 1; i >= 0; i--) {
+      if (hist[i].role === "assistant") {
+        if (hist[i].content === src.content) {
+          hist[i] = { role: "assistant", content: src.content +
+            "\n\n[My reply above was cut off mid-sentence when the user paused me. Continue seamlessly from exactly where it stopped - no greeting, no repetition, no apology.]" };
+        }
+        break;
+      }
+    }
+    return hist;
+  }
   var dotsHtml = '<span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>';
 
   function streamLive(chat, provider, model, history, replaceIdx, retried) {
@@ -2795,7 +2790,7 @@
     }, function (err) {
       settleLiveTrace(s, true, err);
       /* Failover: one automatic retry on the next usable provider. */
-      var backup = (!err || err.name !== "AbortError") && !s.retried && state.settings.failover
+      var backup = !s.stopped && (!err || err.name !== "AbortError") && !s.retried && state.settings.failover
         ? pickBackup(provider && provider.id) : null;
       if (backup) {
         dnote("chat", "Failover to " + backup.label + " after " + (provider ? provider.label : "failure"));
@@ -2807,6 +2802,7 @@
         rowKeep.querySelector(".msg-body").innerHTML = dotsHtml;
         chat.model = backup.label; /* header label mirrors who actually answers */
         var hist2 = historyFor(chat.messages.slice(0, idxKeep), backup.kind, backup.model);
+        withResumeHint(hist2, chat, idxKeep);
         streamLive(chat, backup.provider, backup.model, hist2, idxKeep, true);
         return;
       }
@@ -2856,6 +2852,10 @@
       failed = false; /* stopped by the user, or timed out mid stream */
       s.stopped = true;
     }
+    /* A pause is authoritative: whatever error the abort surfaces
+       (AbortError, TypeError from a racing socket, a relay hop), a stream
+       the user stopped is never a failure and never spawns retries. */
+    if (s.stopped) { failed = false; err = null; }
     var chat = getChat(s.chatId);
     var msg = chat && chat.messages[s.index];
     /* The gallery is a work product of the search, not of the answer: keep
@@ -2917,7 +2917,7 @@
     if (failed) {
       dfail("chat", sentence);
       if (err && err.name === "TypeError" && s.viaRelay) markRelayDown();
-    } else if (msg) {
+    } else if (msg && !s.stopped) {
       maybeRetitle(chat, s.provider, s.model);
     }
     if (!failed && !s.stopped && msg) showFollowups(chat, msg);
@@ -3373,6 +3373,7 @@
       } else {
         dnote("chat", "Chat via " + providerDisplay(t.provider) + " (" + chat.messages.length + " messages)");
         var hist = replaceIdx == null ? historyFor(chat.messages, t.provider.kind, t.model) : historyFor(chat.messages.slice(0, replaceIdx), t.provider.kind, t.model);
+        withResumeHint(hist, chat, replaceIdx);
         streamLive(chat, t.provider, t.model, hist, replaceIdx);
       }
     } else {
@@ -4363,7 +4364,7 @@
       ring.classList.toggle("warn", pct >= 60 && pct < 85);
       ring.classList.toggle("danger", pct >= 85);
     }
-    $("sendBtn").title = "Send message. About " +
+    if (!stream) $("sendBtn").title = "Send message. About " +
       (used >= 1000 ? (used / 1000).toFixed(1) + "k" : used) + " of " +
       (ctx >= 1000 ? (ctx / 1000) + "k" : ctx) + " tokens (" + pct + "%)";
   }
@@ -4371,7 +4372,8 @@
   var sendWasDisabled = true;
   function syncSend() {
     var dis = input.value.trim().length === 0;
-    sendBtn.disabled = dis;
+    /* While a reply runs the button is the pause control: always tappable. */
+    sendBtn.disabled = stream ? false : dis;
     if (sendWasDisabled && !dis && motionOK() && !sendBtn.hidden) {
       try {
         sendBtn.style.transition = "none";
@@ -4412,23 +4414,28 @@
     }
   });
 
-  sendBtn.addEventListener("click", function () { send(input.value); });
-  stopBtn.addEventListener("click", function () {
-    stopStream();
-    if (!input.value && Date.now() - lastSendAt < 5000) {
-      var chat = getChat(activeId);
-      if (chat) {
-        for (var i = chat.messages.length - 1; i >= 0; i--) {
-          if (chat.messages[i].role === "user") {
-            input.value = chat.messages[i].content;
-            autogrow();
-            syncSend();
-            input.focus();
-            break;
+  sendBtn.addEventListener("click", function () {
+    if (stream) {
+      /* Pause: the partial reply stays in the transcript, so the next
+         message continues from it instead of starting over. */
+      stopStream();
+      if (!input.value && Date.now() - lastSendAt < 5000) {
+        var chat = getChat(activeId);
+        if (chat) {
+          for (var i = chat.messages.length - 1; i >= 0; i--) {
+            if (chat.messages[i].role === "user") {
+              input.value = chat.messages[i].content;
+              autogrow();
+              syncSend();
+              input.focus();
+              break;
+            }
           }
         }
       }
+      return;
     }
+    send(input.value);
   });
 
   chipsEl.addEventListener("click", function (e) {
