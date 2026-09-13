@@ -7,7 +7,7 @@ services:
     # Ship the service worker, manifest, icons, and the legacy _headers mirror.
     # Render's actual response headers are declared below. Keep this file list
     # in sync with new root assets.
-    buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js anime.min.js og-image.jpg manifest.json sw.js _headers dist/ && cp icon-*.png dist/ && cp agent/*.js agent/*.css dist/agent/
+    buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js anime.min.js og-image.jpg favicon-64.png manifest.json sw.js _headers dist/ && cp icon-*.png dist/ && cp agent/*.js agent/*.css dist/agent/
     staticPublishPath: ./dist
     # Render ignores Netlify-style _headers files. Declare production headers
     # in the Blueprint so they are actually present on the deployed site.
@@ -34,34 +34,21 @@ services:
     envVars:
       - key: CONTROL_KEY
         generateValue: true          # random secret, shown once in the dashboard
-      - key: LLM_GATEWAY_URL
-        sync: false                  # box gateway root, no /v1
-      - key: LLM_GATEWAY_KEY
-        sync: false                  # the box CONTROL_KEY
       - key: ALLOWED_ORIGINS
         # Locked to the site origin. "*" let any page on the internet send
         # your relay key's requests from anyone's browser. Add your own
         # domains here (comma separated) if you host the UI elsewhere.
         value: "https://impose-web.onrender.com"
+      # Search, images, and page reading run without a GPU gateway. Model
+      # wake is opt-in: add the LLM_GATEWAY_* and LIGHTNING_* values in the
+      # Render dashboard before changing these flags.
       - key: WAKE_STUDIO
-        value: "1"                   # requires the LIGHTNING_* values below
+        value: "0"
       - key: WAKE_ON_CHAT
-        value: "1"                   # wake the model when a request finds it down
+        value: "0"
       - key: IDLE_MONITOR
-        value: "1"                   # stop the GPU Studio after idle (saves credits)
+        value: "0"
       - key: IDLE_STOP_MINUTES
         value: "5"
       - key: IDLE_CHECK_MINUTES
         value: "5"
-      - key: LIGHTNING_API_KEY
-        sync: false
-      - key: LIGHTNING_USER_ID
-        sync: false
-      - key: LIGHTNING_USERNAME
-        sync: false
-      - key: LIGHTNING_STUDIO
-        sync: false
-      - key: LIGHTNING_TEAMSPACE
-        sync: false
-      - key: LIGHTNING_MACHINE
-        value: T4
