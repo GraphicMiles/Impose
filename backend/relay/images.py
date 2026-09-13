@@ -1,10 +1,12 @@
-"""Keyless image search for the agent: Bing Images HTML, DDG Images, Openverse.
+"""Keyless image search for the agent: Bing Images HTML, DDG Images,
+Openverse, Wikimedia Commons.
 
 Same contract as search.py: parsers are pure functions tested against
 fixtures, fetchers raise AttemptFail, tiers race inside the tier and the
-first provider that answers with results wins. Openverse is the last tier
-on purpose: it is a real API (no scraping) so it survives when the HTML
-engines challenge datacenter IPs.
+first provider that answers with results wins. The API tiers (Openverse,
+Wikimedia Commons) survive when the HTML engines challenge datacenter
+IPs - Bing serves a junk promo page and DDG 403s whole ranges - so the
+retry pass asks the APIs first.
 
 Each result: {title, image (full res), thumb (small), page (source page),
 source (domain), w, h}. Only http(s) URLs are ever returned.
@@ -21,6 +23,7 @@ import httpx
 from relay.search import AttemptFail, UA, _significant
 
 OPENVERSE = "https://api.openverse.org/v1/images/"
+WIKIMEDIA = "https://commons.wikimedia.org/w/api.php"
 
 
 def _http_ok(url):
@@ -91,6 +94,30 @@ def parse_openverse(data):
             "source": r.get("source") or domain_of(r.get("foreign_landing_url") or img),
             "w": r.get("width") or None,
             "h": r.get("height") or None,
+        })
+    return out
+
+
+def parse_wikimedia(data):
+    """Commons generator=search JSON: query.pages.{title, imageinfo[mime,url,
+    thumburl, descriptionurl, width, height]}. Non-bitmaps are dropped."""
+    out = []
+    pages = ((data.get("query") or {}).get("pages") or {})
+    for p in pages.values():
+        info = (p.get("imageinfo") or [{}])[0]
+        if (info.get("mime") or "") not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+            continue
+        img = info.get("url") or ""
+        if not _http_ok(img):
+            continue
+        out.append({
+            "title": (p.get("title") or "").replace("File:", "").strip()[:160] or "image",
+            "image": img,
+            "thumb": info.get("thumburl") if _http_ok(info.get("thumburl")) else img,
+            "page": info.get("descriptionurl") if _http_ok(info.get("descriptionurl")) else "",
+            "source": "wikimedia",
+            "w": info.get("width") or None,
+            "h": info.get("height") or None,
         })
     return out
 
@@ -175,6 +202,32 @@ async def _openverse(client, query, limit):
     return results[:limit]
 
 
+async def _wikimedia(client, query, limit):
+    try:
+        r = await client.get(WIKIMEDIA, params={
+            "action": "query", "format": "json", "generator": "search",
+            "gsrsearch": query + " filetype:bitmap", "gsrnamespace": 6,
+            "gsrlimit": min(limit * 2, 20), "prop": "imageinfo",
+            "iiprop": "url|size|mime", "iiurlwidth": 600,
+        }, timeout=12.0)
+    except httpx.TimeoutException:
+        raise AttemptFail("timed out")
+    except Exception:
+        raise AttemptFail("unreachable")
+    if r.status_code != 200:
+        raise AttemptFail("http " + str(r.status_code))
+    try:
+        results = parse_wikimedia(r.json())
+    except Exception:
+        raise AttemptFail("bad json")
+    if not results:
+        raise AttemptFail("no results parsed")
+    results = _relevant_images(results, query)
+    if not results:
+        raise AttemptFail("irrelevant")
+    return results[:limit]
+
+
 def _relevant_images(results, query):
     """Keep only results that carry every significant query token on a word
     boundary. AND instead of OR on purpose: an image query is a subject
@@ -201,11 +254,14 @@ async def engine_images(query, limit=8, _retried=False):
     t0 = time.time()
     attempts = []
     async with httpx.AsyncClient(headers=UA, follow_redirects=True, max_redirects=3) as client:
-        tiers = [
-            [("bing-images", partial_bing(client, query, limit)),
-             ("ddg-images", partial_ddg(client, query, limit))],
-            [("openverse", partial_open(client, query, limit))],
-        ]
+        api_tier = [("openverse", partial_open(client, query, limit)),
+                    ("wikimedia", partial_wiki(client, query, limit))]
+        scraper_tier = [("bing-images", partial_bing(client, query, limit)),
+                        ("ddg-images", partial_ddg(client, query, limit))]
+        tiers = [scraper_tier, api_tier]
+        if _retried:
+            # The scrapers just failed; the APIs answer when HTML is walled.
+            tiers = [api_tier, scraper_tier]
         for tier in tiers:
             runs = await asyncio.gather(*[_run(name, job) for name, job in tier])
             for name, ok, err, ms in runs:
@@ -222,7 +278,7 @@ async def engine_images(query, limit=8, _retried=False):
     # One quiet retry: a second ask a beat later usually gets through, and
     # visitors have no retry button of their own.
     if not _retried:
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(1.2)
         return await engine_images(query, limit=limit, _retried=True)
     raise ImagesFailed("all image providers failed: " + "; ".join(
         a["provider"] + "=" + a["error"] for a in attempts))
@@ -243,6 +299,12 @@ def partial_ddg(client, query, limit):
 def partial_open(client, query, limit):
     async def job():
         return await _openverse(client, query, limit)
+    return job
+
+
+def partial_wiki(client, query, limit):
+    async def job():
+        return await _wikimedia(client, query, limit)
     return job
 
 
