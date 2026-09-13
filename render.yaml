@@ -7,7 +7,7 @@ services:
     # Ship the service worker, manifest, icons, and the legacy _headers mirror.
     # Render's actual response headers are declared below. Keep this file list
     # in sync with new root assets.
-    buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js anime.min.js og-image.jpg favicon-64.png manifest.json sw.js _headers dist/ && cp icon-*.png dist/ && cp agent/*.js agent/*.css dist/agent/
+    buildCommand: mkdir -p dist/agent && cp index.html styles.css app.js lucide.min.js anime.min.js og-image.jpg manifest.json sw.js _headers dist/ && cp icon-*.png dist/ && cp agent/*.js agent/*.css dist/agent/
     staticPublishPath: ./dist
     # Render ignores Netlify-style _headers files. Declare production headers
     # in the Blueprint so they are actually present on the deployed site.

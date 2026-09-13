@@ -1,16 +1,16 @@
 {
-  "name": "Impose AI",
+  "name": "Impose",
   "short_name": "Impose",
-  "description": "Ask anything. Research with sources. Small agents, massive work.",
+  "description": "Bring your own key and chat with any provider.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0d2a22",
-  "theme_color": "#075c46",
+  "background_color": "#171717",
+  "theme_color": "#171717",
   "icons": [
-    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" },
     { "src": "./icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

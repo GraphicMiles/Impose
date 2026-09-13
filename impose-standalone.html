@@ -3,29 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Impose AI | Small agents. Massive work.</title>
-<meta name="description" content="Ask anything. Research with sources. Small agents, massive work.">
+<title>Impose</title>
+<meta name="description" content="Impose chat client. Bring your own key and chat with any provider.">
 <link rel="canonical" href="https://impose-web.onrender.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Impose">
-<meta property="og:title" content="Impose AI | Small agents. Massive work.">
-<meta property="og:description" content="Ask anything. Research with sources. Three times faster research, zero extra tabs.">
+<meta property="og:title" content="Impose">
+<meta property="og:description" content="Impose chat client. Bring your own key and chat with any provider.">
 <meta property="og:url" content="https://impose-web.onrender.com/">
 <meta property="og:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:secure_url" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Agent Atlas carries a massive boulder beside the message: 3X faster research, zero extra tabs.">
+<meta property="og:image:alt" content="Impose: bring your own key and chat with any provider.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Impose AI | Small agents. Massive work.">
-<meta name="twitter:description" content="Ask anything. Research with sources. Three times faster research, zero extra tabs.">
+<meta name="twitter:title" content="Impose">
+<meta name="twitter:description" content="Impose chat client. Bring your own key and chat with any provider.">
 <meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta name="color-scheme" content="dark light">
-<link rel="icon" type="image/png" sizes="64x64" href="./favicon-64.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
-<link rel="apple-touch-icon" sizes="180x180" href="./icon-apple.png">
-<meta name="theme-color" content="#075c46">
+<link rel="apple-touch-icon" href="./icon-apple.png">
+<meta name="theme-color" content="#171717">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -45,30 +44,30 @@ html[data-theme="dark"] {
   --dur-3: 320ms;
   --dur-4: 480ms;
 
-  --bg: #0d2a22;
-  --sidebar: #071a16;
-  --composer: #15392f;
-  --pop: #15392f;
-  --text: #f8f2de;
-  --text-2: #bdd8cb;
-  --text-3: #83aa98;
-  --border: rgba(210, 247, 227, 0.18);
-  --border-soft: rgba(210, 247, 227, 0.09);
-  --hover: rgba(210, 247, 227, 0.08);
-  --press: rgba(210, 247, 227, 0.14);
-  --accent: #ffd34e;
-  --accent-fg: #08261e;
-  --user: #194536;
-  --code: #081f1a;
-  --link: #9ce7bd;
+  --bg: #212121;
+  --sidebar: #171717;
+  --composer: #2f2f2f;
+  --pop: #2f2f2f;
+  --text: #ececec;
+  --text-2: #b6b6b6;
+  --text-3: #8f8f8f;
+  --border: rgba(255, 255, 255, 0.14);
+  --border-soft: rgba(255, 255, 255, 0.08);
+  --hover: rgba(255, 255, 255, 0.07);
+  --press: rgba(255, 255, 255, 0.12);
+  --accent: #ffffff;
+  --accent-fg: #0d0d0d;
+  --user: #323232;
+  --code: #1b1b1b;
+  --link: #8ab4ff;
   --danger: #f25656;
   --ok: #7ee2a8;
   --warn: #e0a63f;
   --danger-soft: rgba(242, 86, 86, 0.14);
-  --seg-active: #245243;
-  --scroll: rgba(210, 247, 227, 0.2);
-  --overlay: rgba(2, 20, 15, 0.72);
-  --send-idle: rgba(210, 247, 227, 0.13);
+  --seg-active: #454545;
+  --scroll: rgba(255, 255, 255, 0.18);
+  --overlay: rgba(0, 0, 0, 0.6);
+  --send-idle: rgba(255, 255, 255, 0.12);
   --tok-kw: #cc7fd7;
   --tok-str: #9ece8a;
   --tok-num: #d7a35f;
@@ -77,22 +76,22 @@ html[data-theme="dark"] {
 }
 
 html[data-theme="light"] {
-  --bg: #fffaf0;
-  --sidebar: #edf8ef;
-  --composer: #f4fbf5;
-  --pop: #fffdf7;
-  --text: #0b2a22;
-  --text-2: #486b5e;
-  --text-3: #718f83;
-  --border: rgba(7, 92, 70, 0.2);
-  --border-soft: rgba(7, 92, 70, 0.1);
-  --hover: rgba(7, 92, 70, 0.06);
-  --press: rgba(7, 92, 70, 0.11);
-  --accent: #075c46;
+  --bg: #ffffff;
+  --sidebar: #f9f9f9;
+  --composer: #f4f4f4;
+  --pop: #ffffff;
+  --text: #0d0d0d;
+  --text-2: #5d5d5d;
+  --text-3: #8a8a8a;
+  --border: rgba(0, 0, 0, 0.14);
+  --border-soft: rgba(0, 0, 0, 0.08);
+  --hover: rgba(0, 0, 0, 0.05);
+  --press: rgba(0, 0, 0, 0.09);
+  --accent: #0d0d0d;
   --accent-fg: #ffffff;
-  --user: #e6f5e9;
-  --code: #edf8ef;
-  --link: #056148;
+  --user: #f4f4f4;
+  --code: #f7f7f7;
+  --link: #0b57d0;
   --danger: #d92d20;
   --ok: #1e7f4f;
   --warn: #b25e09;
@@ -109,22 +108,22 @@ html[data-theme="light"] {
 }
 
 html[data-theme="warm"] {
-  --bg: #fbf3df;
-  --sidebar: #f2e8ce;
-  --composer: #fffaf0;
-  --pop: #fffaf0;
-  --text: #17372c;
-  --text-2: #66766d;
-  --text-3: #92958b;
-  --border: rgba(49, 72, 60, 0.22);
-  --border-soft: rgba(49, 72, 60, 0.12);
-  --hover: rgba(7, 92, 70, 0.07);
-  --press: rgba(7, 92, 70, 0.12);
-  --accent: #ffc62f;
-  --accent-fg: #17372c;
-  --user: #e8e2cf;
-  --code: #f0ead8;
-  --link: #075c46;
+  --bg: #faf9f5;
+  --sidebar: #f0eee6;
+  --composer: #ffffff;
+  --pop: #ffffff;
+  --text: #262522;
+  --text-2: #6f6e66;
+  --text-3: #9b9a90;
+  --border: rgba(60, 56, 44, 0.22);
+  --border-soft: rgba(60, 56, 44, 0.13);
+  --hover: rgba(60, 56, 44, 0.06);
+  --press: rgba(60, 56, 44, 0.12);
+  --accent: #c6613f;
+  --accent-fg: #ffffff;
+  --user: #ece9dd;
+  --code: #f0eee6;
+  --link: #a34e2e;
   --danger: #c0362c;
   --ok: #2e7d4f;
   --warn: #a86a12;
@@ -413,14 +412,6 @@ body:not(.nav-open) .sidebar-inner {
 }
 .top-left, .top-right { display: flex; align-items: center; gap: 4px; }
 
-.app-brand-mark {
-  width: 32px;
-  height: 32px;
-  flex: none;
-  border-radius: 9px;
-  object-fit: cover;
-}
-
 .model-btn {
   display: flex;
   align-items: center;
@@ -464,13 +455,6 @@ body:not(.nav-open) .sidebar-inner {
   justify-content: center;
   padding: 40px 16px;
   gap: 22px;
-}
-
-.empty-brand-mark {
-  width: 88px;
-  height: 88px;
-  border-radius: 24px;
-  object-fit: cover;
 }
 
 .greeting {
@@ -2620,7 +2604,6 @@ try {
         <button class="icon-btn" id="openSidebarBtn" title="Open sidebar" aria-label="Open sidebar">
           <i data-lucide="panel-left"></i>
         </button>
-        <img class="app-brand-mark" src="./favicon-64.png" width="32" height="32" alt="" aria-hidden="true">
         <button class="model-btn" id="modelBtn" aria-haspopup="menu">
           <span class="health-dot" id="healthDot" hidden></span><span id="modelName">Demo</span>
           <i data-lucide="chevron-down" class="chev"></i>
@@ -2644,7 +2627,6 @@ try {
     <div id="banners" aria-live="polite"></div>
     <div class="chat-scroll" id="chatScroll">
       <div class="empty" id="emptyState">
-        <img class="empty-brand-mark" src="./icon-192.png" width="88" height="88" alt="Impose Agent Atlas">
         <h1 class="greeting">What can I help with?</h1>
         <div class="empty-slot" id="emptySlot"></div>
         <div class="chips" id="chips">
