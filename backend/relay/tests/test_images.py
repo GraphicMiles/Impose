@@ -14,8 +14,8 @@ sys.path.insert(0, str(HERE.parents[2]))
 os.environ.setdefault("CONTROL_KEY", "test123")
 
 from relay.images import (  # noqa: E402
-    parse_bing_images, parse_ddg_images, parse_openverse, engine_images,
-    _relevant_images,
+    parse_bing_images, parse_ddg_images, parse_openverse, parse_wikimedia,
+    engine_images, _relevant_images,
 )
 import relay.images as images_mod  # noqa: E402
 
@@ -50,6 +50,19 @@ OPENVERSE_JSON = {"results": [
      "width": 900, "height": 700},
 ]}
 
+WIKIMEDIA_JSON = {"query": {"pages": {
+    "1": {"title": "File:Tabby cat.jpg", "imageinfo": [
+        {"mime": "image/jpeg", "url": "https://upload.wikimedia.org/cat.jpg",
+         "thumburl": "https://upload.wikimedia.org/thumb/cat.jpg",
+         "descriptionurl": "https://commons.wikimedia.org/wiki/File:Tabby_cat.jpg",
+         "width": 1200, "height": 900}]},
+    "2": {"title": "File:Scanned book.pdf", "imageinfo": [
+        {"mime": "application/pdf", "url": "https://upload.wikimedia.org/book.pdf",
+         "width": 797, "height": 1268}]},
+    "3": {"title": "File:Bad scheme.png", "imageinfo": [
+        {"mime": "image/png", "url": "ftp://x/bad.png"}]},
+}}}
+
 
 def main():
     bing = parse_bing_images(BING_HTML)
@@ -68,6 +81,16 @@ def main():
     ov = parse_openverse(OPENVERSE_JSON)
     check("openverse row", len(ov) == 1 and ov[0]["source"] == "wikimedia", ov)
     check("openverse thumb", ov[0]["thumb"].startswith("https://api.openverse.org/"))
+
+    wm = parse_wikimedia(WIKIMEDIA_JSON)
+    check("wikimedia keeps only http bitmaps", len(wm) == 1, len(wm))
+    check("wikimedia fields", wm[0]["image"] == "https://upload.wikimedia.org/cat.jpg"
+          and wm[0]["thumb"] == "https://upload.wikimedia.org/thumb/cat.jpg"
+          and wm[0]["page"] == "https://commons.wikimedia.org/wiki/File:Tabby_cat.jpg"
+          and wm[0]["source"] == "wikimedia" and wm[0]["w"] == 1200, wm[0])
+    check("wikimedia strips File: prefix", wm[0]["title"] == "Tabby cat.jpg", wm[0]["title"])
+    kept_wm = _relevant_images(wm, "tabby cat")
+    check("wikimedia relevance passes subject", len(kept_wm) == 1, len(kept_wm))
 
     # the wrong-photos bug: "mark rober" must not match checkmarks or whisky
     junk = [
