@@ -6705,21 +6705,26 @@
       return;
     }
     wake.hidden = !cfg.key; /* waking the model is an owner move */
-    wake.disabled = false;
-    wake.title = "Wake the model";
+    /* Never offer a blind wake while status is unknown. The status response
+       enables this only when the relay confirms that wake is configured. */
+    wake.disabled = true;
+    wake.title = "Checking whether model wake is available";
     dot.className = "relay-dot busy";
     title.textContent = "Checking the relay...";
     sub.textContent = stripSlash(cfg.url);
+    relayCardBusy = true;
     if (!cfg.key) {
       /* Visitors: the open /health endpoint says enough. */
       fetch(stripSlash(cfg.url) + "/health", { signal: withTimeout(9000) }).then(function (r) {
         if (!r.ok) throw new Error("bad");
         return r.json();
-      }).then(function (d) {
+      }).then(function () {
+        relayCardBusy = false;
         dot.className = "relay-dot ok";
-        title.textContent = d && d.gateway_up ? "Public search ready" : "Public search ready";
+        title.textContent = "Public search ready";
         sub.textContent = stripSlash(cfg.url);
       }, function () {
+        relayCardBusy = false;
         dot.className = "relay-dot bad";
         title.textContent = "Relay unreachable";
         sub.textContent = stripSlash(cfg.url);
@@ -6731,6 +6736,7 @@
       if (!r.ok) throw new Error(r.status);
       return r.json();
     }).then(function (d) {
+      relayCardBusy = false;
       var out = window.ImposeFeatures.formatRelayStatus(d);
       dot.className = "relay-dot " + (out.up ? "ok" : out.waking ? "busy" : "bad");
       title.textContent = out.text;
@@ -6740,11 +6746,14 @@
       wake.disabled = !!cannotWake || !!(d && d.waking);
       if (cannotWake && d.note) wake.title = d.note;
       else if (d && d.waking) wake.title = "A wake is already in progress";
+      else wake.title = "Wake the model";
     }, function (err) {
+      relayCardBusy = false;
       dot.className = "relay-dot bad";
       title.textContent = String(err && err.message) === "401" ? "Relay key rejected" : "Relay unreachable";
       sub.textContent = stripSlash(cfg.url);
-      wake.disabled = false;
+      wake.disabled = true;
+      wake.title = "Check relay status before waking the model";
     });
   }
 
@@ -6752,6 +6761,9 @@
   $("relayWakeBtn").addEventListener("click", function () {
     var cfg = relayCfg();
     if (!cfg.url) { toast("Set a relay first."); return; }
+    var wake = $("relayWakeBtn");
+    wake.disabled = true;
+    wake.title = "Wake request in progress";
     fetch(stripSlash(cfg.url) + "/admin/wake-llm?background=1", {
       method: "POST",
       headers: { "Authorization": "Bearer " + cfg.key },
@@ -6768,8 +6780,9 @@
       else throw new Error(d.note || "The relay did not start a wake.");
       dnote("relay", d.llm_up ? "Model already up" : "Wake request accepted");
       renderRelayCard();
-    }, function (err) {
-      var msg = err && err.name === "AbortError" ? "The relay did not answer in time." : String((err && err.message) || "Could not reach the relay.");
+    }).catch(function (err) {
+      var timedOut = err && (err.name === "AbortError" || err.name === "TimeoutError");
+      var msg = timedOut ? "The relay did not answer in time." : String((err && err.message) || "Could not reach the relay.");
       dfail("relay", msg);
       toast.error(msg);
       renderRelayCard();

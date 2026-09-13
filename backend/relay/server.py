@@ -479,8 +479,10 @@ def _need_wake() -> None:
 
 @app.get("/health")
 def health():
+    """Report relay liveness without waiting on the optional LLM gateway."""
+    snap = _gateway_snapshot()
     return {"ok": True, "service": "impose-relay",
-            "gateway_up": gateway_reachable(force=True),
+            "gateway_up": snap.get("up") is True,
             "uptime_seconds": round(time.time() - STARTED_AT, 1)}
 
 

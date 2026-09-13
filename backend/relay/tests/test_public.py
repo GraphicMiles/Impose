@@ -75,6 +75,16 @@ def test_private_endpoints_stay_key_only():
     assert client.get("/admin/status").status_code == 401
 
 
+def test_health_does_not_wait_for_optional_gateway(monkeypatch):
+    def should_not_probe(*args, **kwargs):
+        raise AssertionError("relay health must not probe the optional gateway")
+
+    monkeypatch.setattr(server, "gateway_reachable", should_not_probe)
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json()["service"] == "impose-relay"
+
+
 def test_admin_status_explains_missing_gateway_and_disabled_wake(monkeypatch):
     monkeypatch.setattr(server, "GATEWAY_URL", "")
     monkeypatch.setattr(server, "WAKE_STUDIO", False)
