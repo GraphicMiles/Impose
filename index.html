@@ -259,6 +259,22 @@ try {
   </div>
 </div>
 
+<div class="overlay center" id="onboardModal" hidden>
+  <div class="sheet onboard-sheet" role="dialog" aria-modal="true" aria-labelledby="onboardTitle">
+    <div class="onboard-badge"><i data-lucide="sparkles"></i></div>
+    <h2 id="onboardTitle">Welcome to Impose</h2>
+    <p class="onboard-sub">A chat app that shows its work. One thing to know before you start:</p>
+    <div class="onboard-rows">
+      <div class="onboard-row"><i data-lucide="key-round"></i><div><strong>Chatting needs a model key</strong><span>Bring any OpenAI-compatible provider key. It stays in this browser and goes straight to the provider.</span></div></div>
+      <div class="onboard-row"><i data-lucide="search"></i><div><strong>Search and images just work</strong><span>Web search, sources, and photo galleries run through the site's public relay. No key needed.</span></div></div>
+      <div class="onboard-row"><i data-lucide="flask-conical"></i><div><strong>No key yet?</strong><span>Explore with demo replies. Nothing leaves the browser.</span></div></div>
+    </div>
+    <div class="onboard-acts">
+      <button class="btn primary" id="onboardAdd" type="button">Add a provider</button>
+      <button class="btn" id="onboardSkip" type="button">Explore first</button>
+    </div>
+  </div>
+</div>
 <div class="overlay center" id="settingsModal" hidden>
   <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Settings">
     <div class="settings-head">

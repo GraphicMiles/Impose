@@ -489,7 +489,10 @@
   }
 
   function defaultSettings() {
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "", searchMode: false, displayName: "You",
+    /* The public relay ships as the default: visitors get keyless search
+       and images out of the box, rate limited per person. Owners add their
+       control key for the wake, the proxy, and the reader. */
+    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "https://impose-relay.onrender.com", relayKey: "", searchMode: false, displayName: "You",
       redactPII: false, followupsSmart: true, autoName: true, retentionDays: 0, failover: true };
   }
 
@@ -2971,11 +2974,12 @@
   function fetchSearchViaRelay(query, limit, signal) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
-    if (!cfg.key) return Promise.reject(new Error("Add the relay key in the provider editor under Advanced, Relay."));
     var url = stripSlash(cfg.url) + "/v1/search";
+    var headers = { "Content-Type": "application/json" };
+    if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
     var opts = {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      headers: headers,
       body: JSON.stringify({ query: query, limit: limit || 8 })
     };
     if (signal) opts.signal = signal;
@@ -3027,10 +3031,11 @@
   function fetchImagesViaRelay(query, limit, signal) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address to search images."));
-    if (!cfg.key) return Promise.reject(new Error("Add the relay key to search images."));
+    var headers = { "Content-Type": "application/json" };
+    if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
     var opts = {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      headers: headers,
       body: JSON.stringify({ query: query, limit: limit || 6 })
     };
     if (signal) opts.signal = signal;
@@ -5186,6 +5191,33 @@
     if (name === "providers") renderRelayCard();
   }
 
+  /* First-run onboarding: once, and only for people with nothing set up. */
+  function maybeOnboard() {
+    var KEY = "impose.onboarded.v1";
+    var seen = false;
+    try { seen = localStorage.getItem(KEY) === "1"; } catch (e) { /* private mode */ }
+    if (seen || state.providers.length) return;
+    var m = $("onboardModal");
+    if (!m) return;
+    function remember() { try { localStorage.setItem(KEY, "1"); } catch (e) { /* private mode */ } }
+    $("onboardAdd").addEventListener("click", function () {
+      remember();
+      closeModal(m);
+      openSettings("providers");
+    });
+    $("onboardSkip").addEventListener("click", function () {
+      remember();
+      closeModal(m);
+    });
+    m.addEventListener("pointerdown", function (e) {
+      if (e.target === m) { remember(); closeModal(m); }
+    });
+    setTimeout(function () {
+      openModal(m);
+      refreshIcons();
+    }, 350);
+  }
+
   function openSettings(tab) {
     syncSettingsUI();
     renderProviders();
@@ -6569,10 +6601,26 @@
       wake.hidden = true;
       return;
     }
-    wake.hidden = false;
+    wake.hidden = !cfg.key; /* waking the model is an owner move */
     dot.className = "relay-dot busy";
     title.textContent = "Checking the relay...";
     sub.textContent = stripSlash(cfg.url);
+    if (!cfg.key) {
+      /* Visitors: the open /health endpoint says enough. */
+      fetch(stripSlash(cfg.url) + "/health", { signal: withTimeout(9000) }).then(function (r) {
+        if (!r.ok) throw new Error("bad");
+        return r.json();
+      }).then(function (d) {
+        dot.className = "relay-dot ok";
+        title.textContent = d && d.gateway_up ? "Public search ready" : "Public search ready";
+        sub.textContent = stripSlash(cfg.url);
+      }, function () {
+        dot.className = "relay-dot bad";
+        title.textContent = "Relay unreachable";
+        sub.textContent = stripSlash(cfg.url);
+      });
+      return;
+    }
     var opts = { headers: { "Authorization": "Bearer " + cfg.key }, signal: withTimeout(9000) };
     fetch(stripSlash(cfg.url) + "/admin/status", opts).then(function (r) {
       if (!r.ok) throw new Error(r.status);
@@ -6734,6 +6782,7 @@
     updateBanners();
     renderMemory();
     applyRetention(false);
+    maybeOnboard();
     window.addEventListener("online", function () { updateBanners(); drainNext(); });
     window.addEventListener("offline", function () { updateBanners(); });
     drainNext();

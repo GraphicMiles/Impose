@@ -1940,3 +1940,25 @@ html.reduce-motion .img-tile img { transition: opacity 150ms ease; }
   right: max(12px, env(safe-area-inset-right));
 }
 html.reduce-motion .imgbox-fig { transform: none; transition: none; }
+
+/* --- first-run onboarding (a modal: centered origin is correct) --------- */
+.onboard-sheet { max-width: 400px; padding: 22px 20px 18px; }
+.onboard-badge {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: var(--press); display: grid; place-items: center;
+  margin-bottom: 12px; color: var(--text);
+}
+.onboard-badge .lucide, .onboard-badge i[data-lucide] { width: 20px; height: 20px; }
+.onboard-sheet h2 { margin: 0 0 6px; font-size: 19px; }
+.onboard-sub { margin: 0 0 12px; color: var(--text-2); font-size: 14px; }
+.onboard-rows { display: block; }
+.onboard-row { display: flex; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border-soft); }
+.onboard-row .lucide, .onboard-row i[data-lucide] { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--text-2); }
+.onboard-row strong { display: block; font-size: 14px; font-weight: 600; }
+.onboard-row span { display: block; font-size: 13px; color: var(--text-2); margin-top: 2px; line-height: 1.45; }
+.onboard-acts { display: flex; gap: 8px; margin-top: 14px; }
+.onboard-acts .btn { flex: 1; }
+/* enter from 0.96 + fade, exit faster than enter */
+.onboard-sheet { transform: scale(0.96); opacity: 0; transition: transform 140ms ease, opacity 140ms ease; }
+.overlay.open .onboard-sheet { transform: scale(1); opacity: 1; transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out); }
+html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms ease; }

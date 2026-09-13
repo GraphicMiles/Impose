@@ -1973,6 +1973,28 @@ html.reduce-motion .img-tile img { transition: opacity 150ms ease; }
 }
 html.reduce-motion .imgbox-fig { transform: none; transition: none; }
 
+/* --- first-run onboarding (a modal: centered origin is correct) --------- */
+.onboard-sheet { max-width: 400px; padding: 22px 20px 18px; }
+.onboard-badge {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: var(--press); display: grid; place-items: center;
+  margin-bottom: 12px; color: var(--text);
+}
+.onboard-badge .lucide, .onboard-badge i[data-lucide] { width: 20px; height: 20px; }
+.onboard-sheet h2 { margin: 0 0 6px; font-size: 19px; }
+.onboard-sub { margin: 0 0 12px; color: var(--text-2); font-size: 14px; }
+.onboard-rows { display: block; }
+.onboard-row { display: flex; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border-soft); }
+.onboard-row .lucide, .onboard-row i[data-lucide] { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--text-2); }
+.onboard-row strong { display: block; font-size: 14px; font-weight: 600; }
+.onboard-row span { display: block; font-size: 13px; color: var(--text-2); margin-top: 2px; line-height: 1.45; }
+.onboard-acts { display: flex; gap: 8px; margin-top: 14px; }
+.onboard-acts .btn { flex: 1; }
+/* enter from 0.96 + fade, exit faster than enter */
+.onboard-sheet { transform: scale(0.96); opacity: 0; transition: transform 140ms ease, opacity 140ms ease; }
+.overlay.open .onboard-sheet { transform: scale(1); opacity: 1; transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out); }
+html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms ease; }
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -2732,6 +2754,22 @@ try {
   </div>
 </div>
 
+<div class="overlay center" id="onboardModal" hidden>
+  <div class="sheet onboard-sheet" role="dialog" aria-modal="true" aria-labelledby="onboardTitle">
+    <div class="onboard-badge"><i data-lucide="sparkles"></i></div>
+    <h2 id="onboardTitle">Welcome to Impose</h2>
+    <p class="onboard-sub">A chat app that shows its work. One thing to know before you start:</p>
+    <div class="onboard-rows">
+      <div class="onboard-row"><i data-lucide="key-round"></i><div><strong>Chatting needs a model key</strong><span>Bring any OpenAI-compatible provider key. It stays in this browser and goes straight to the provider.</span></div></div>
+      <div class="onboard-row"><i data-lucide="search"></i><div><strong>Search and images just work</strong><span>Web search, sources, and photo galleries run through the site's public relay. No key needed.</span></div></div>
+      <div class="onboard-row"><i data-lucide="flask-conical"></i><div><strong>No key yet?</strong><span>Explore with demo replies. Nothing leaves the browser.</span></div></div>
+    </div>
+    <div class="onboard-acts">
+      <button class="btn primary" id="onboardAdd" type="button">Add a provider</button>
+      <button class="btn" id="onboardSkip" type="button">Explore first</button>
+    </div>
+  </div>
+</div>
 <div class="overlay center" id="settingsModal" hidden>
   <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Settings">
     <div class="settings-head">
@@ -4800,7 +4838,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function defaultSettings() {
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "", relayKey: "", searchMode: false, displayName: "You",
+    /* The public relay ships as the default: visitors get keyless search
+       and images out of the box, rate limited per person. Owners add their
+       control key for the wake, the proxy, and the reader. */
+    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "https://impose-relay.onrender.com", relayKey: "", searchMode: false, displayName: "You",
       redactPII: false, followupsSmart: true, autoName: true, retentionDays: 0, failover: true };
   }
 
@@ -7282,11 +7323,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   function fetchSearchViaRelay(query, limit, signal) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
-    if (!cfg.key) return Promise.reject(new Error("Add the relay key in the provider editor under Advanced, Relay."));
     var url = stripSlash(cfg.url) + "/v1/search";
+    var headers = { "Content-Type": "application/json" };
+    if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
     var opts = {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      headers: headers,
       body: JSON.stringify({ query: query, limit: limit || 8 })
     };
     if (signal) opts.signal = signal;
@@ -7338,10 +7380,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   function fetchImagesViaRelay(query, limit, signal) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address to search images."));
-    if (!cfg.key) return Promise.reject(new Error("Add the relay key to search images."));
+    var headers = { "Content-Type": "application/json" };
+    if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
     var opts = {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key },
+      headers: headers,
       body: JSON.stringify({ query: query, limit: limit || 6 })
     };
     if (signal) opts.signal = signal;
@@ -9497,6 +9540,33 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (name === "providers") renderRelayCard();
   }
 
+  /* First-run onboarding: once, and only for people with nothing set up. */
+  function maybeOnboard() {
+    var KEY = "impose.onboarded.v1";
+    var seen = false;
+    try { seen = localStorage.getItem(KEY) === "1"; } catch (e) { /* private mode */ }
+    if (seen || state.providers.length) return;
+    var m = $("onboardModal");
+    if (!m) return;
+    function remember() { try { localStorage.setItem(KEY, "1"); } catch (e) { /* private mode */ } }
+    $("onboardAdd").addEventListener("click", function () {
+      remember();
+      closeModal(m);
+      openSettings("providers");
+    });
+    $("onboardSkip").addEventListener("click", function () {
+      remember();
+      closeModal(m);
+    });
+    m.addEventListener("pointerdown", function (e) {
+      if (e.target === m) { remember(); closeModal(m); }
+    });
+    setTimeout(function () {
+      openModal(m);
+      refreshIcons();
+    }, 350);
+  }
+
   function openSettings(tab) {
     syncSettingsUI();
     renderProviders();
@@ -10880,10 +10950,26 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       wake.hidden = true;
       return;
     }
-    wake.hidden = false;
+    wake.hidden = !cfg.key; /* waking the model is an owner move */
     dot.className = "relay-dot busy";
     title.textContent = "Checking the relay...";
     sub.textContent = stripSlash(cfg.url);
+    if (!cfg.key) {
+      /* Visitors: the open /health endpoint says enough. */
+      fetch(stripSlash(cfg.url) + "/health", { signal: withTimeout(9000) }).then(function (r) {
+        if (!r.ok) throw new Error("bad");
+        return r.json();
+      }).then(function (d) {
+        dot.className = "relay-dot ok";
+        title.textContent = d && d.gateway_up ? "Public search ready" : "Public search ready";
+        sub.textContent = stripSlash(cfg.url);
+      }, function () {
+        dot.className = "relay-dot bad";
+        title.textContent = "Relay unreachable";
+        sub.textContent = stripSlash(cfg.url);
+      });
+      return;
+    }
     var opts = { headers: { "Authorization": "Bearer " + cfg.key }, signal: withTimeout(9000) };
     fetch(stripSlash(cfg.url) + "/admin/status", opts).then(function (r) {
       if (!r.ok) throw new Error(r.status);
@@ -11045,6 +11131,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     updateBanners();
     renderMemory();
     applyRetention(false);
+    maybeOnboard();
     window.addEventListener("online", function () { updateBanners(); drainNext(); });
     window.addEventListener("offline", function () { updateBanners(); });
     drainNext();
