@@ -197,7 +197,7 @@ class ImagesFailed(Exception):
     pass
 
 
-async def engine_images(query, limit=8):
+async def engine_images(query, limit=8, _retried=False):
     t0 = time.time()
     attempts = []
     async with httpx.AsyncClient(headers=UA, follow_redirects=True, max_redirects=3) as client:
@@ -218,6 +218,12 @@ async def engine_images(query, limit=8):
                           % (query[:60], name, len(results), total), flush=True)
                     return {"results": results, "provider": name,
                             "query": query, "count": len(results), "ms": total}
+    # The HTML engines wobble (one-off challenges, cold free-tier egress).
+    # One quiet retry: a second ask a beat later usually gets through, and
+    # visitors have no retry button of their own.
+    if not _retried:
+        await asyncio.sleep(0.8)
+        return await engine_images(query, limit=limit, _retried=True)
     raise ImagesFailed("all image providers failed: " + "; ".join(
         a["provider"] + "=" + a["error"] for a in attempts))
 

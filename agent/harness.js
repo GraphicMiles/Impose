@@ -173,7 +173,10 @@
                 gallery = g;
                 deps.emit({ t: "images", n: g.images.length, provider: g.provider, images: g.images });
               }
-            }, function () { /* no gallery is fine */ });
+            }, function () {
+              /* No gallery is fine, but silence reads as broken. */
+              deps.emit({ t: "imagesfail" });
+            });
         })() : null;
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
