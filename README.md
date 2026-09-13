@@ -24,6 +24,8 @@ with everything inlined, so it works from disk with no server.
 - `app.js` state, providers, streaming, markdown renderer, search
 - `lucide.min.js` icon library, vendored so the app works offline
 - `impose-standalone.html` portable single file build
+- `brand/` generated Agent Atlas production assets and usage notes
+- `icon-*.png`, `favicon-64.png`, and `og-image.jpg` deployed brand exports
 - `_headers` CSP and security headers for the Render static deploy
 - `build_inline.py` rebuilds the single file build
 
