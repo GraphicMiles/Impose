@@ -48,6 +48,23 @@
     return s.trim() || String(text || "").trim();
   }
 
+  /* Drop years and counts: "odunlade adekola 2024" hunts one photo set,
+     "odunlade adekola" finds the person. */
+  function broadenSubject(s) {
+    return String(s || "").replace(/\b(?:19|20)\d{2}\b/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  /* Search attempts for one gallery: the clean subject, its broadened
+     form, then the simplified question. Deduped, order kept. */
+  function uniqueVariants(subject) {
+    var out = [], i, v;
+    for (i = 0; i < arguments.length; i++) {
+      v = String(arguments[i] || "").trim();
+      if (v && out.indexOf(v) === -1) out.push(v);
+    }
+    return out;
+  }
+
   var imagesTool = {
     id: "images.search",
     version: "1.0",
@@ -151,6 +168,19 @@
         err.name = "AbortError";
         return err;
       }
+      /* The critic: one small completion judging whether a result serves
+         the request. Answers GO (or SUFFICIENT), or QUERY: with a better
+         search. Missing critic dep or a failed call stays fail-open. */
+      function askCritic(prompt) {
+        if (typeof deps.critique !== "function") return Promise.resolve("GO");
+        return Promise.resolve().then(function () { return deps.critique(prompt); })
+          .then(function (ans) { return String(ans == null ? "GO" : ans); },
+                function () { return "GO"; });
+      }
+      function parseQueryAns(ans) {
+        if (!/^QUERY:/i.test(String(ans || "").trim())) return "";
+        return String(ans).replace(/^QUERY:\s*/i, "").trim().slice(0, 200);
+      }
       function plan() {
         if (typeof deps.rewrite !== "function") return Promise.resolve(question);
         deps.emit({ t: "status", text: "Planning the search" });
@@ -164,19 +194,47 @@
         if (deps.signal && deps.signal.aborted) throw abortErr();
         deps.emit({ t: "status", text: "Searching the web" });
         var gallery = null;
+        var galleryFailed = false;
+        function pause(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
         var galleryJob = wantImages ? (function () {
           var subject = imageSubject(planned);
           deps.emit({ t: "status", text: "Finding images" });
-          return imagesTool.run({ query: subject || planned, limit: 6 }, { images: deps.images })
-            .then(function (g) {
-              if (g.images.length) {
-                gallery = g;
-                deps.emit({ t: "images", n: g.images.length, provider: g.provider, images: g.images });
-              }
-            }, function () {
-              /* No gallery is fine, but silence reads as broken. */
-              deps.emit({ t: "imagesfail" });
-            });
+          var raw = subject || planned;
+          var variants = uniqueVariants(raw, broadenSubject(raw), simplifyQuery(raw));
+          function attempt(i) {
+            if (deps.signal && deps.signal.aborted) return Promise.reject(abortErr());
+            if (i >= variants.length) return Promise.reject(new Error("every image attempt failed"));
+            if (i > 0) {
+              deps.emit({ t: "imagestry", q: variants[i], n: i + 1 });
+              return pause(400).then(function () { return imagesTool.run({ query: variants[i], limit: 6 }, { images: deps.images }); })
+                .then(good, function () { return attempt(i + 1); });
+            }
+            return imagesTool.run({ query: variants[i], limit: 6 }, { images: deps.images }).then(good, function () { return attempt(i + 1); });
+            function good(g) { return g.images.length ? g : attempt(i + 1); }
+          }
+          function criticRound(g) {
+            if (!g.images.length) return g;
+            var titles = g.images.slice(0, 6).map(function (x) { return "- " + x.title; }).join("\n");
+            return askCritic("Request: photos of \"" + (subject || planned) + "\". The image search returned:\n" + titles +
+              "\nDo these images match the subject? Answer exactly GO if they do. If they do not, answer exactly QUERY: followed by one better image search query.")
+              .then(function (ans) {
+                var q2 = parseQueryAns(ans);
+                if (!q2 || q2.toLowerCase() === String(g.query).toLowerCase()) return g;
+                deps.emit({ t: "imagestry", q: q2, better: true });
+                return imagesTool.run({ query: q2, limit: 6 }, { images: deps.images })
+                  .then(function (g2) { return g2.images.length ? g2 : g; }, function () { return g; });
+              });
+          }
+          return attempt(0).then(criticRound, function () {
+            /* No gallery after every attempt, but silence reads as broken. */
+            galleryFailed = true;
+            deps.emit({ t: "imagesfail" });
+          }).then(function (g) {
+            if (g && g.images && g.images.length) {
+              gallery = g;
+              deps.emit({ t: "images", n: g.images.length, provider: g.provider, images: g.images });
+            }
+          });
         })() : null;
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
@@ -184,24 +242,64 @@
             if (!deps.excluded || !deps.excluded.length) return true;
             return deps.excluded.indexOf(domainOf(r.url)) === -1;
           });
-          var galleryNote = "";
-          if (gallery) {
-            galleryNote = " An image gallery for this request is already shown to the user next to your reply. " +
-              "Never say you cannot display images, and do not list image links in the answer; " +
-              "talk about the subject naturally instead.";
+          /* Read at completion time: the gallery job settles in parallel
+             with the search, so the note can only be built afterwards. */
+          function galleryNote() {
+            var note = "";
+            if (gallery) {
+              note = " An image gallery for this request is already shown to the user next to your reply. " +
+                "Never say you cannot display images, and do not list image links in the answer; " +
+                "talk about the subject naturally instead.";
+            }
+            if (galleryFailed) {
+              note += " The user asked for photos but the image search failed after several attempts. " +
+                "Do NOT invent, guess, or paste any image URLs, stock photo links, or thumbnails - fabricated links " +
+                "render broken and mislead. Answer in text only; naming a site in prose is fine, but never fabricate " +
+                "a link or a gallery table.";
+            }
+            return note;
           }
-          if (results.length === 0) {
+          /* The gate: a critic pass over the sources. One round, then the
+             pipeline moves on with whatever is best. */
+          function sourcesGate(rows) {
+            if (typeof deps.critique !== "function" || rows.length === 0) return Promise.resolve(rows);
+            if (deps.signal && deps.signal.aborted) return Promise.resolve(rows);
+            var lines = rows.slice(0, 8).map(function (r, i) {
+              return (i + 1) + ". " + (r.title || "") + " [" + domainOf(r.url) + "] " + String(r.snippet || "").slice(0, 120);
+            }).join("\n");
+            return askCritic("Request: " + question + "\nThe web search returned these sources:\n" + lines +
+              "\nAre these sources on topic and enough to answer the request well? " +
+              "Answer exactly SUFFICIENT if they are. If not, answer exactly QUERY: followed by one better web search query.")
+              .then(function (ans) {
+                var q2 = parseQueryAns(ans);
+                if (!q2) return rows;
+                deps.emit({ t: "status", text: "First pass looked weak - searching again" });
+                deps.emit({ t: "query", q: q2 });
+                return Promise.resolve().then(function () { return deps.search(q2, 8); }).then(function (out2) {
+                  var rows2 = (out2 && out2.results) || [];
+                  if (!rows2.length) return rows;
+                  var seen = {}, merged = [];
+                  rows2.concat(rows).forEach(function (r) {
+                    if (r && r.url && !seen[r.url]) { seen[r.url] = 1; merged.push(r); }
+                  });
+                  return merged.slice(0, 10);
+                }, function () { return rows; });
+              });
+          }
+          function finishWith(rows) {
+            results = rows;
+            if (rows.length === 0) {
             return (galleryJob || Promise.resolve()).then(function () {
               deps.emit({ t: "settle", text: "Searched the web" });
               var bare = "You are Impose, a helpful assistant running in a web app that renders rich content; never call yourself a CLI or terminal. The web search found nothing for this question. " +
                 "Say so in one short line, then answer from your own knowledge anyway. " +
                 "Never refuse a question you can answer, and never ask the user to provide evidence. Use the conversation to resolve names and pronouns." +
-                galleryNote;
+                galleryNote();
               return deps.complete(bare, withContext(question), deps.onDelta, deps.onThink).then(function () {
                 return { sources: [], provider: out.provider || "", images: gallery ? gallery.images : null };
               });
             });
-          }
+            }
           deps.emit({ t: "status", text: "Reading " + results.length + " sources", provider: out.provider || "" });
           results.forEach(function (r) {
             deps.emit({ t: "source", title: r.title || r.url, sub: domainOf(r.url), href: r.url });
@@ -240,13 +338,15 @@
                 "If the evidence is off topic or too thin, say the search missed " +
                 "in one short line, then answer from your own knowledge anyway. Never refuse a question you can answer, " +
                 "and never ask the user to provide evidence. Use the conversation to resolve names and pronouns." +
-                galleryNote;
+                galleryNote();
               return deps.complete(system, withContext(question) + "\n\nEvidence:\n" + evidence, deps.onDelta, deps.onThink).then(function () {
                 return { sources: results, provider: out.provider, read: pages.filter(Boolean).length,
                          images: gallery ? gallery.images : null };
               });
             });
           });
+          }
+          return sourcesGate(results).then(finishWith);
         });
       });
     }
@@ -276,6 +376,7 @@
     looksLikeImageRequest: looksLikeImageRequest,
     imageSubject: imageSubject,
     imagesTool: imagesTool,
+    broadenSubject: broadenSubject,
     domainOf: domainOf,
     websearchTool: websearchTool,
     harness: createHarness()

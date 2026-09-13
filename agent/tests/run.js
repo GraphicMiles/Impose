@@ -329,6 +329,128 @@ test("runAgent drops excluded domains", function () {
   });
 });
 
+test("runAgent critic swaps a wrong gallery once", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "sa" }], provider: "p" }]);
+  var imgQueries = [];
+  var critPrompts = [];
+  return H.harness.runAgent({
+    query: "Show me 4 images of mark rober",
+    search: s.fn,
+    images: function (q) {
+      imgQueries.push(q);
+      if (q === "mark rober") {
+        return Promise.resolve({ provider: "p", results: [
+          { title: "Totally Unrelated Stock", image: "https://x.io/bad.jpg", thumb: "", page: "" }] });
+      }
+      return Promise.resolve({ provider: "p", results: [
+        { title: "Mark Rober portrait", image: "https://x.io/good.jpg", thumb: "", page: "" }] });
+    },
+    critique: function (prompt) {
+      critPrompts.push(prompt);
+      return Promise.resolve("QUERY: mark rober youtube host");
+    },
+    emit: function () {},
+    onDelta: function () {},
+    complete: function () { return Promise.resolve(); }
+  }).then(function (out) {
+    eq(imgQueries.length, 2, "critic query ran once");
+    eq(imgQueries[1], "mark rober youtube host", "critic query used");
+    eq(out.images.length, 1, "swapped gallery returned");
+    ok(out.images[0].image === "https://x.io/good.jpg", "better gallery wins");
+    ok(critPrompts.some(function (p) { return p.indexOf("match the subject") !== -1; }), "critic asked about match");
+  });
+});
+
+test("runAgent critic keeps a good gallery", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "sa" }], provider: "p" }]);
+  var imgQueries = [];
+  return H.harness.runAgent({
+    query: "photos of cats",
+    search: s.fn,
+    images: function (q) {
+      imgQueries.push(q);
+      return Promise.resolve({ provider: "p", results: [
+        { title: "a tabby cat", image: "https://x.io/cat.jpg", thumb: "", page: "" }] });
+    },
+    critique: function () { return Promise.resolve("GO"); },
+    emit: function () {},
+    onDelta: function () {},
+    complete: function () { return Promise.resolve(); }
+  }).then(function () {
+    eq(imgQueries.length, 1, "one attempt when critic says GO");
+  });
+});
+
+test("runAgent retries images with a simpler query before failing", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "sa" }], provider: "p" }]);
+  var imgQueries = [];
+  var emits = [];
+  var completed = null;
+  return H.harness.runAgent({
+    query: "Find me pictures of odunlade adekola 2024",
+    search: s.fn,
+    images: function (q) {
+      imgQueries.push(q);
+      if (imgQueries.length === 1) return Promise.reject(new Error("502"));
+      return Promise.resolve({ provider: "p", results: [
+        { title: "Odunlade Adekola", image: "https://x.io/o.jpg", thumb: "", page: "" }] });
+    },
+    emit: function (e) { emits.push(e); },
+    onDelta: function () {},
+    complete: function (system) { completed = system; return Promise.resolve(); }
+  }).then(function (out) {
+    eq(imgQueries.length, 2, "simpler variant ran after the failure");
+    eq(imgQueries[1], "odunlade adekola 2024".replace(/ 2024$/, ""), "variant is the simplified subject");
+    ok(emits.some(function (e) { return e.t === "imagestry"; }), "retry surfaced in the trace");
+    eq(out.images.length, 1, "recovered gallery returned");
+  });
+});
+
+test("total image failure emits imagesfail and bans fabricated links", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "sa" }], provider: "p" }]);
+  var failed = false;
+  var completed = null;
+  return H.harness.runAgent({
+    query: "photos of chupacabra",
+    search: s.fn,
+    images: function () { return Promise.reject(new Error("down")); },
+    emit: function (e) { if (e.t === "imagesfail") failed = true; },
+    onDelta: function () {},
+    complete: function (system) { completed = system; return Promise.resolve(); }
+  }).then(function () {
+    ok(failed, "imagesfail emitted");
+    ok(completed.indexOf("never fabricate") !== -1, "no fabricated links note");
+    ok(completed.indexOf("image gallery") === -1, "no gallery note when none exists");
+  });
+});
+
+test("sources gate re-searches once on QUERY and merges", function () {
+  var s = searchStub([
+    { results: [{ title: "weak", url: "https://weak.io/", snippet: "w" }], provider: "p" },
+    { results: [{ title: "strong", url: "https://strong.io/", snippet: "s" }], provider: "p" }
+  ]);
+  var crits = [];
+  var srcs = null;
+  return H.harness.runAgent({
+    query: "who is odunlade adekola",
+    search: s.fn,
+    critique: function (prompt) {
+      crits.push(prompt);
+      return Promise.resolve("QUERY: odunlade adekola nollywood actor biography");
+    },
+    emit: function () {},
+    onDelta: function () {},
+    complete: function () { return Promise.resolve(); }
+  }).then(function (out) {
+    eq(s.calls.length, 2, "gate triggered the second search");
+    eq(s.calls[1][0], "odunlade adekola nollywood actor biography", "gate query used");
+    srcs = out.sources.map(function (r) { return r.url; });
+    ok(srcs.indexOf("https://strong.io/") === 0, "fresh results rank first");
+    ok(srcs.indexOf("https://weak.io/") !== -1, "old results kept behind");
+    ok(crits.length >= 1 && crits[0].indexOf("on topic and enough") !== -1, "sufficiency asked");
+  });
+});
+
 test("runAgent hands context to the rewrite and the answer", function () {
   var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "sa" }], provider: "p" }]);
   var seen = {};
