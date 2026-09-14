@@ -5,10 +5,9 @@ SearXNG instances are env-overridable (SEARXNG_URLS, comma separated).
 
 Providers race concurrently inside each tier, and no result set wins
 without validation: the SearXNG query echo must match, and at least one
-result must share a significant token with the query. A tier that answers
-with nothing relevant yields empty results (the agent answers from
-knowledge); SearchFailed is reserved for a true outage where nobody
-answered at all.
+result must share significant terms with the query. A tier that answers
+with nothing relevant yields empty results so the agent can fail closed;
+SearchFailed is reserved for a true outage where nobody answered at all.
 """
 import asyncio
 import base64
@@ -57,11 +56,22 @@ def _is_http(url):
         return False
 
 
+def _is_external_source(url):
+    """Reject search-engine navigation URLs, including decoded Bing targets."""
+    if not _is_http(url):
+        return False
+    try:
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host != "bing.com" and not host.endswith(".bing.com")
+
+
 def parse_searxng(data):
     out = []
     for r in (data or {}).get("results", []) or []:
         url = r.get("url", "")
-        if not _is_http(url):
+        if not _is_external_source(url):
             continue
         out.append({"title": _clean(r.get("title", ""), 200) or url,
                     "url": url,
@@ -86,18 +96,39 @@ def _significant(query):
     return [t for t in toks if t not in _STOP]
 
 
-def _relevant(results, query):
-    """At least one result shares a significant query token. Queries with
-    no significant tokens pass, since there is nothing to judge by."""
-    toks = _significant(query)
+def _relevance_url(url):
+    """URL host/path may be topical; a search query string is never evidence."""
+    try:
+        parts = urllib.parse.urlsplit(str(url or ""))
+        return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    except Exception:
+        return ""
+
+
+def _filter_relevant(results, query):
+    """Keep only individually relevant results, not a whole noisy result set.
+
+    Multiple-word searches need at least two distinct query terms. This stops
+    one generic word in a navigation-page snippet from making every result
+    look relevant.
+    """
+    toks = list(dict.fromkeys(_significant(query)))
     if not toks:
-        return True
-    for r in results or []:
-        blob = " ".join([r.get("title", ""), r.get("snippet", ""),
-                         r.get("url", "")]).lower()
-        if any(t in blob for t in toks):
-            return True
-    return False
+        return list(results or [])
+    required = 1 if len(toks) == 1 else 2
+    out = []
+    for result in results or []:
+        blob = " ".join([result.get("title", ""), result.get("snippet", ""),
+                         _relevance_url(result.get("url", ""))]).lower()
+        matches = sum(bool(re.search(r"\b" + re.escape(token) + r"\b", blob))
+                      for token in toks)
+        if matches >= required:
+            out.append(result)
+    return out
+
+
+def _relevant(results, query):
+    return bool(_filter_relevant(results, query))
 
 
 def _norm_q(s):
@@ -130,11 +161,11 @@ def _bing_target(href):
         try:
             pad = "=" * (-len(u[2:]) % 4)
             target = base64.urlsafe_b64decode(u[2:] + pad).decode("utf-8", "ignore")
-            if _is_http(target):
+            if _is_external_source(target):
                 return target
         except Exception:
             pass
-    if href.startswith("http") and "bing.com" not in parts.netloc:
+    if href.startswith("http") and _is_external_source(href):
         return href
     return None
 
@@ -178,7 +209,7 @@ def parse_ddg(html):
             url = m["uddg"][0]
         elif _is_http(href):
             url = href
-        if not url or not _is_http(url):
+        if not url or not _is_external_source(url):
             continue
         snip = div.select_one(".result__snippet")
         out.append({"title": _clean(a.get_text(" ", strip=True), 200) or url,
@@ -235,7 +266,8 @@ async def _searxng(client, base, query, limit, language, freshness):
         raise
     except Exception:
         raise AttemptFail("not JSON (bot wall?)")
-    if not _relevant(results, query):
+    results = _filter_relevant(results, query)
+    if not results:
         raise AttemptFail("off topic results", answered=True)
     return results[:limit]
 
@@ -254,7 +286,8 @@ async def _bing(client, query, limit):
     results = parse_bing(r.text)
     if not results:
         raise AttemptFail("no results parsed", answered=True)
-    if not _relevant(results, query):
+    results = _filter_relevant(results, query)
+    if not results:
         raise AttemptFail("off topic results", answered=True)
     return results[:limit]
 
@@ -272,7 +305,8 @@ async def _ddg(client, query, limit):
     results = parse_ddg(r.text)
     if not results:
         raise AttemptFail("no results parsed", answered=True)
-    if not _relevant(results, query):
+    results = _filter_relevant(results, query)
+    if not results:
         raise AttemptFail("off topic results", answered=True)
     return results[:limit]
 

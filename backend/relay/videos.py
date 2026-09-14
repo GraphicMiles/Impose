@@ -6,6 +6,7 @@ rather than a model's guess. Only URL shapes the client knows how to embed are
 returned: YouTube videos and Twitch channels/VODs/clips.
 """
 import html as html_mod
+import json
 import re
 import xml.etree.ElementTree as ET
 from urllib.parse import parse_qs, unquote, urlparse
@@ -16,6 +17,7 @@ from bs4 import BeautifulSoup
 from relay.search import UA, _significant, engine_search
 
 BING_VIDEOS = "https://www.bing.com/videos/search"
+YOUTUBE_SEARCH = "https://www.youtube.com/results"
 YOUTUBE_FEED = "https://www.youtube.com/feeds/videos.xml"
 VIDEO_TIMEOUT_SECONDS = 12.0
 _VIDEO_GENERIC = {
@@ -23,6 +25,7 @@ _VIDEO_GENERIC = {
     "uploads", "live", "stream", "streams", "streaming", "official", "channel",
     "youtube", "twitch", "clip", "clips", "vod", "find", "show", "get",
     "give", "any", "me", "currently", "available", "right", "now",
+    "music", "song", "by", "from", "for", "the", "a", "an",
 }
 _TWITCH_RESERVED = {
     "directory", "downloads", "jobs", "login", "payments", "search",
@@ -129,6 +132,7 @@ def _supported_result(url, title, thumb="", context="", channel_id=""):
 def parse_bing_videos(page, query="", limit=8):
     soup = BeautifulSoup(page or "", "html.parser")
     meaningful = [t for t in _significant(query) if t not in _VIDEO_GENERIC]
+    required = 1 if len(meaningful) == 1 else min(len(meaningful), max(2, (len(meaningful) * 3 + 3) // 4))
     out, seen = [], set()
     for node in soup.select("[ourl]"):
         url = html_mod.unescape(node.get("ourl") or "")
@@ -136,7 +140,9 @@ def parse_bing_videos(page, query="", limit=8):
         title = (image.get("alt") if image else "") or node.get("aria-label") or "Video"
         context = node.get_text(" ", strip=True)
         blob = (title + " " + context + " " + url).lower()
-        if meaningful and not any(re.search(r"\b" + re.escape(t) + r"\b", blob) for t in meaningful):
+        matches = sum(bool(re.search(r"\b" + re.escape(token) + r"\b", blob))
+                      for token in meaningful)
+        if meaningful and matches < required:
             continue
         thumb = ""
         if image:
@@ -150,6 +156,64 @@ def parse_bing_videos(page, query="", limit=8):
         out.append(row)
         if len(out) >= max(1, min(12, int(limit or 8))):
             break
+    return out
+
+
+def _youtube_text(value):
+    if not isinstance(value, dict):
+        return ""
+    if value.get("simpleText"):
+        return str(value["simpleText"])
+    return "".join(str(run.get("text", "")) for run in value.get("runs", [])
+                   if isinstance(run, dict))
+
+
+def parse_youtube_search(page, query="", limit=8):
+    """Extract real video IDs and channel IDs from YouTube's search page."""
+    marker = re.search(r"(?:var\s+)?ytInitialData\s*=\s*", page or "")
+    if not marker:
+        return []
+    try:
+        data = json.JSONDecoder().raw_decode((page or "")[marker.end():])[0]
+    except Exception:
+        return []
+    meaningful = [token for token in _significant(query) if token not in _VIDEO_GENERIC]
+    required = 1 if len(meaningful) == 1 else min(len(meaningful), max(2, (len(meaningful) * 3 + 3) // 4))
+    out, seen = [], set()
+
+    def visit(value):
+        if len(out) >= max(1, min(12, int(limit or 8))):
+            return
+        if isinstance(value, dict):
+            renderer = value.get("videoRenderer")
+            if isinstance(renderer, dict):
+                vid = str(renderer.get("videoId", ""))
+                title = _youtube_text(renderer.get("title"))
+                owner = _youtube_text(renderer.get("ownerText") or renderer.get("longBylineText"))
+                blob = (title + " " + owner).lower()
+                matches = sum(bool(re.search(r"\b" + re.escape(token) + r"\b", blob))
+                              for token in meaningful)
+                if (not meaningful or matches >= required) and vid not in seen:
+                    owner_runs = (renderer.get("ownerText") or renderer.get("longBylineText") or {}).get("runs", [])
+                    browse = (owner_runs[0].get("navigationEndpoint", {}).get("browseEndpoint", {})
+                              if owner_runs and isinstance(owner_runs[0], dict) else {})
+                    thumbs = renderer.get("thumbnail", {}).get("thumbnails", [])
+                    thumb = str(thumbs[-1].get("url", "")) if thumbs else ""
+                    row = _supported_result("https://www.youtube.com/watch?v=" + vid,
+                                            title, thumb, owner,
+                                            str(browse.get("browseId", "")))
+                    if row:
+                        row["channel"] = owner[:120]
+                        row["publishedText"] = _youtube_text(renderer.get("publishedTimeText"))[:80]
+                        out.append(row)
+                        seen.add(vid)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(data)
     return out
 
 
@@ -288,10 +352,24 @@ async def engine_videos(query, limit=6):
             direct.append(row)
     headers = dict(UA)
     headers["Accept-Language"] = "en-US,en;q=0.8"
+    provider = "direct-url" if direct else "bing-videos"
     try:
         async with httpx.AsyncClient(headers=headers, follow_redirects=True, max_redirects=3) as client:
             r = await client.get(BING_VIDEOS, params={"q": query, "FORM": "HDRSC4"}, timeout=VIDEO_TIMEOUT_SECONDS)
             searched = parse_bing_videos(r.text, query, cap) if r.status_code == 200 else []
+            youtube_rows = []
+            if not re.search(r"\btwitch\b", query, re.I):
+                try:
+                    yr = await client.get(YOUTUBE_SEARCH, params={"search_query": query},
+                                          timeout=VIDEO_TIMEOUT_SECONDS)
+                    if yr.status_code == 200:
+                        youtube_rows = parse_youtube_search(yr.text, query, cap)
+                        known = {row.get("url") for row in searched}
+                        if youtube_rows and not searched:
+                            provider = "youtube-search"
+                        searched.extend(row for row in youtube_rows if row.get("url") not in known)
+                except Exception:
+                    pass
             wants_twitch = bool(re.search(r"\btwitch\b", query, re.I))
             wants_live = bool(re.search(r"\b(?:live|livestream|live\s+stream)\b", query, re.I))
             subject = _video_subject(query)
@@ -312,6 +390,8 @@ async def engine_videos(query, limit=6):
                 try:
                     domains = ["twitch.tv"] if wants_twitch else ["youtube.com", "twitch.tv"]
                     web = await engine_search(query, limit=cap, domains=domains)
+                    if web.get("results"):
+                        provider = web.get("provider") or "web-search"
                     for hit in web.get("results", []):
                         row = _supported_result(hit.get("url"), hit.get("title"), "", hit.get("snippet", ""))
                         if row:
@@ -321,9 +401,18 @@ async def engine_videos(query, limit=6):
             searched = _rank_twitch(searched, query)
             rows = direct + searched
             if re.search(r"\b(latest|newest|most recent|recent upload)\b", query, re.I):
-                channel_id = await _find_youtube_channel(query)
+                wanted = re.sub(r"[^a-z0-9]", "", _video_subject(query).lower())
+                channel_id = ""
+                for candidate in youtube_rows:
+                    owner = re.sub(r"[^a-z0-9]", "", str(candidate.get("channel", "")).lower())
+                    if candidate.get("channelId") and wanted and owner == wanted:
+                        channel_id = candidate["channelId"]
+                        break
+                if not channel_id:
+                    channel_id = await _find_youtube_channel(query)
                 latest = await _latest_from_feed(client, channel_id)
                 if latest:
+                    provider = "youtube-feed"
                     rows = [latest]  # authoritative answer for singular “latest” intent
     except Exception as exc:
         if not direct:
@@ -339,4 +428,4 @@ async def engine_videos(query, limit=6):
             break
     if not clean:
         raise VideosFailed("no verified video results")
-    return {"results": clean, "provider": "bing-videos", "query": query, "count": len(clean)}
+    return {"results": clean, "provider": provider, "query": query, "count": len(clean)}

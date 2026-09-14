@@ -944,6 +944,8 @@
       .replace(/\[([^\]]+)\]\(\s*https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtube-nocookie\.com|youtu\.be|twitch\.tv)\/[^)]*\)/gi, "$1")
       .replace(/(^|\s)https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)(?:\?\S*)?(?=\s|$)/gi, "$1")
       .replace(/(^|\s)https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtube-nocookie\.com|youtu\.be|twitch\.tv)\/\S*(?=\s|$)/gi, "$1")
+      .replace(/^.*\bPLACEHOLDER\b.*$/gim, "")
+      .replace(/[^.!?\n]*\breplace\s+(?:the\s+)?(?:video\s+)?(?:id|placeholder)\b[^.!?\n]*[.!?]?/gi, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
@@ -3399,7 +3401,7 @@
      canned bank silently when the model is out of ideas or money. */
   function maybeSmartFollowups(chat, msg) {
     if (!state.settings.followupsSmart) return;
-    if (!msg || msg.suggested || msg.suggesting || msg.imageFailed || msg.videoFailed) return;
+    if (!msg || msg.suggested || msg.suggesting || msg.imageFailed || msg.videoFailed || msg.researchFailed) return;
     var t = getTarget();
     if (!t || String(msg.content || "").length < 40) return;
     msg.suggesting = true;
@@ -3625,7 +3627,7 @@
       row = messagesEl.querySelector('.msg[data-i="' + idx + '"]');
       if (!row) return;
       var rm = chat.messages[idx];
-      if (rm) { rm.error = null; rm.researched = true; delete rm.imageFailed; delete rm.videoFailed; delete rm.videos; }
+      if (rm) { rm.error = null; rm.researched = true; delete rm.imageFailed; delete rm.videoFailed; delete rm.researchFailed; delete rm.videos; }
       var oldTrace = row.querySelector(".agent-trace");
       if (oldTrace) oldTrace.remove();
       var oldActions = row.querySelector(".msg-actions");
@@ -3802,7 +3804,13 @@
            prose never become a fallback player or a made-up live lineup. */
         s.text = String(out.answer || "I couldn’t verify a playable result for this request. Try a specific channel or video name.");
         if (m) m.videoFailed = true;
+      } else if (out && out.researchFailed) {
+        /* Empty or off-topic search evidence fails closed. Do not turn model
+           memory into a fabricated researched answer. */
+        s.text = String(out.answer || "I couldn’t find reliable sources for this request. Try different search words.");
+        if (m) m.researchFailed = true;
       } else {
+        if (out && out.answer) s.text = String(out.answer);
         var beforeImageGuard = s.text;
         s.text = stripUnverifiedMediaMarkup(s.text);
         if (beforeImageGuard && !s.text) {
