@@ -15,7 +15,7 @@ os.environ.setdefault("CONTROL_KEY", "test123")
 
 from relay.images import (  # noqa: E402
     parse_bing_images, parse_ddg_images, parse_openverse, parse_wikimedia,
-    engine_images, _relevant_images,
+    engine_images, _relevant_images, _provider_image_query,
 )
 import relay.images as images_mod  # noqa: E402
 
@@ -110,6 +110,9 @@ def main():
                     "page": "", "source": "example.test"}]
     check("relevance ignores generic image adjectives",
           len(_relevant_images(descriptive, "Michael Jackson Billie Jean iconic classic")) == 1)
+    check("provider query removes request decoration",
+          _provider_image_query("Representative images related to Michael Jackson Billie Jean iconic classic")
+          == "Michael Jackson Billie Jean")
 
     # live engine run: informational only, sandbox IPs are often challenged
     async def live():
