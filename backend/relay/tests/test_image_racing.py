@@ -39,13 +39,13 @@ def test_brand_catalog_matches_semantic_name_and_returns_attributed_svg(monkeypa
         headers = {"content-type": "image/svg+xml"}
         content = b"<svg xmlns='http://www.w3.org/2000/svg'></svg>"
     class Client:
-        async def get(self, url, **kwargs): return Artifact() if "simpleicons.org/google" in url else Response()
+        async def get(self, url, **kwargs): return Artifact() if url.endswith("/icons/google.svg") else Response()
     monkeypatch.setitem(images._simple_icons_cache, "rows", [])
     rows = asyncio.run(images._simple_icons(Client(), ["official Google logo icon"], 4))
     assert rows[0]["title"] == "Google brand icon"
     assert rows[0]["format"] == "svg"
     assert rows[0]["page"].startswith("https://about.google/")
-    assert rows[0]["image"] == "https://cdn.simpleicons.org/google"
+    assert rows[0]["image"].endswith("/simple-icons@latest/icons/google.svg")
 
 
 def test_source_rank_beats_fastest_response(monkeypatch):
