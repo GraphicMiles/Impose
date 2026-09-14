@@ -38,10 +38,12 @@ def test_discovery_expands_from_typed_extension_without_request_rules(monkeypatc
         calls.append(query)
         result = []
         if "filename.md" in query:
-            result = [{"title": "Skill", "url": "https://github.com/acme/design/blob/main/SKILL.md"}]
+            result = [{"title": "Unrelated bundle", "url": "https://example.com/archive.zip"},
+                      {"title": "Skill", "url": "https://github.com/acme/design/blob/main/SKILL.md"}]
         return {"provider": "fixture", "results": result}
     monkeypatch.setattr(files, "engine_search", fake_search)
     out = asyncio.run(files.discover_files("frontend design agent skill", extensions=["md"]))
     assert any("filename.md" in query for query in calls)
     assert out["results"][0]["name"] == "SKILL.md"
+    assert all(row["extension"] == "md" for row in out["results"])
     assert out["results"][0]["downloadUrl"].startswith("https://raw.githubusercontent.com/")
