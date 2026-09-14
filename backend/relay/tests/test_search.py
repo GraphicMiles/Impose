@@ -15,7 +15,7 @@ sys.path.insert(0, str(HERE.parents[2]))
 os.environ.setdefault("CONTROL_KEY", "test123")
 
 from relay.search import (  # noqa: E402
-    _bing_target, _relevant, AttemptFail, engine_search, parse_bing,
+    _bing_target, _filter_relevant, _relevant, AttemptFail, engine_search, parse_bing,
     parse_ddg, parse_searxng, SearchFailed, select_searxng,
 )
 import relay.search as search_mod  # noqa: E402
@@ -45,6 +45,20 @@ check("ddg parses and unwraps uddg",
 tok = "a1" + base64.urlsafe_b64encode(b"https://example.com/x").decode().rstrip("=")
 check("bing redirect decodes",
       _bing_target("/ck/a?u=" + tok) == "https://example.com/x")
+internal_tok = "a1" + base64.urlsafe_b64encode(
+    b"https://www.bing.com/search?q=Iceking+Ochacho").decode().rstrip("=")
+check("decoded bing navigation target is rejected",
+      _bing_target("/ck/a?u=" + internal_tok) is None)
+noisy = [
+    {"title": "Bing Homepage Quiz",
+     "url": "https://bingquiz.example/?q=Iceking+Ochacho+No+Competition",
+     "snippet": "Play music trivia and daily quizzes"},
+    {"title": "Iceking Ochacho No Competition", "url": "https://music.example/no-competition",
+     "snippet": "Iceking Ochacho single"},
+]
+filtered = _filter_relevant(noisy, "Iceking Ochacho No Competition")
+check("relevance removes individual navigation noise",
+      len(filtered) == 1 and filtered[0]["url"].startswith("https://music.example"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 import relay.server as srv  # noqa: E402

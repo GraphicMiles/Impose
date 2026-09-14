@@ -10,6 +10,7 @@ os.environ.setdefault("CONTROL_KEY", "test123")
 from relay.videos import (  # noqa: E402
     _supported_result, _twitch_target, _youtube_id, _youtube_channel_id,
     _video_subject, _verify_twitch_channel, parse_bing_videos, parse_youtube_feed,
+    parse_youtube_search,
 )
 
 
@@ -65,6 +66,24 @@ def test_bing_parser_keeps_supported_relevant_results_only():
     assert rows[0]["id"] == "gTKS8SAwUzE"
     assert rows[0]["channelId"] == "UCX6OQ3DkcsbYNE6H8uQQuVA"
     assert rows[0]["thumb"] == "https://thumb.test/mrbeast.jpg"
+
+
+def test_youtube_search_parser_returns_verified_ids_and_channel():
+    page = '''<script>var ytInitialData = {"contents":[{"videoRenderer":{
+      "videoId":"FMggEmTmQ0U",
+      "title":{"runs":[{"text":"ICEKING OCHACHO - NO COMPETITION (OFFICIAL VIDEO)"}]},
+      "ownerText":{"runs":[{"text":"ICEKING OCHACHO","navigationEndpoint":{
+        "browseEndpoint":{"browseId":"UC2gMbAUTXBQMQYP5dL7uoug"}}}]},
+      "publishedTimeText":{"simpleText":"1 day ago"},
+      "thumbnail":{"thumbnails":[{"url":"https://i.ytimg.com/vi/FMggEmTmQ0U/hq.jpg"}]}
+    }},{"videoRenderer":{"videoId":"gTKS8SAwUzE",
+      "title":{"simpleText":"Iceking Ochacho old remix"},
+      "ownerText":{"runs":[{"text":"Iceking Ochacho"}]}}}]};</script>'''
+    rows = parse_youtube_search(page, "No Competition by Iceking Ochacho", 4)
+    assert len(rows) == 1
+    assert rows[0]["id"] == "FMggEmTmQ0U"
+    assert rows[0]["channelId"] == "UC2gMbAUTXBQMQYP5dL7uoug"
+    assert rows[0]["channel"] == "ICEKING OCHACHO"
 
 
 def test_feed_parser_returns_real_video_metadata():

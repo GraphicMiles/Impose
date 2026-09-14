@@ -150,31 +150,33 @@ test("runAgent full flow emits the pipeline", function () {
     eq(emits.join(","), "status,query,status,source,source,settle", "event order");
     eq(deltas.join(""), "hi", "delta forwarded");
     ok(completed.system.indexOf("cite sources by number like [1]") !== -1, "cites sources");
-    ok(completed.system.indexOf("answer from your own knowledge anyway") !== -1, "knowledge fallback");
+    ok(completed.system.indexOf("do not fill gaps from memory") !== -1, "evidence-only fallback");
+    ok(completed.system.indexOf("placeholder") !== -1, "placeholder URLs prohibited");
     ok(completed.user.indexOf("[1] A") !== -1 && completed.user.indexOf("[2] B") !== -1, "numbered evidence");
     eq(out.sources.length, 2, "sources returned");
   });
 });
 
-test("runAgent answers from knowledge when results are empty", function () {
+test("runAgent fails closed when research results are empty", function () {
   var s = searchStub([{ results: [] }]);
-  var completed = null;
+  var calls = 0;
   var emits = [];
   return H.harness.runAgent({
-    query: "phones",
+    query: "No Competition by Iceking Ochacho",
     search: s.fn,
     emit: function (e) { emits.push(e.t); },
     onDelta: function () {},
-    complete: function (system, user) {
-      completed = { system: system, user: user };
+    complete: function () {
+      calls += 1;
       return Promise.resolve();
     }
   }).then(function (out) {
-    ok(completed, "completes");
-    ok(completed.system.indexOf("found nothing") !== -1, "says so");
-    eq(completed.user, "Question: phones", "question passed through");
+    eq(calls, 0, "answer model is bypassed");
+    eq(out.answer, "I couldn’t find reliable sources for this request. Try different search words.", "fixed honest answer");
+    ok(out.researchFailed, "research failure is typed");
+    ok(out.answer.indexOf("PLACEHOLDER") === -1 && out.answer.indexOf("lyrics") === -1, "no invented media or lyrics");
     eq(emits.join(","), "status,query,settle", "pipeline shown");
-    eq(out.sources.length, 0, "no sources");
+    eq(out.sources.length, 0, "no fake sources");
   });
 });
 
@@ -284,6 +286,27 @@ test("runAgent attaches verified playable video results", function () {
     ok(system.indexOf("playable video cards") !== -1, "answer knows card is already visible");
     ok(system.indexOf("Latest: Newest upload") !== -1 && system.indexOf("2026-09-05") !== -1,
       "verified latest metadata reaches the answer");
+  });
+});
+
+test("verified video with no web sources cannot trigger a fabricated biography", function () {
+  var s = searchStub([{ results: [] }]);
+  var completions = 0;
+  return H.harness.runAgent({
+    query: "Iceking Ochacho latest music video",
+    search: s.fn,
+    videos: function () { return Promise.resolve({ provider: "youtube", results: [{
+      title: "ICEKING OCHACHO - NO COMPETITION (OFFICIAL VIDEO)",
+      url: "https://www.youtube.com/watch?v=FMggEmTmQ0U", kind: "youtube-video",
+      id: "FMggEmTmQ0U", latest: true
+    }] }); },
+    emit: function () {}, onDelta: function () {},
+    complete: function () { completions += 1; return Promise.resolve(); }
+  }).then(function (out) {
+    eq(completions, 0, "model bypassed without source evidence");
+    eq(out.answer, "Here’s the verified video I found.", "only deterministic media text returned");
+    eq(out.videos[0].id, "FMggEmTmQ0U", "real typed video retained");
+    ok(out.answer.indexOf("PLACEHOLDER") === -1, "no placeholder URL");
   });
 });
 
