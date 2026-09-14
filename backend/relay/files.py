@@ -15,6 +15,7 @@ from urllib.parse import quote, unquote, urlparse, urlunparse
 import httpx
 
 from relay.search import SearchFailed, engine_search
+from relay.source_intelligence import ROUTER, SourceRequirements
 
 _FILE_EXT = re.compile(r"\.([a-z0-9][a-z0-9.+_-]{0,15})$", re.I)
 _SAFE_EXT = re.compile(r"^[a-z0-9][a-z0-9.+_-]{0,15}$", re.I)
@@ -171,7 +172,7 @@ async def _github_repository_search(query: str, extensions: list[str], limit: in
     return out[:limit]
 
 
-async def discover_files(query: str, limit: int = 8, extensions=None, platforms=None) -> dict:
+async def discover_files(query: str, limit: int = 8, extensions=None, platforms=None, requirements=None) -> dict:
     query = str(query or "").strip()
     if not query: raise ValueError("query is required")
     limit = max(1, min(12, int(limit)))
@@ -180,6 +181,13 @@ async def discover_files(query: str, limit: int = 8, extensions=None, platforms=
         ext = str(value or "").lower().strip().lstrip(".")
         if _SAFE_EXT.fullmatch(ext) and ext not in exts: exts.append(ext)
     platform_names = [str(x).strip() for x in (platforms or []) if str(x).strip()][:4]
+    raw_requirements = requirements if isinstance(requirements, dict) else {}
+    source_request = SourceRequirements.from_mapping("discover_files", {
+        **raw_requirements, "artifactType": raw_requirements.get("artifactType") or "file",
+        "formats": raw_requirements.get("formats") or exts,
+        "requiredCapabilities": raw_requirements.get("requiredCapabilities") or ["search", "preview", "download"],
+    })
+    source_plan = ROUTER.plan(source_request, ["github-public", "gitlab-public", "huggingface-public", "bing-html", "ddg-lite"])
     # Query expansion is based on typed capability inputs, not request wording.
     queries = [query]
     if exts:
@@ -226,4 +234,21 @@ async def discover_files(query: str, limit: int = 8, extensions=None, platforms=
             if item["downloadUrl"] in seen_downloads: continue
             seen_downloads.add(item["downloadUrl"]); files.append(item)
             if len(files) >= limit: break
-    return {"query": query, "provider": "+".join(dict.fromkeys(providers)) or "web", "results": files[:limit]}
+    files = files[:limit]
+    platform_ids = {"GitHub": "github-public", "GitLab": "gitlab-public", "Hugging Face": "huggingface-public",
+                    "GitHub Gist": "github-public"}
+    selected = list(dict.fromkeys(platform_ids.get(item.get("platform"), "") for item in files))
+    selected = [provider for provider in selected if provider]
+    for provider in selected:
+        rows = [item for item in files if platform_ids.get(item.get("platform")) == provider]
+        ROUTER.observe(provider, success=True, result_quality=min(1, 0.55 + len(rows) / max(1, limit) * 0.45),
+                       valid_ratio=1, latency_ms=0)
+    source_plan["selectedProviders"] = selected
+    source_plan["resultEvaluation"] = {"accepted": len(files), "requestedFormats": sorted(exts),
+        "formatCompatible": sum(not exts or item.get("extension") in exts for item in files),
+        "downloadable": sum(bool(item.get("downloadUrl")) for item in files),
+        "constraintsSatisfied": bool(files)}
+    source_plan["fallbackDecisions"] = ([] if files else [{"stage": 1, "decision": "broaden",
+        "reason": "known source adapters and broad web discovery returned no verified file"}])
+    return {"query": query, "provider": "+".join(dict.fromkeys(providers)) or "web", "results": files,
+            "sourcePlan": source_plan}

@@ -1915,6 +1915,9 @@ html.reduce-motion .img-tile img { transition: opacity 150ms ease; }
 }
 .imgbox-cap span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imgbox-cap a { color: var(--link); flex: none; }
+.imgbox-cap .imgbox-links { display: flex; align-items: center; gap: 12px; overflow: visible; }
+.imgbox-download { border: 0; background: none; color: var(--link); padding: 0; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font: inherit; }
+.imgbox-download svg { width: 14px; height: 14px; }
 .imgbox-x {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));

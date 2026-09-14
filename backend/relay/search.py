@@ -20,6 +20,8 @@ from functools import partial
 import httpx
 from bs4 import BeautifulSoup
 
+from relay.source_intelligence import ROUTER, SourceRequirements
+
 UA = {"User-Agent": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                      "Chrome/120 Safari/537.36")}
 
@@ -347,49 +349,86 @@ async def _run_job(name, job):
 
 
 async def engine_search(query, limit=8, domains=None, freshness=None,
-                        language="en", region=None):
-    t0 = time.time()
-    attempts = []
-    answered_any = False
-    async with httpx.AsyncClient(headers=UA, follow_redirects=True,
-                                 max_redirects=3) as client:
-        tiers = [
-            [("searxng:" + base.split("://", 1)[-1],
-              partial(_searxng, client, base, query, limit,
-                      language, freshness))
-             for base in SEARXNG_URLS],
-            [("bing-html", partial(_bing, client, query, limit)),
-             ("ddg-lite", partial(_ddg, client, query, limit))],
-        ]
-        for tier in tiers:
-            runs = await asyncio.gather(*[_run_job(n, j) for n, j in tier])
+                        language="en", region=None, requirements=None):
+    """Progressive web retrieval chosen by source requirements.
+
+    Results are individually relevance-filtered by adapters, then accumulated
+    until the requested source diversity is satisfied. Provider selection and
+    fallback evidence are returned for the agent trace.
+    """
+    t0, attempts, answered_any = time.time(), [], False
+    raw_requirements = requirements if isinstance(requirements, dict) else {}
+    retrieval_query = str(raw_requirements.get("retrievalQuery") or query).strip()[:500]
+    request = SourceRequirements.from_mapping("search_current_information", {
+        **raw_requirements, "artifactType": raw_requirements.get("artifactType") or "information",
+        "requiredCapabilities": raw_requirements.get("requiredCapabilities") or ["search", "source_attribution"],
+    })
+    source_plan = ROUTER.plan(request, ["searxng", "bing-html", "ddg-lite"])
+    collected, selected_providers, fallback = [], [], []
+    async with httpx.AsyncClient(headers=UA, follow_redirects=True, max_redirects=3) as client:
+        jobs = {
+            "searxng": [("searxng:" + base.split("://", 1)[-1],
+                          partial(_searxng, client, base, retrieval_query, limit, language, freshness))
+                         for base in SEARXNG_URLS],
+            "bing-html": [("bing-html", partial(_bing, client, retrieval_query, limit))],
+            "ddg-lite": [("ddg-lite", partial(_ddg, client, retrieval_query, limit))],
+        }
+        for stage in source_plan["stages"]:
+            tier = []
+            for provider in stage["providers"]: tier.extend(jobs.get(provider, []))
+            runs = await asyncio.gather(*[_run_job(name, job) for name, job in tier])
+            stage_added = 0
             for run in runs:
-                if run["answered"]:
-                    answered_any = True
+                aggregate = "searxng" if run["provider"].startswith("searxng:") else run["provider"]
+                if run["answered"]: answered_any = True
                 if run["error"]:
-                    attempts.append({"provider": run["provider"], "ok": False,
+                    attempts.append({"provider": run["provider"], "ok": False, "stage": stage["stage"],
                                      "ms": run["ms"], "error": run["error"]})
-            for run in runs:
-                if run["error"]:
+                    ROUTER.observe(aggregate, success=False, result_quality=0, valid_ratio=0, latency_ms=run["ms"])
                     continue
-                results = _by_domains(_dedup(run["results"]), domains)[:limit]
-                if not results:
-                    attempts.append({"provider": run["provider"], "ok": False,
+                rows = _by_domains(_dedup(run["results"]), domains)
+                if not rows:
+                    attempts.append({"provider": run["provider"], "ok": False, "stage": stage["stage"],
                                      "ms": run["ms"], "error": "filtered out"})
                     answered_any = True
+                    ROUTER.observe(aggregate, success=False, result_quality=0, valid_ratio=0, latency_ms=run["ms"])
                     continue
+                before = len(collected)
+                collected = _dedup(collected + rows)[:limit]
+                added = len(collected) - before
+                stage_added += max(0, added)
+                if added and aggregate not in selected_providers: selected_providers.append(aggregate)
+                quality = min(1.0, len(rows) / max(2, limit))
+                ROUTER.observe(aggregate, success=True, result_quality=quality,
+                               valid_ratio=len(rows) / max(1, len(run["results"])), latency_ms=run["ms"])
+                attempts.append({"provider": run["provider"], "ok": True, "stage": stage["stage"],
+                                 "ms": run["ms"], "results": len(rows), "added": added})
+            distinct_domains = len({urllib.parse.urlsplit(row["url"]).hostname for row in collected if row.get("url")})
+            if collected and distinct_domains >= request.diversity:
                 total = int((time.time() - t0) * 1000)
-                print("[relay] search '%s' via %s -> %d (%dms)"
-                      % (query[:60], run["provider"], len(results), total),
-                      flush=True)
-                return {"results": results, "provider": run["provider"],
-                        "attempts": attempts, "query": query,
-                        "count": len(results), "ms": total}
+                source_plan["selectedProviders"] = selected_providers
+                source_plan["fallbackDecisions"] = fallback
+                source_plan["resultEvaluation"] = {"accepted": len(collected), "distinctSources": distinct_domains,
+                    "requiredDiversity": request.diversity, "constraintsSatisfied": True}
+                discovered = []
+                for row in collected:
+                    profile = ROUTER.catalog.discover(row.get("url", ""), artifact_types=[request.artifact_type],
+                                                       source_classes=["retrieved_source"])
+                    if profile and profile.id not in discovered: discovered.append(profile.id)
+                source_plan["discoveredSources"] = discovered
+                provider_label = "+".join(selected_providers)
+                print("[relay] search '%s' via %s -> %d (%dms)" % (query[:60], provider_label, len(collected), total), flush=True)
+                return {"results": collected, "provider": provider_label, "attempts": attempts, "query": query,
+                        "retrievalQuery": retrieval_query, "count": len(collected), "ms": total, "sourcePlan": source_plan}
+            fallback.append({"stage": stage["stage"], "decision": "broaden",
+                             "reason": "insufficient relevant source diversity" if collected else "no relevant results"})
     if answered_any:
         total = int((time.time() - t0) * 1000)
-        print("[relay] search '%s' -> nothing relevant (%dms)"
-              % (query[:60], total), flush=True)
-        return {"results": [], "provider": "", "attempts": attempts,
-                "query": query, "count": 0, "ms": total}
+        print("[relay] search '%s' -> nothing relevant (%dms)" % (query[:60], total), flush=True)
+        source_plan["selectedProviders"], source_plan["fallbackDecisions"] = selected_providers, fallback
+        source_plan["resultEvaluation"] = {"accepted": len(collected), "constraintsSatisfied": False}
+        return {"results": collected, "provider": "+".join(selected_providers), "attempts": attempts,
+                "query": query, "retrievalQuery": retrieval_query, "count": len(collected), "ms": total,
+                "sourcePlan": source_plan}
     raise SearchFailed("all search providers failed: " + "; ".join(
-        a["provider"] + "=" + a["error"] for a in attempts), attempts)
+        item["provider"] + "=" + item["error"] for item in attempts), attempts)

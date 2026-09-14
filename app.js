@@ -2638,6 +2638,7 @@
       var cap = escapeHtml(im.title || "image").replace(/\s+/g, " ").trim().slice(0, 90);
       tiles += '<button type="button" class="img-tile" data-full="' + escapeHtml(im.image) + '"' +
         ' data-title="' + cap + '"' +
+        (im.format ? ' data-format="' + escapeHtml(String(im.format).toLowerCase()) + '"' : "") +
         (im.page ? ' data-page="' + escapeHtml(im.page) + '"' : "") +
         ' style="animation-delay:' + Math.min(i * 45, 360) + 'ms" aria-label="Open image: ' + cap + '">' +
         '<img src="' + escapeHtml(im.thumb || im.image) + '" alt="' + cap + '"' +
@@ -3553,7 +3554,7 @@
     });
   }
 
-  function fetchSearchViaRelay(query, limit, signal) {
+  function fetchSearchViaRelay(query, limit, signal, requirements) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
     var url = stripSlash(cfg.url) + "/v1/search";
@@ -3562,7 +3563,7 @@
     var opts = {
       method: "POST",
       headers: headers,
-      body: JSON.stringify({ query: query, limit: limit || 8 })
+      body: JSON.stringify({ query: query, limit: limit || 8, requirements: requirements || {} })
     };
     if (signal) opts.signal = signal;
     return fetch(url, opts).then(function (res) {
@@ -3572,7 +3573,8 @@
       });
     }).then(function (env) {
       if (env.status !== 200) throw new Error((env.data && env.data.detail) || ("Search failed (" + env.status + ")."));
-      return { results: env.data.results || [], provider: env.data.provider || "" };
+      return { results: env.data.results || [], provider: env.data.provider || "",
+        retrievalQuery: env.data.retrievalQuery || query, sourcePlan: env.data.sourcePlan || null };
     }, function (err) {
       if (err && err.name === "AbortError") throw err;
       if (err && err.name === "TypeError") { markRelayDown(); throw new Error("Could not reach the relay. Check the relay address."); }
@@ -3610,7 +3612,7 @@
     return lines.slice(-6).join("\n");
   }
 
-  function fetchImagesViaRelay(query, limit, signal) {
+  function fetchImagesViaRelay(query, limit, signal, requirements) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address to search images."));
     var headers = { "Content-Type": "application/json" };
@@ -3618,7 +3620,7 @@
     var opts = {
       method: "POST",
       headers: headers,
-      body: JSON.stringify({ query: query, limit: limit || 6 })
+      body: JSON.stringify({ query: query, limit: limit || 6, requirements: requirements || {} })
     };
     if (signal) opts.signal = signal;
     return fetch(stripSlash(cfg.url) + "/v1/images", opts).then(function (res) {
@@ -3632,7 +3634,8 @@
         dwarn("images", sanitizeLogDetail(detail).slice(0, 240));
         throw new Error(detail);
       }
-      return { results: env.data.results || [], provider: env.data.provider || "" };
+      return { results: env.data.results || [], provider: env.data.provider || "",
+        query: env.data.query || query, count: env.data.count || 0, sourcePlan: env.data.sourcePlan || null };
     });
   }
 
@@ -3665,7 +3668,8 @@
     var headers = { "Content-Type": "application/json" };
     if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
     var body = { query: query, limit: limit || 8,
-      extensions: options && options.extensions || [], platforms: options && options.platforms || [] };
+      extensions: options && options.extensions || [], platforms: options && options.platforms || [],
+      requirements: options && options.sourceRequirements || {} };
     var request = { method: "POST", headers: headers, body: JSON.stringify(body) };
     if (signal) request.signal = signal;
     return fetch(stripSlash(cfg.url) + "/v1/files", request).then(function (res) {
@@ -3674,7 +3678,8 @@
       });
     }).then(function (env) {
       if (env.status !== 200) throw new Error(env.data && env.data.detail || ("File search failed (" + env.status + ")."));
-      return { results: env.data.results || [], provider: env.data.provider || "", query: env.data.query || query };
+      return { results: env.data.results || [], provider: env.data.provider || "", query: env.data.query || query,
+        sourcePlan: env.data.sourcePlan || null };
     });
   }
 
@@ -3830,6 +3835,21 @@
         trace.addRow({ primary: ev.n + " downloadable file" + (ev.n === 1 ? "" : "s"), secondary: ev.provider || "" });
       }
       else if (ev.t === "filesfail") trace.addRow({ primary: "File discovery found no safe artifact", secondary: "try a filename or extension" });
+      else if (ev.t === "sourceplan" && ev.plan) {
+        s.sourcePlan = ev.plan;
+        s.sourcePlans = s.sourcePlans || [];
+        s.sourcePlans.push({ capability: ev.capability || "source", plan: ev.plan });
+        var candidates = (ev.plan.candidates || []).slice(0, 3).map(function (candidate) {
+          return candidate.provider + " " + Math.round((candidate.score || 0) * 100);
+        }).join(" · ");
+        trace.addRow({ primary: "Ranked source providers", secondary: candidates || "no eligible providers" });
+        var selected = (ev.plan.selectedProviders || []).join(", ");
+        if (selected) trace.addRow({ primary: "Selected " + selected,
+          secondary: ((ev.plan.resultEvaluation || {}).accepted || 0) + " artifacts passed quality checks" });
+        (ev.plan.fallbackDecisions || []).slice(-2).forEach(function (decision) {
+          trace.addRow({ primary: "Broadened source search", secondary: decision.reason || decision.decision || "quality was insufficient" });
+        });
+      }
       else if (ev.t === "imagestry") {
         trace.addRow({ primary: ev.better ? "Critic asked for better photos" : "Photos did not land - trying again",
           secondary: ev.q || "" });
@@ -3852,8 +3872,8 @@
       intent: intentDecision && intentDecision.intent || null,
       signal: signal,
       emit: emit,
-      search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
-      images: state.settings.imageTools === false ? undefined : function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
+      search: function (q, limit, requirements) { return fetchSearchViaRelay(q, limit, signal, requirements); },
+      images: state.settings.imageTools === false ? undefined : function (q, limit, requirements) { return fetchImagesViaRelay(q, limit, signal, requirements); },
       videos: function (q, limit, constraints) { return fetchVideosViaRelay(q, limit, signal, constraints); },
       files: function (q, limit, options) { return fetchFilesViaRelay(q, limit, signal, options); },
       read: function (url) {
@@ -3947,6 +3967,8 @@
       }
       if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
       if (m && out && out.files && out.files.length) m.files = out.files.slice(0, 12);
+      if (m && s.sourcePlan) m.sourcePlan = s.sourcePlan;
+      if (m && s.sourcePlans && s.sourcePlans.length) m.sourcePlans = s.sourcePlans.slice(0, 12);
       if (m && out && out.videos && out.videos.length) {
         m.videos = out.videos.slice(0, 6);
         s.autoPlayMedia = intentDecision
@@ -4697,6 +4719,8 @@
       imgbox.setAttribute("aria-label", "Image preview");
       document.body.appendChild(imgbox);
       imgbox.addEventListener("click", function (e) {
+        var download = e.target.closest && e.target.closest(".imgbox-download");
+        if (download) { downloadFile(download); return; }
         /* Taps land on the icon inside the button, so match the button
            through the tree, and treat any tap outside the figure as close. */
         if (e.target === imgbox || e.target.closest(".imgbox-x") ||
@@ -4707,14 +4731,19 @@
     var full = tile.getAttribute("data-full") || "";
     var page = tile.getAttribute("data-page") || "";
     var title = tile.getAttribute("data-title") || "image";
+    var safeDownload = safeArtifactUrl(full);
+    var extension = tile.getAttribute("data-format") || "image";
+    try { extension = extension !== "image" ? extension : ((new URL(full).pathname.match(/\.([A-Za-z0-9]{2,8})$/) || [])[1] || "image"); } catch (e) { /* metadata fallback */ }
+    var downloadName = title.replace(/[^A-Za-z0-9._ -]+/g, "_").slice(0, 120) + (title.toLowerCase().endsWith("." + extension.toLowerCase()) ? "" : "." + extension.toLowerCase());
     imgbox.innerHTML =
       '<button type="button" class="imgbox-x icon-btn" aria-label="Close"><i data-lucide="x"></i></button>' +
       '<figure class="imgbox-fig">' +
       '<a href="' + escapeHtml(full) + '" target="_blank" rel="noopener noreferrer">' +
       '<img src="' + escapeHtml(full) + '" alt="' + escapeHtml(title) + '" referrerpolicy="no-referrer"></a>' +
-      '<figcaption class="imgbox-cap"><span>' + escapeHtml(title) + "</span>" +
+      '<figcaption class="imgbox-cap"><span>' + escapeHtml(title) + "</span><span class=\"imgbox-links\">" +
       (page ? '<a href="' + escapeHtml(page) + '" target="_blank" rel="noopener noreferrer">Source</a>' : "") +
-      "</figcaption></figure>";
+      (safeDownload ? '<button type="button" class="imgbox-download" data-url="' + escapeHtml(safeDownload) + '" data-name="' + escapeHtml(downloadName) + '"><i data-lucide="download"></i>Download</button>' : "") +
+      "</span></figcaption></figure>";
     clearTimeout(imgboxTimer);
     if (imgboxRaf) cancelAnimationFrame(imgboxRaf);
     imgbox.hidden = false;

@@ -205,6 +205,8 @@
     return "Infer the user’s desired outcome and the conditions required to achieve it. This is goal decomposition, not intent classification. " +
       "Do not match words in the request to tool names. In every requirement.capability, select only an id from a provider's capabilities array based on what must actually be true for success; never place the provider's top-level id in that field. " +
       "A conversational reply needs no requirements. Preserve and modify an active task when the new turn constrains or continues it. " +
+      "Populate requirement.inputs from the provider input schema with semantic task and source requirements: describe the required artifact or evidence, " +
+      "its constraints, source characteristics, verification needs, a disambiguated retrieval query, and a few meaning-preserving alternative queries for progressive recovery where supported. Do not choose a website merely from request wording; source providers are ranked separately. " +
       "For ambiguity: low confidence or ambiguous high-risk work must ask one focused clarification. External or mutating work must be marked high risk when appropriate. " +
       "Return JSON only with: goal, confidence (0..1), risk (low|medium|high), constraints, desiredOutput:{type,presentation,autoplay}, continuationOf, clarification, assumptions, successCriteria, rationale, " +
       "subgoals:[{id,goal,requirements:[{id,capability,description,required,inputs,successCriterion}]}].\n\n" +

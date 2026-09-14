@@ -29,19 +29,27 @@ Env (Render dashboard, or .env for local):
 """
 import asyncio
 import hmac
+import hashlib
 import ipaddress
+import io
 import json
 import os
 import re
+import secrets
 import socket
 import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import unquote, urljoin, urlparse, urlunparse
+from urllib.parse import quote, unquote, urljoin, urlparse, urlunparse
 
 import httpx
 import uvicorn
+from PIL import Image, UnidentifiedImageError
+try:
+    import cairosvg
+except ImportError:  # dependency is installed by backend/requirements.txt in production
+    cairosvg = None
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,6 +58,7 @@ from relay.search import SearchFailed, engine_search
 from relay.images import ImagesFailed, engine_images
 from relay.videos import VideosFailed, engine_videos
 from relay.files import discover_files
+from relay.source_intelligence import CATALOG
 
 BASE_DIR = Path(os.environ.get("CP_DIR", str(Path(__file__).resolve().parent)))
 ENV_FILE = BASE_DIR / ".env"
@@ -575,6 +584,20 @@ async def chat(request: Request):
                     status_code=resp.status_code)
 
 
+@app.get("/v1/source/catalog")
+async def source_catalog(request: Request):
+    """Explainable read-only provider catalog and observed performance."""
+    _tier_auth(request, "sourcecatalog", "pubsourcecatalog", 60, PUB_SEARCH_LIMIT)
+    performance = CATALOG.ledger.snapshot()
+    return {"version": CATALOG.version, "providers": [{
+        "id": provider.id, "mechanism": provider.mechanism,
+        "sourceClasses": sorted(provider.source_classes), "artifactTypes": sorted(provider.artifact_types),
+        "formats": sorted(provider.formats), "capabilities": sorted(provider.capabilities),
+        "metrics": dict(provider.metrics), "discovered": provider.discovered,
+        "performance": performance.get(provider.id)
+    } for provider in CATALOG.providers() if not provider.discovered]}
+
+
 @app.api_route("/v1/search", methods=["GET", "POST"])
 async def search_proxy(request: Request):
     """Web search for the agent (SearXNG, Bing HTML, DDG HTML). Owners get
@@ -591,6 +614,7 @@ async def search_proxy(request: Request):
         freshness = data.get("freshness")
         language = data.get("language", "en")
         region = data.get("region")
+        requirements = data.get("requirements") or {}
     else:
         q = request.query_params
         query = str(q.get("query", "") or q.get("q", ""))
@@ -600,6 +624,7 @@ async def search_proxy(request: Request):
         freshness = q.get("freshness")
         language = q.get("language", "en")
         region = q.get("region")
+        requirements = {}
     query = query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -612,23 +637,121 @@ async def search_proxy(request: Request):
     if domains is not None and not isinstance(domains, list):
         raise HTTPException(status_code=400, detail="domains must be a list")
     domains = [str(d).strip().lower() for d in (domains or []) if str(d).strip()]
+    if not isinstance(requirements, dict):
+        raise HTTPException(status_code=400, detail="requirements must be an object")
+    requirements = {str(k)[:80]: v for k, v in list(requirements.items())[:24]}
+    if len(json.dumps(requirements)) > 6000:
+        raise HTTPException(status_code=400, detail="requirements are too large")
     ckey = "|".join([
         query.lower(), str(limit), ",".join(sorted(domains)),
         str(freshness or "").lower(), str(language or "en").lower(),
-        str(region or "").lower(),
+        str(region or "").lower(), json.dumps(requirements, sort_keys=True),
     ])
     cached = _cache_get("search", ckey)
     if cached is not None:
         return cached
     try:
-        out = await engine_search(query, limit=limit, domains=domains,
-                                   freshness=freshness,
-                                   language=str(language or "en"),
-                                   region=region)
+        search_options = {"limit": limit, "domains": domains, "freshness": freshness,
+                          "language": str(language or "en"), "region": region}
+        if requirements: search_options["requirements"] = requirements
+        out = await engine_search(query, **search_options)
     except SearchFailed as e:
         raise HTTPException(status_code=502, detail=str(e))
     _cache_put("search", ckey, out, 120.0)
     return out
+
+
+_IMAGE_VERIFY_CAP = 8 * 1024 * 1024
+_image_conversion_key = (CONTROL_KEY.encode("utf-8") if CONTROL_KEY else secrets.token_bytes(32))
+
+
+def _conversion_signature(source: str) -> str:
+    return hmac.new(_image_conversion_key, source.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+@app.get("/v1/image-convert")
+async def image_convert(request: Request, source: str, sig: str):
+    _tier_auth(request, "imageconvert", "pubimageconvert", 120, 60)
+    if not source or not hmac.compare_digest(sig, _conversion_signature(source)):
+        raise HTTPException(status_code=403, detail="invalid artifact signature")
+    if cairosvg is None:
+        raise HTTPException(status_code=503, detail="image converter unavailable")
+    content, ctype, _ = await _safe_file_bytes(source, cap=2 * 1024 * 1024)
+    if ctype not in ("image/svg+xml", "text/xml", "application/xml"):
+        raise HTTPException(status_code=415, detail="source is not a verified SVG image")
+    try:
+        png = await asyncio.to_thread(cairosvg.svg2png, bytestring=content, output_width=1024)
+    except Exception:
+        raise HTTPException(status_code=422, detail="SVG conversion failed")
+    if len(png) > _IMAGE_VERIFY_CAP:
+        raise HTTPException(status_code=413, detail="converted image exceeds relay limit")
+    return Response(png, media_type="image/png", headers={
+        "Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"})
+
+
+async def _verify_image_constraints(rows: list, requirements: dict, artifact_base_url: str = "") -> tuple[list, list]:
+    """Verify requested binary properties from bytes, not titles or URLs."""
+    formats = requirements.get("formats") or requirements.get("format") or []
+    if isinstance(formats, str): formats = [formats]
+    formats = {str(value).lower().lstrip(".") for value in formats}
+    if "jpg" in formats: formats.add("jpeg")
+    characteristics = requirements.get("characteristics") or []
+    if isinstance(characteristics, str): characteristics = [characteristics]
+    characteristics = {str(value).lower().replace("-", "_").replace(" ", "_") for value in characteristics}
+    needs_transparency = bool(characteristics & {"transparent", "transparency", "transparent_background", "no_background", "alpha_channel"})
+    if not formats and not needs_transparency:
+        return rows, []
+
+    async def inspect(row):
+        try:
+            content, ctype, _ = await _safe_file_bytes(str(row.get("image") or ""), cap=_IMAGE_VERIFY_CAP)
+            converted_from = None
+            if formats and "png" in formats and ctype in ("image/svg+xml", "text/xml", "application/xml"):
+                if cairosvg is None:
+                    return None, "SVG-to-PNG converter is unavailable"
+                content = await asyncio.to_thread(cairosvg.svg2png, bytestring=content, output_width=1024)
+                if len(content) > _IMAGE_VERIFY_CAP:
+                    return None, "converted image exceeds verification limit"
+                ctype, converted_from = "image/png", "svg"
+            if not ctype.startswith("image/"):
+                return None, "host returned " + ctype
+            with Image.open(io.BytesIO(content)) as image:
+                image_format = (image.format or "").lower()
+                image_format = "jpeg" if image_format == "jpg" else image_format
+                width, height = image.size
+                if width * height > 40_000_000:
+                    return None, "image dimensions exceed verification limit"
+                if formats and image_format not in formats:
+                    return None, "decoded format did not match request"
+                transparent = False
+                if needs_transparency:
+                    if image.mode in ("RGBA", "LA"):
+                        transparent = image.getchannel("A").getextrema()[0] < 255
+                    elif "transparency" in image.info:
+                        transparent = True
+                    if not transparent:
+                        return None, "decoded image has no transparent pixels"
+                clean = dict(row)
+                claims = (["format"] if formats else []) + (["transparent_background"] if needs_transparency else [])
+                if converted_from:
+                    source_url = str(row.get("image") or "")
+                    clean["image"] = (artifact_base_url.rstrip("/") + "/v1/image-convert?source=" +
+                                      quote(source_url, safe="") + "&sig=" + _conversion_signature(source_url))
+                    clean["thumb"] = clean["image"]
+                    clean["transformedFrom"] = converted_from
+                    claims.append("converted_to_png")
+                clean.update({"format": image_format, "w": width, "h": height,
+                              "byteSize": len(content), "verifiedClaims": sorted(claims)})
+                return clean, None
+        except (HTTPException, UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError) as exc:
+            return None, str(getattr(exc, "detail", None) or exc)[:120]
+
+    inspected = await asyncio.gather(*(inspect(row) for row in rows[:8]))
+    verified, rejected = [], []
+    for row, (clean, reason) in zip(rows[:8], inspected):
+        if clean: verified.append(clean)
+        else: rejected.append({"title": str(row.get("title") or "image")[:120], "reason": reason})
+    return verified, rejected
 
 
 @app.api_route("/v1/images", methods=["GET", "POST"])
@@ -643,10 +766,12 @@ async def images_proxy(request: Request):
             raise HTTPException(status_code=400, detail="body must be JSON")
         query = str(data.get("query", ""))
         limit = data.get("limit", 8)
+        requirements = data.get("requirements") or {}
     else:
         q = request.query_params
         query = str(q.get("query", "") or q.get("q", ""))
         limit = q.get("limit", 8)
+        requirements = {}
     query = query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -656,12 +781,31 @@ async def images_proxy(request: Request):
         limit = max(1, min(20, int(limit)))
     except Exception:
         raise HTTPException(status_code=400, detail="limit must be 1..20")
-    ckey = query.lower() + "|" + str(limit)
+    if not isinstance(requirements, dict):
+        raise HTTPException(status_code=400, detail="requirements must be an object")
+    # Bound structured semantic inputs before they enter provider planning.
+    requirements = {str(k)[:80]: v for k, v in list(requirements.items())[:24]}
+    if len(json.dumps(requirements)) > 6000:
+        raise HTTPException(status_code=400, detail="requirements are too large")
+    ckey = query.lower() + "|" + str(limit) + "|" + json.dumps(requirements, sort_keys=True)
     cached = _cache_get("images", ckey)
     if cached is not None:
         return cached
     try:
-        out = await engine_images(query, limit=limit)
+        out = await engine_images(query, limit=limit, requirements=requirements)
+        verified, rejected = await _verify_image_constraints(out.get("results") or [], requirements,
+                                                               str(request.base_url).rstrip("/"))
+        if requirements and not verified:
+            raise ImagesFailed("candidate images failed binary artifact verification")
+        if requirements:
+            out["results"], out["count"] = verified, len(verified)
+            plan = out.get("sourcePlan") or {}
+            evaluation = plan.get("resultEvaluation") or {}
+            evaluation.update({"binaryVerified": len(verified), "binaryRejected": rejected,
+                               "transformedArtifacts": sum(1 for row in verified if row.get("transformedFrom")),
+                               "constraintsSatisfied": bool(verified)})
+            plan["resultEvaluation"] = evaluation
+            out["sourcePlan"] = plan
     except ImagesFailed as e:
         raise HTTPException(status_code=502, detail=str(e))
     _cache_put("images", ckey, out, 180.0)
@@ -738,6 +882,9 @@ async def files_proxy(request: Request):
     if not query or len(query) > 500:
         raise HTTPException(status_code=400, detail="query is required and must be at most 500 chars")
     extensions, platforms = data.get("extensions") or [], data.get("platforms") or []
+    requirements = data.get("requirements") or {}
+    if not isinstance(requirements, dict) or len(json.dumps(requirements)) > 6000:
+        raise HTTPException(status_code=400, detail="requirements must be a bounded object")
     if not isinstance(extensions, list) or len(extensions) > 8:
         raise HTTPException(status_code=400, detail="extensions must be a short array")
     if not isinstance(platforms, list) or len(platforms) > 8:
@@ -746,12 +893,12 @@ async def files_proxy(request: Request):
         limit = max(1, min(12, int(data.get("limit", 8))))
     except Exception:
         raise HTTPException(status_code=400, detail="limit must be 1..12")
-    ckey = query.lower() + "|" + str(limit) + "|" + json.dumps([extensions, platforms], sort_keys=True)
+    ckey = query.lower() + "|" + str(limit) + "|" + json.dumps([extensions, platforms, requirements], sort_keys=True)
     cached = _cache_get("files", ckey)
     if cached is not None:
         return cached
     try:
-        out = await discover_files(query, limit, extensions, platforms)
+        out = await discover_files(query, limit, extensions, platforms, requirements)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     _cache_put("files", ckey, out, 120.0)
@@ -805,7 +952,7 @@ _FILE_BODY_CAP = 32 * 1024 * 1024
 _FILE_REDIRECTS = 5
 
 
-async def _safe_file_bytes(url: str) -> tuple[bytes, str, str]:
+async def _safe_file_bytes(url: str, cap: int = _FILE_BODY_CAP) -> tuple[bytes, str, str]:
     """Fetch public bytes with DNS pinning, hop-by-hop redirect validation,
     and a hard response cap. Returns bytes, content type, final URL."""
     current = str(url or "").strip()
@@ -837,13 +984,13 @@ async def _safe_file_bytes(url: str) -> tuple[bytes, str, str]:
                     if response.status_code < 200 or response.status_code >= 300:
                         raise HTTPException(status_code=502, detail=f"file host returned {response.status_code}")
                     declared = response.headers.get("content-length", "")
-                    if declared.isdigit() and int(declared) > _FILE_BODY_CAP:
-                        raise HTTPException(status_code=413, detail="file exceeds the 32 MiB relay limit")
+                    if declared.isdigit() and int(declared) > cap:
+                        raise HTTPException(status_code=413, detail="file exceeds the relay size limit")
                     chunks, total = [], 0
                     async for chunk in response.aiter_bytes():
                         total += len(chunk)
-                        if total > _FILE_BODY_CAP:
-                            raise HTTPException(status_code=413, detail="file exceeds the 32 MiB relay limit")
+                        if total > cap:
+                            raise HTTPException(status_code=413, detail="file exceeds the relay size limit")
                         chunks.append(chunk)
                     ctype = response.headers.get("content-type", "application/octet-stream").split(";", 1)[0].strip().lower()
                     if not re.fullmatch(r"[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+", ctype):

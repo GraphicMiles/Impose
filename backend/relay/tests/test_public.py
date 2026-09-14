@@ -2,8 +2,12 @@
 tight per-IP limits, everything expensive stays behind the control key.
 Run: cd backend/relay && python3 -m pytest tests/test_public.py -q
 """
+import asyncio
+import io
 import os
 import sys
+
+from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # backend/
 os.environ.setdefault("CONTROL_KEY", "test123")
@@ -138,8 +142,16 @@ def test_gateway_probe_rejects_unrelated_http_pages(monkeypatch):
     assert "unexpected" in server._gateway_snapshot()["error"]
 
 
+def test_source_catalog_exposes_provider_metadata_without_secrets():
+    response = client.get("/v1/source/catalog", headers=H)
+    assert response.status_code == 200
+    providers = response.json()["providers"]
+    assert any(row["id"] == "wikimedia" and row["metrics"]["trust"] > 0 for row in providers)
+    assert all("apiKey" not in row for row in providers)
+
+
 def test_file_discovery_endpoint_returns_typed_artifacts(monkeypatch):
-    async def fake_files(query, limit, extensions, platforms):
+    async def fake_files(query, limit, extensions, platforms, requirements):
         return {"query": query, "provider": "fixture", "results": [{"name": "guide.md",
             "sourceUrl": "https://github.com/a/b/blob/main/guide.md",
             "previewUrl": "https://raw.githubusercontent.com/a/b/main/guide.md",
@@ -160,6 +172,51 @@ def test_file_transport_preserves_bytes_and_forces_download(monkeypatch):
     assert response.content == b"hello"
     assert response.headers["content-disposition"] == 'attachment; filename="guide.txt"'
     assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_requested_png_transparency_is_verified_from_bytes(monkeypatch):
+    def png(alpha):
+        stream = io.BytesIO()
+        Image.new("RGBA", (3, 3), (10, 20, 30, alpha)).save(stream, format="PNG")
+        return stream.getvalue()
+    payloads = {"https://assets.test/clear.png": png(0), "https://assets.test/solid.png": png(255)}
+    async def fake_bytes(url, cap):
+        return payloads[url], "image/png", url
+    monkeypatch.setattr(server, "_safe_file_bytes", fake_bytes)
+    rows = [{"title": "clear", "image": "https://assets.test/clear.png"},
+            {"title": "solid", "image": "https://assets.test/solid.png"}]
+    verified, rejected = asyncio.run(server._verify_image_constraints(rows, {
+        "formats": ["png"], "characteristics": ["transparent_background"]}))
+    assert [row["title"] for row in verified] == ["clear"]
+    assert verified[0]["verifiedClaims"] == ["format", "transparent_background"]
+    assert "transparent pixels" in rejected[0]["reason"]
+
+
+def test_svg_specialist_result_is_converted_and_verified_as_real_png(monkeypatch):
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="6" fill="black"/></svg>'
+    async def fake_bytes(url, cap):
+        return svg, "image/svg+xml", url
+    monkeypatch.setattr(server, "_safe_file_bytes", fake_bytes)
+    verified, rejected = asyncio.run(server._verify_image_constraints([
+        {"title": "service professional", "image": "https://icons.test/waiter.svg", "format": "svg", "convertibleTo": ["png"]}],
+        {"formats": ["png"], "characteristics": ["transparent_background"]}, "https://relay.test"))
+    assert not rejected
+    assert verified[0]["format"] == "png"
+    assert verified[0]["transformedFrom"] == "svg"
+    assert "converted_to_png" in verified[0]["verifiedClaims"]
+    assert verified[0]["image"].startswith("https://relay.test/v1/image-convert?")
+
+
+def test_signed_conversion_route_survives_without_ephemeral_artifact_state(monkeypatch):
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><rect width="6" height="6"/></svg>'
+    async def fake_bytes(url, cap):
+        return svg, "image/svg+xml", url
+    monkeypatch.setattr(server, "_safe_file_bytes", fake_bytes)
+    source = "https://icons.test/stable.svg"
+    response = client.get("/v1/image-convert", params={"source": source, "sig": server._conversion_signature(source)}, headers=H)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content.startswith(b"\x89PNG")
 
 
 def test_gateway_probe_records_model_state(monkeypatch):
