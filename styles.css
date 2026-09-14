@@ -1810,6 +1810,8 @@ select.sel { appearance: auto; }
 .video-card { min-width: 0; overflow: hidden; border-radius: 14px; background: var(--composer); }
 .video-shell { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: #111; }
 .video-shell iframe { display: block; width: 100%; height: 100%; border: 0; }
+.video-shell.twitch-compact { aspect-ratio: 4 / 3; }
+.video-shell.twitch-compact iframe { position: absolute; left: 0; top: 0; width: 400px; height: 300px; transform: scale(var(--twitch-scale)); transform-origin: left top; }
 .video-play { position: relative; display: block; width: 100%; height: 100%; padding: 0; overflow: hidden; color: #fff; background: #181818; }
 .video-play img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 220ms var(--ease-out), opacity 180ms ease; }
 @media (hover: hover) and (pointer: fine) { .video-play:hover img { transform: scale(1.025); } }

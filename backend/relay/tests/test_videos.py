@@ -21,6 +21,7 @@ def test_youtube_url_shapes_are_normalized():
     assert row["kind"] == "youtube-video"
     assert _youtube_channel_id("https://youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA/videos") == "UCX6OQ3DkcsbYNE6H8uQQuVA"
     assert _video_subject("Watch MrBeast's most recent YouTube upload") == "MrBeast"
+    assert _video_subject("Find any currently available live Twitch streams right now") == ""
 
 
 def test_twitch_targets_are_bounded():

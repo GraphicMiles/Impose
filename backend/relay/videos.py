@@ -20,8 +20,9 @@ YOUTUBE_FEED = "https://www.youtube.com/feeds/videos.xml"
 VIDEO_TIMEOUT_SECONDS = 12.0
 _VIDEO_GENERIC = {
     "video", "videos", "watch", "latest", "newest", "recent", "upload",
-    "uploads", "live", "stream", "streaming", "official", "channel",
-    "youtube", "twitch",
+    "uploads", "live", "stream", "streams", "streaming", "official", "channel",
+    "youtube", "twitch", "find", "show", "get", "give", "any", "me",
+    "currently", "available", "right", "now",
 }
 _TWITCH_RESERVED = {
     "directory", "downloads", "jobs", "login", "payments", "search",
@@ -266,9 +267,18 @@ async def engine_videos(query, limit=6):
             r = await client.get(BING_VIDEOS, params={"q": query, "FORM": "HDRSC4"}, timeout=VIDEO_TIMEOUT_SECONDS)
             searched = parse_bing_videos(r.text, query, cap) if r.status_code == 200 else []
             wants_twitch = bool(re.search(r"\btwitch\b", query, re.I))
+            wants_live = bool(re.search(r"\b(?:live|livestream|live\s+stream)\b", query, re.I))
+            subject = _video_subject(query)
             if wants_twitch:
                 searched = [row for row in searched if row.get("platform") == "twitch"]
-            if not searched:
+            # Search-index cards cannot establish that a channel is live.
+            # A generic "find any live stream" query also tends to turn its
+            # request words into fake-looking channel handles such as
+            # /currently_available. Without a named subject or direct URL,
+            # return no typed player rather than presenting one as verified.
+            if wants_live and not subject and not direct:
+                searched = []
+            if not searched and not (wants_live and not subject):
                 try:
                     domains = ["twitch.tv"] if wants_twitch else ["youtube.com", "twitch.tv"]
                     web = await engine_search(query, limit=cap, domains=domains)

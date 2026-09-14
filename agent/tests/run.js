@@ -287,19 +287,38 @@ test("runAgent attaches verified playable video results", function () {
   });
 });
 
-test("video failure forbids invented latest and live links", function () {
+test("video failure bypasses the model for latest and live requests", function () {
   var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "s" }], provider: "p" }]);
-  var system = "";
+  var completions = 0;
   return H.harness.runAgent({
     query: "watch the latest Twitch live stream",
     search: s.fn,
     videos: function () { return Promise.reject(new Error("down")); },
     emit: function () {}, onDelta: function () {},
-    complete: function (sys) { system = sys; return Promise.resolve(); }
+    complete: function () { completions++; return Promise.resolve(); }
   }).then(function (out) {
-    ok(!out.videos, "no unverified cards returned");
-    ok(system.indexOf("Do not invent video links") !== -1 && system.indexOf("latest or live") !== -1,
-      "failure prompt forbids fabricated media claims");
+    ok(!out.videos && out.videoFailed, "no unverified cards returned");
+    eq(completions, 0, "model cannot invent a fallback lineup");
+    ok(out.answer.indexOf("couldn’t verify") !== -1 && out.answer.indexOf("http") === -1,
+      "fixed failure answer has no fabricated media URL");
+  });
+});
+
+test("live request rejects an ordinary channel card without live verification", function () {
+  var s = searchStub([{ results: [{ title: "Twitch", url: "https://twitch.tv/", snippet: "s" }], provider: "p" }]);
+  var completions = 0;
+  return H.harness.runAgent({
+    query: "find any live Twitch streams",
+    search: s.fn,
+    videos: function () { return Promise.resolve({ provider: "p", results: [{
+      title: "currently_available - Twitch", url: "https://www.twitch.tv/currently_available",
+      kind: "twitch-channel", id: "currently_available", live: false
+    }] }); },
+    emit: function () {}, onDelta: function () {},
+    complete: function () { completions++; return Promise.resolve(); }
+  }).then(function (out) {
+    ok(out.videoFailed && !out.videos, "unverified live channel is withheld");
+    eq(completions, 0, "model never writes made-up live titles");
   });
 });
 

@@ -3399,7 +3399,7 @@
      canned bank silently when the model is out of ideas or money. */
   function maybeSmartFollowups(chat, msg) {
     if (!state.settings.followupsSmart) return;
-    if (!msg || msg.suggested || msg.suggesting || msg.imageFailed) return;
+    if (!msg || msg.suggested || msg.suggesting || msg.imageFailed || msg.videoFailed) return;
     var t = getTarget();
     if (!t || String(msg.content || "").length < 40) return;
     msg.suggesting = true;
@@ -3625,7 +3625,7 @@
       row = messagesEl.querySelector('.msg[data-i="' + idx + '"]');
       if (!row) return;
       var rm = chat.messages[idx];
-      if (rm) { rm.error = null; rm.researched = true; delete rm.imageFailed; delete rm.videos; }
+      if (rm) { rm.error = null; rm.researched = true; delete rm.imageFailed; delete rm.videoFailed; delete rm.videos; }
       var oldTrace = row.querySelector(".agent-trace");
       if (oldTrace) oldTrace.remove();
       var oldActions = row.querySelector(".msg-actions");
@@ -3796,6 +3796,12 @@
         s.text = String(out.answer || "I couldn’t find reliable images for this request. Try again with different search words.");
         s.imageSearchFailed = true;
         if (m) m.imageFailed = true;
+      } else if (out && out.videoFailed) {
+        /* Current/live media claims require a typed result carrying the
+           provider's explicit verification flag. Search snippets and model
+           prose never become a fallback player or a made-up live lineup. */
+        s.text = String(out.answer || "I couldn’t verify a playable result for this request. Try a specific channel or video name.");
+        if (m) m.videoFailed = true;
       } else {
         var beforeImageGuard = s.text;
         s.text = stripUnverifiedMediaMarkup(s.text);
@@ -4410,7 +4416,7 @@
       src = "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&playsinline=1&rel=0";
     } else {
       var parent = window.location.hostname;
-      if (!parent || (shell && shell.clientWidth < 400)) {
+      if (!parent) {
         window.open(btn.getAttribute("data-url"), "_blank", "noopener,noreferrer");
         return;
       }
@@ -4429,6 +4435,16 @@
     frame.allow = "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share";
     frame.allowFullscreen = true;
     frame.referrerPolicy = "strict-origin-when-cross-origin";
+    if (kind.indexOf("twitch-") === 0 && shell && shell.clientWidth < 400) {
+      /* Twitch documents a 400 by 300 minimum player. Keep that internal
+         viewport and scale it into a narrow phone card instead of sending
+         the user to another page when they press the card's Play button. */
+      var scale = Math.max(0.5, shell.clientWidth / 400);
+      shell.classList.add("twitch-compact");
+      shell.style.setProperty("--twitch-scale", String(scale));
+      frame.width = "400";
+      frame.height = "300";
+    }
     shell.replaceChildren(frame);
   }
 
