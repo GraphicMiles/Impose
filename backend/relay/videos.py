@@ -21,8 +21,8 @@ VIDEO_TIMEOUT_SECONDS = 12.0
 _VIDEO_GENERIC = {
     "video", "videos", "watch", "latest", "newest", "recent", "upload",
     "uploads", "live", "stream", "streams", "streaming", "official", "channel",
-    "youtube", "twitch", "find", "show", "get", "give", "any", "me",
-    "currently", "available", "right", "now",
+    "youtube", "twitch", "clip", "clips", "vod", "find", "show", "get",
+    "give", "any", "me", "currently", "available", "right", "now",
 }
 _TWITCH_RESERVED = {
     "directory", "downloads", "jobs", "login", "payments", "search",
@@ -209,6 +209,32 @@ def _video_subject(query):
     return " ".join(kept).strip()
 
 
+async def _verify_twitch_channel(client, query):
+    """Validate the exact handle implied by a named Twitch query.
+
+    Twitch returns HTTP 200 even for missing handles, but existing channels
+    put their display name in the document title. This prevents search
+    fallbacks from ranking lookalikes such as ``kai_cenat`` ahead of the
+    exact ``kaicenat`` account.
+    """
+    subject = _video_subject(query)
+    target = re.sub(r"[^a-z0-9_]", "", subject.lower().lstrip("@"))
+    if not re.fullmatch(r"[a-z0-9_]{3,25}", target or ""):
+        return None
+    try:
+        r = await client.get("https://www.twitch.tv/" + target, timeout=8.0)
+        if r.status_code != 200:
+            return None
+        soup = BeautifulSoup(r.text, "html.parser")
+        title = soup.title.get_text(" ", strip=True) if soup.title else ""
+        display = re.sub(r"\s*-\s*Twitch\s*$", "", title, flags=re.IGNORECASE).strip()
+        if re.sub(r"[^a-z0-9_]", "", display.lower()) != target:
+            return None
+        return _supported_result("https://www.twitch.tv/" + target, title)
+    except Exception:
+        return None
+
+
 async def _find_youtube_channel(query):
     for url in _direct_urls(query):
         found = _youtube_channel_id(url.rstrip(".,)"))
@@ -271,6 +297,10 @@ async def engine_videos(query, limit=6):
             subject = _video_subject(query)
             if wants_twitch:
                 searched = [row for row in searched if row.get("platform") == "twitch"]
+                exact_twitch = await _verify_twitch_channel(client, query)
+                if exact_twitch:
+                    searched = [exact_twitch] + [row for row in searched
+                                                if row.get("url") != exact_twitch.get("url")]
             # Search-index cards cannot establish that a channel is live.
             # A generic "find any live stream" query also tends to turn its
             # request words into fake-looking channel handles such as
