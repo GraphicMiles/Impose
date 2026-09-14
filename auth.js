@@ -14,8 +14,11 @@
   function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim()); }
 
   function routeName() {
-    var route = location.hash.replace(/^#\/?/, "").split("?")[0];
-    return ["sign-in", "sign-up", "forgot-password", "otp", "reset-password", "success"].indexOf(route) >= 0 ? route : "sign-in";
+    var known = ["sign-in", "sign-up", "forgot-password", "otp", "reset-password", "success"];
+    var hashRoute = location.hash.replace(/^#\/?/, "").split("?")[0];
+    if (known.indexOf(hashRoute) >= 0) return hashRoute;
+    var pathRoute = location.pathname.replace(/\/+$/, "").split("/").pop();
+    return known.indexOf(pathRoute) >= 0 ? pathRoute : "sign-in";
   }
 
   function route(name, replace) {
@@ -265,7 +268,6 @@
   });
 
   window.addEventListener("hashchange", renderRoute);
-  if (!location.hash) route("sign-in", true);
-  else renderRoute();
+  renderRoute();
   refreshIcons();
 })();

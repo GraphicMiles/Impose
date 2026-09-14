@@ -5149,7 +5149,7 @@
 
   /* ---------- sidebar + topbar wiring ---------- */
 
-  $("newChatBtn").addEventListener("click", newChat);
+  $("newChatBtn").addEventListener("click", function () { newChat(); });
   $("collapseBtn").addEventListener("click", function () { document.body.classList.remove("nav-open"); });
   $("openSidebarBtn").addEventListener("click", function () { document.body.classList.add("nav-open"); });
   $("backdrop").addEventListener("click", function () { document.body.classList.remove("nav-open"); });
@@ -5291,7 +5291,7 @@
       toast("Signed out. Your local chats are still here.");
       return;
     }
-    window.location.href = "./auth.html#sign-in";
+    window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
   });
   $("acctSettings").addEventListener("click", function () {
     hidePop(true);
@@ -5576,7 +5576,8 @@
       if (state.chats[i].id === id) { idx = i; break; }
     }
     if (idx === -1) return;
-    if (activeId === id && stream) stopStream();
+    var wasActive = activeId === id;
+    if (wasActive && stream) stopStream();
     var removed = state.chats.splice(idx, 1)[0];
     var queued = state.outbox.filter(function (o) { return o && o.chatId === id; });
     pendingBrowserPlan = loadPendingBrowserPlan();
@@ -5598,7 +5599,8 @@
       if (removedBrowserPlan && !pendingBrowserPlan) savePendingBrowserPlan(removedBrowserPlan);
       save();
       updateBanners();
-      renderList();
+      if (wasActive && !activeId) openChat(removed.id, "replace");
+      else renderList();
     }, 5000);
   }
 
