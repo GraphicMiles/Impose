@@ -127,14 +127,18 @@ class YouTubeMediaAdapter:
         return "youtube" in request.platforms and not request.options.get("live")
 
     async def discover(self, request, client):
+        # Search the subject, not conversational framing such as “find me a
+        # YouTube tutorial on …”. The original query still owns constraints
+        # (platform, live, latest); adapters receive a clean discovery phrase.
+        discovery_query = request.subject or request.query
         response = await client.get(
             YOUTUBE_SEARCH,
-            params={"search_query": request.query},
+            params={"search_query": discovery_query},
             timeout=VIDEO_TIMEOUT_SECONDS,
         )
         if response.status_code != 200:
             return []
-        rows = parse_youtube_search(response.text, request.query, request.limit)
+        rows = parse_youtube_search(response.text, discovery_query, request.limit)
         if not rows:
             return []
         if request.options.get("latest"):
@@ -184,15 +188,16 @@ class WebMediaAdapter:
 
     async def discover(self, request, client):
         out = []
+        discovery_query = request.subject or request.query
         try:
             response = await client.get(
                 BING_VIDEOS,
-                params={"q": request.query, "FORM": "HDRSC4"},
+                params={"q": discovery_query, "FORM": "HDRSC4"},
                 timeout=VIDEO_TIMEOUT_SECONDS,
             )
             if response.status_code == 200:
                 for index, row in enumerate(parse_bing_videos(
-                        response.text, request.query, request.limit)):
+                        response.text, discovery_query, request.limit)):
                     if row.get("platform") in request.platforms:
                         out.append(_candidate(row, "bing-videos", {"playable"},
                                               500 - index))
@@ -203,7 +208,7 @@ class WebMediaAdapter:
         try:
             domain_map = {"youtube": "youtube.com", "twitch": "twitch.tv"}
             web = await engine_search(
-                request.query,
+                discovery_query,
                 limit=request.limit,
                 domains=[domain_map[p] for p in request.platforms if p in domain_map],
             )

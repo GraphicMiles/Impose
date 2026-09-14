@@ -31,7 +31,8 @@ _VIDEO_GENERIC = {
     "give", "play", "open", "check", "pull", "search", "any", "me",
     "currently", "available", "right", "now",
     "music", "song", "by", "from", "for", "the", "a", "an", "playing",
-    "and", "it", "one", "some", "please",
+    "and", "it", "one", "some", "please", "can", "could", "you", "on", "about", "to",
+    "tutorial", "tutorials",
 }
 _TWITCH_RESERVED = {
     "directory", "downloads", "jobs", "login", "payments", "search",
