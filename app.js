@@ -4253,8 +4253,13 @@
         startBrowserPlan(chat, target, decision.intent.goal || text, intentUi, decision);
         return;
       }
+      /* Execution routing follows provider metadata. Registering another
+         artifact/research capability does not require another id branch. */
+      var harnessProviders = typeof harness.tools === "function" ? harness.tools() : [];
       var needsHarness = summary.selectedTools.some(function (id) {
-        return id === "web.search" || id === "web.read" || id === "images.search" || id === "videos.search";
+        return harnessProviders.some(function (provider) {
+          return provider.id === id && provider.executionMode === "research-harness";
+        });
       });
       if (needsHarness && window.ImposeTrace) {
         finishIntentTraceUi(intentUi, decision, "Goal understood");

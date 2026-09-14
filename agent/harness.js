@@ -145,7 +145,7 @@
   }
 
   var imagesTool = {
-    id: "images.search", name: "Image discovery", version: "1.0",
+    id: "images.search", name: "Image discovery", version: "1.0", executionMode: "research-harness",
     description: "Discovers externally hosted images and returns validated gallery records.",
     capabilities: ["images", "discover_images", "retrieve_images"], primaryCapability: "discover_images",
     inputs: { query: "string, 1 to 500 chars", limit: "int, 1 to 12" },
@@ -187,7 +187,7 @@
   };
 
   var filesTool = {
-    id: "files.discover", name: "Remote file discovery", version: "1.0",
+    id: "files.discover", name: "Remote file discovery", version: "1.0", executionMode: "research-harness",
     description: "Discovers actual downloadable files across source platforms and returns typed artifact records with canonical source, preview, and download URLs.",
     capabilities: ["discover_files", "retrieve_file_artifacts", "files"], primaryCapability: "discover_files",
     inputs: { query: "string, 1 to 500 chars", extensions: "optional file extensions", platforms: "optional source platforms", limit: "int, 1 to 12" },
@@ -222,7 +222,7 @@
   };
 
   var videosTool = {
-    id: "videos.search", name: "Playable media discovery", version: "1.0",
+    id: "videos.search", name: "Playable media discovery", version: "1.0", executionMode: "research-harness",
     description: "Discovers playable media and returns provider-verified recency or live-state claims when required.",
     capabilities: ["videos", "media.playable", "discover_playable_media", "verify_media_recency", "verify_live_status"],
     primaryCapability: "discover_playable_media",
@@ -273,7 +273,7 @@
   };
 
   var websearchTool = {
-    id: "web.search", name: "Web search", version: "1.0",
+    id: "web.search", name: "Web search", version: "1.0", executionMode: "research-harness",
     description: "Retrieves current public web resources with source metadata.",
     capabilities: ["search", "retrieve_information", "discover_web_resources", "search_current_information"],
     primaryCapability: "search_current_information",
@@ -316,7 +316,7 @@
   };
 
   var webreadTool = {
-    id: "web.read", name: "Web page reader", version: "1.0",
+    id: "web.read", name: "Web page reader", version: "1.0", executionMode: "research-harness",
     description: "Reads a public web resource and extracts bounded text, metadata, links, and images.",
     capabilities: ["read_web_resource", "extract_web_content"], primaryCapability: "read_web_resource",
     inputs: { url: "validated http(s) URL" }, outputs: { text: "bounded text", meta: "page metadata", refs: "page links" },

@@ -143,6 +143,15 @@ test("semantic intent mounts and persists the pipeline trace across blocked outc
     "blocked trace snapshot is attached to the persisted response");
 });
 
+
+test("research pipeline routing is provider-metadata driven", function () {
+  var start = src.indexOf("var harnessProviders =");
+  var end = src.indexOf("if (needsHarness", start);
+  var routing = src.slice(start, end);
+  ok(start > -1 && routing.indexOf("executionMode") > -1, "routing reads provider execution metadata");
+  ok(routing.indexOf('id === "files.discover"') === -1, "routing does not branch on the file provider id");
+});
+
 (async function () {
   var passed = 0;
   for (var i = 0; i < tests.length; i++) {
