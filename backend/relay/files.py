@@ -203,6 +203,8 @@ async def discover_files(query: str, limit: int = 8, extensions=None, platforms=
     files, seen_downloads, trees = [], set(), []
     for row in candidates:
         item = normalize_candidate(row.get("url", ""), row.get("title", ""))
+        if item and exts and item["extension"].lower() not in exts:
+            item = None
         if item and item["downloadUrl"] not in seen_downloads:
             seen_downloads.add(item["downloadUrl"]); files.append(item)
         elif "github.com/" in str(row.get("url", "")):
@@ -213,6 +215,7 @@ async def discover_files(query: str, limit: int = 8, extensions=None, platforms=
             expanded = await asyncio.gather(*[_github_tree(url, client, limit) for url in trees[:4]])
         for group in expanded:
             for item in group:
+                if exts and item["extension"].lower() not in exts: continue
                 if item["downloadUrl"] in seen_downloads: continue
                 seen_downloads.add(item["downloadUrl"]); files.append(item)
                 if len(files) >= limit: break
