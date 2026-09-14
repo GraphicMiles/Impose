@@ -364,16 +364,30 @@ async def _find_youtube_channel(query):
     return ""
 
 
-def parse_media_request(query, limit=6):
-    """Turn natural media wording into provider-neutral constraints."""
+def parse_media_request(query, limit=6, constraints=None):
+    """Turn a request into provider-neutral constraints.
+
+    Structured intent constraints take precedence over legacy natural-language
+    extraction. This lets orchestration pass semantics without rebuilding
+    provider requirements from trigger words.
+    """
     query = str(query or "").strip()
+    constraints = constraints if isinstance(constraints, dict) else {}
     cap = max(1, min(10, int(limit or 6)))
     urls = [url.rstrip(".,)") for url in _direct_urls(query)]
     has_twitch_url = any(_twitch_target(url) for url in urls)
     has_youtube_url = any(_youtube_id(url) or _youtube_channel_id(url) for url in urls)
     wants_live = bool(re.search(r"\b(?:live|livestream|live\s+stream|twitchlive)\b", query, re.I))
     wants_latest = bool(re.search(r"\b(?:latest|newest|most recent|recent upload)\b", query, re.I))
-    if re.search(r"\btwitch(?:\s*live)?\b", query, re.I) or has_twitch_url:
+    if isinstance(constraints.get("live"), bool):
+        wants_live = constraints["live"]
+    if isinstance(constraints.get("latest"), bool):
+        wants_latest = constraints["latest"]
+    explicit_platforms = frozenset(str(value).lower() for value in constraints.get("platforms", [])
+                                   if str(value).lower() in {"youtube", "twitch"})
+    if explicit_platforms:
+        platforms = explicit_platforms
+    elif re.search(r"\btwitch(?:\s*live)?\b", query, re.I) or has_twitch_url:
         platforms = frozenset({"twitch"})
     elif re.search(r"\byoutube\b", query, re.I) or has_youtube_url or wants_latest:
         platforms = frozenset({"youtube"})
@@ -395,11 +409,14 @@ def parse_media_request(query, limit=6):
             and re.search(r"\bvideo\b", query, re.I)
             and not re.search(r"\b(?:trailer|teaser|clip|scene)\b", query, re.I)
         )
+    if isinstance(constraints.get("creator"), bool):
+        creator_hint = constraints["creator"]
+    subject = str(constraints.get("subject") or "").strip()[:500] or _video_subject(query)
     return CapabilityRequest(
         capability="media.playable",
         query=query,
         limit=cap,
-        subject=_video_subject(query),
+        subject=subject,
         platforms=platforms,
         required_claims=frozenset(claims),
         options={"urls": tuple(urls), "live": wants_live,

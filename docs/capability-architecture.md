@@ -1,15 +1,15 @@
 # Web capability architecture
 
-Impose treats web work as typed capabilities, not model prose with guessed URLs.
+Impose treats web work as typed capabilities, not model prose with guessed URLs. User-goal orchestration, conditional classification, lifecycle, and runtime integration are documented in [intent-orchestration-design.md](./intent-orchestration-design.md); this document describes the lower provider-capability layer.
 
 ## Request path
 
-1. **Intent detection** — registered browser tools may expose `matches(query, context)`. Explicit capability commands route through the harness even when broad Web search is off.
-2. **Planning** — the harness produces a bounded query and resolves the semantic capability (`media.playable`, rather than a provider name).
-3. **Discovery adapters** — relay adapters return candidates from independent providers.
+1. **Semantic interpretation** — the intent layer decomposes the goal into canonical requirements using the current registry catalog, conversation, active task, constraints, and failures. It does not match request phrases to tool names.
+2. **Tool planning** — the client registry discovers and ranks tools that advertise the required capabilities (`media.playable`, rather than a provider name).
+3. **Provider discovery** — inside a selected web/media tool, relay adapters return candidates from independent providers.
 4. **Verification claims** — an adapter may attach only claims it can prove, such as `playable`, `live`, or `latest`.
 5. **Policy gate** — `CapabilityPipeline` drops every candidate that lacks the request's required claims. Provider outages fail independently.
-6. **Presentation** — the client validates canonical IDs and claims, then renders a typed artifact. A play command opens the verified player in Impose.
+6. **Presentation** — the client validates canonical IDs and claims, then renders a typed artifact. Structured output preferences control presentation.
 
 The answer model does not create identifiers, URLs, liveness, or recency claims.
 

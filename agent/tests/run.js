@@ -32,13 +32,14 @@ test("register and resolve", function () {
   eq(h.resolve("search").id, "a.tool", "resolves");
 });
 
-test("capability detection is registry driven", function () {
+test("capability discovery is registry driven", function () {
   var h = H.createHarness();
   h.registerTool({ id: "weather.current", capabilities: ["weather.current"],
-    matches: function (q) { return /weather/i.test(q); },
     run: function () { return Promise.resolve(); } });
-  eq(h.detect("weather in Lagos", "").join(","), "weather.current", "registered intent detected");
-  eq(h.detect("write a poem", "").length, 0, "unrelated request ignored");
+  eq(h.discoverCapabilities("weather.current", { environment: "browser" })[0].tool.id,
+    "weather.current", "registered capability discovered");
+  eq(h.discoverCapabilities("poetry.write", { environment: "browser" }).length, 0,
+    "unadvertised capability ignored");
 });
 
 test("register rejects bad tools", function () {
@@ -57,8 +58,8 @@ test("resolve unknown capability throws", function () {
 test("default harness ships web capabilities", function () {
   eq(H.harness.resolve("search").id, "web.search", "search tool");
   eq(H.harness.resolve("media.playable").id, "videos.search", "typed playable-media tool");
-  ok(H.harness.detect("play a Twitch live stream", "").indexOf("videos.search") !== -1,
-    "media command routes without broad search mode");
+  eq(H.harness.discoverCapabilities("discover_playable_media", { environment: "browser" })[0].tool.id,
+    "videos.search", "semantic capability is discoverable without request wording");
 });
 
 test("simplifyQuery strips framing", function () {
@@ -780,6 +781,26 @@ test("research system treats source text as untrusted data", function () {
   }).then(function () {
     ok(system.indexOf("untrusted data") !== -1, "source prompt injection is framed as data");
     ok(system.indexOf("reveal secrets") !== -1, "secret-exfiltration instruction is explicitly refused");
+  });
+});
+
+test("semantic read requirement executes the requested URL without implicit search", function () {
+  var searches = 0, reads = 0, completion = "";
+  var semantic = { goal: "explain the supplied page", confidence: 0.98, risk: "low", constraints: {},
+    desiredOutput: { type: "answer" }, successCriteria: ["page explained from its content"],
+    subgoals: [{ id: "g1", goal: "read and explain", requirements: [
+      { id: "r1", capability: "read_web_resource", required: true, inputs: { url: "https://example.com/report" } },
+      { id: "r2", capability: "synthesize_evidence", required: true, inputs: {} }
+    ] }] };
+  return H.harness.runAgent({ query: "Take care of the supplied material", intent: semantic, emit: function () {},
+    search: function () { searches++; throw new Error("must not search"); },
+    read: function (url) { reads++; eq(url, "https://example.com/report"); return Promise.resolve({ title: "Report", text: "Verified report contents." }); },
+    complete: function (system, prompt, onDelta) { completion = prompt; onDelta("Evidence-based answer [1]"); return Promise.resolve(); },
+    onDelta: function () {}, onThink: function () {}
+  }).then(function (out) {
+    eq(searches, 0, "search is not implicit"); eq(reads, 1, "exact requested URL read");
+    ok(completion.indexOf("Verified report contents") !== -1, "read content reaches synthesis");
+    eq(out.sources[0].url, "https://example.com/report", "source preserved");
   });
 });
 
