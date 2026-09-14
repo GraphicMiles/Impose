@@ -34,7 +34,8 @@ button, input { font: inherit; }
 button { color: inherit; }
 a { color: inherit; }
 button:focus, button:focus-visible, input:focus, input:focus-visible, a:focus-visible { outline: none; }
-button:focus-visible, a:focus-visible { box-shadow: 0 0 0 2px var(--text-3); border-radius: 8px; }
+button:focus-visible { box-shadow: none; }
+a:focus-visible { box-shadow: 0 0 0 2px var(--text-3); border-radius: 8px; }
 [hidden] { display: none !important; }
 .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 i[data-lucide] { display: inline-flex; width: 20px; height: 20px; flex: none; }
@@ -247,3 +248,19 @@ input.invalid { border-color: var(--danger); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Fields and actions use filled surfaces instead of permanent outlines. */
+.language-btn,
+.provider-btn,
+.primary-btn,
+.secondary-btn,
+input[type="email"],
+.password-wrap > input,
+.otp-input {
+  border: 0;
+  outline: 0;
+}
+.language-btn,
+.provider-btn,
+.secondary-btn { background: var(--surface); }
+input.invalid { box-shadow: inset 0 0 0 1px var(--danger); }

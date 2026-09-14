@@ -89,8 +89,10 @@ input, textarea {
 
 :focus, :focus-visible { outline: none; }
 button:focus-visible,
-a:focus-visible,
 [role="button"]:focus-visible {
+  box-shadow: none;
+}
+a:focus-visible {
   box-shadow: 0 0 0 2px var(--text-3);
   border-radius: 8px;
 }
@@ -1896,27 +1898,60 @@ html.reduce-motion .img-tile img { transition: opacity 150ms ease; }
 }
 html.reduce-motion .imgbox-fig { transform: none; transition: none; }
 
-/* --- first-run onboarding (a modal: centered origin is correct) --------- */
-.onboard-sheet { max-width: 400px; padding: 22px 20px 18px; }
+/* --- first-run onboarding --------------------------------------------- */
+.onboard-sheet {
+  max-width: 420px;
+  max-height: calc(100dvh - 24px);
+  padding: 24px;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 22px;
+  background: #2b2b2b;
+}
+.onboard-intro,
+.onboard-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
 .onboard-badge {
-  width: 40px; height: 40px; border-radius: 12px;
-  background: var(--press); display: grid; place-items: center;
-  margin-bottom: 12px; color: var(--text);
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  background: var(--press);
+  border-radius: 12px;
 }
 .onboard-badge .lucide, .onboard-badge i[data-lucide] { width: 20px; height: 20px; }
-.onboard-sheet h2 { margin: 0 0 6px; font-size: 19px; }
-.onboard-sub { margin: 0 0 12px; color: var(--text-2); font-size: 14px; }
-.onboard-rows { display: block; }
-.onboard-row { display: flex; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border-soft); }
-.onboard-row .lucide, .onboard-row i[data-lucide] { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--text-2); }
-.onboard-row strong { display: block; font-size: 14px; font-weight: 600; }
-.onboard-row span { display: block; font-size: 13px; color: var(--text-2); margin-top: 2px; line-height: 1.45; }
-.onboard-acts { display: flex; gap: 8px; margin-top: 14px; }
-.onboard-acts .btn { flex: 1; }
+.onboard-copy { min-width: 0; }
+.onboard-sheet h2 { margin: 1px 0 5px; font-size: 20px; line-height: 1.25; letter-spacing: -0.02em; }
+.onboard-sub { margin: 0; color: var(--text-2); font-size: 13.5px; line-height: 1.5; }
+.onboard-rows { margin-top: 20px; }
+.onboard-row { padding: 14px 0; border-top: 1px solid var(--border-soft); }
+.onboard-icon {
+  width: 42px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+.onboard-icon .lucide, .onboard-icon i[data-lucide] { width: 19px; height: 19px; }
+.onboard-row strong { display: block; font-size: 14px; line-height: 1.35; font-weight: 600; }
+.onboard-row span { display: block; margin-top: 4px; color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.onboard-acts { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 18px; }
+.onboard-acts .btn { width: 100%; min-height: 46px; justify-content: center; border: 0; background: var(--hover); }
+.onboard-acts .btn.primary { background: var(--accent); }
 /* enter from 0.96 + fade, exit faster than enter */
 .onboard-sheet { transform: scale(0.96); opacity: 0; transition: transform 140ms ease, opacity 140ms ease; }
 .overlay.open .onboard-sheet { transform: scale(1); opacity: 1; transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out); }
 html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms ease; }
+@media (max-width: 480px) {
+  .onboard-sheet { padding: 22px 20px 20px; border-radius: 20px; }
+  .onboard-intro, .onboard-row { grid-template-columns: 38px minmax(0, 1fr); gap: 12px; }
+  .onboard-badge, .onboard-icon { width: 38px; }
+}
 
 /* ---------- tools menu ---------- */
 .pop-item .tool-check { margin-left: auto; width: 16px; height: 16px; opacity: 0; color: var(--text-2); transition: opacity 120ms ease; }
@@ -1925,3 +1960,47 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 .pop-item.soon { opacity: 0.55; }
 .soon-pill { margin-left: auto; font-style: normal; font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em;
   padding: 2px 8px; border-radius: 999px; background: var(--border-soft); color: var(--text-2); }
+
+/* Borderless controls: depth comes from filled surfaces and press feedback,
+   never a permanent outline around a button, field, or modal card. */
+.sheet,
+.pop,
+.composer,
+.btn,
+.btn.danger,
+.share-btn,
+.chip,
+.plan-card,
+.pill-btn,
+.pick-row,
+.advanced-row,
+.debug-tab,
+.toggle,
+.seg,
+.seg button,
+.seg button[aria-pressed="true"] {
+  border: 0;
+}
+.btn,
+.pill-btn,
+.pick-row,
+.advanced-row {
+  background: var(--hover);
+}
+.btn.danger { background: var(--danger-soft); }
+.share-btn,
+.chip,
+.plan-card { background: var(--border-soft); }
+.text-input,
+.rename-input,
+.composer textarea,
+.search-bar input,
+.acct-name {
+  border: 0;
+  outline: 0;
+}
+.text-input:focus,
+.rename-input:focus,
+.composer:focus-within {
+  border: 0;
+}
