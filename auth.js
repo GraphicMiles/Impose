@@ -63,16 +63,30 @@
   function setError(id, message) {
     var input = $(id);
     var error = document.querySelector('[data-error-for="' + id + '"]');
+    if (error) {
+      error.id = id + "Error";
+      error.textContent = message || "";
+    }
     if (input) {
       input.classList.toggle("invalid", Boolean(message));
       input.setAttribute("aria-invalid", message ? "true" : "false");
+      if (message && error) input.setAttribute("aria-describedby", error.id);
+      else input.removeAttribute("aria-describedby");
     }
-    if (error) error.textContent = message || "";
+  }
+
+  function focusFirstError(form) {
+    var invalid = form.querySelector('[aria-invalid="true"]');
+    if (invalid && invalid.focus) invalid.focus();
   }
 
   function clearErrors() {
     all(".field-error").forEach(function (node) { node.textContent = ""; });
-    all(".invalid").forEach(function (node) { node.classList.remove("invalid"); node.removeAttribute("aria-invalid"); });
+    all(".invalid").forEach(function (node) {
+      node.classList.remove("invalid");
+      node.removeAttribute("aria-invalid");
+      node.removeAttribute("aria-describedby");
+    });
   }
 
   function busy(form, on) {
@@ -151,7 +165,7 @@
     var okay = true;
     if (!validEmail(email)) { setError("signInEmail", "Enter a valid email address."); okay = false; }
     if (password.length < 8) { setError("signInPassword", "Password must be at least 8 characters."); okay = false; }
-    if (!okay) return;
+    if (!okay) { focusFirstError(event.currentTarget); return; }
     briefWork(event.currentTarget, function () {
       saveSession(email.split("@")[0], email);
       location.href = "./index.html";
@@ -163,8 +177,13 @@
     var rules = { length: value.length >= 8, number: /\d/.test(value), special: /[^A-Za-z0-9]/.test(value) };
     Object.keys(rules).forEach(function (key) {
       var item = document.querySelector('[data-rule="' + key + '"]');
-      item.classList.toggle("met", rules[key]);
-      item.innerHTML = '<i data-lucide="' + (rules[key] ? "circle-check" : "circle") + '"></i>' + item.textContent;
+      var met = rules[key];
+      var label = item.querySelector("span").textContent;
+      var icon = document.createElement("i");
+      icon.setAttribute("data-lucide", met ? "circle-check" : "circle");
+      item.classList.toggle("met", met);
+      item.setAttribute("aria-label", label + (met ? ", met" : ", not met"));
+      item.replaceChild(icon, item.firstElementChild);
     });
     refreshIcons();
   });
@@ -178,7 +197,7 @@
     if (!validEmail(email)) { setError("signUpEmail", "Enter a valid email address."); okay = false; }
     if (password.length < 8 || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) { setError("signUpPassword", "Use 8 characters, a number, and a special character."); okay = false; }
     if (!$("terms").checked) { setError("terms", "Accept the terms to continue."); okay = false; }
-    if (!okay) return;
+    if (!okay) { focusFirstError(event.currentTarget); return; }
     savePending(email, "signup");
     sessionStorage.setItem("impose.auth.pendingName", email.split("@")[0]);
     briefWork(event.currentTarget, function () { route("otp"); });
@@ -188,7 +207,11 @@
     event.preventDefault();
     clearErrors();
     var email = $("forgotEmail").value.trim();
-    if (!validEmail(email)) { setError("forgotEmail", "Enter the email linked to your account."); return; }
+    if (!validEmail(email)) {
+      setError("forgotEmail", "Enter the email linked to your account.");
+      focusFirstError(event.currentTarget);
+      return;
+    }
     savePending(email, "reset");
     briefWork(event.currentTarget, function () {
       $("successTitle").textContent = "Check your inbox";
@@ -224,7 +247,12 @@
   $("otpForm").addEventListener("submit", function (event) {
     event.preventDefault();
     var code = otpInputs.map(function (input) { return input.value; }).join("");
-    if (code.length !== 8) { $("otpError").textContent = "Enter the complete eight-digit code."; return; }
+    if (code.length !== 8) {
+      $("otpError").textContent = "Enter the complete eight-digit code.";
+      var emptyDigit = otpInputs.filter(function (input) { return !input.value; })[0];
+      if (emptyDigit) emptyDigit.focus();
+      return;
+    }
     briefWork(event.currentTarget, function () {
       if (otpPurpose === "reset") route("reset-password");
       else {
@@ -273,7 +301,7 @@
     var okay = true;
     if (password.length < 8) { setError("resetPassword", "Use at least 8 characters."); okay = false; }
     if (confirmation !== password) { setError("confirmPassword", "Passwords do not match."); okay = false; }
-    if (!okay) return;
+    if (!okay) { focusFirstError(event.currentTarget); return; }
     briefWork(event.currentTarget, function () {
       $("successTitle").textContent = "Password updated";
       $("successCopy").textContent = "You can now sign in with your new password.";

@@ -67,10 +67,10 @@
       <div class="field">
         <label for="signUpPassword">Password</label>
         <div class="password-wrap"><input id="signUpPassword" name="password" type="password" autocomplete="new-password" placeholder="Create a password" minlength="8" required><button class="reveal" type="button" data-reveal="signUpPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div>
-        <ul class="requirements" id="passwordRequirements">
-          <li data-rule="length"><i data-lucide="circle"></i><span>8 characters</span></li>
-          <li data-rule="number"><i data-lucide="circle"></i><span>1 number</span></li>
-          <li data-rule="special"><i data-lucide="circle"></i><span>1 special character</span></li>
+        <ul class="requirements" id="passwordRequirements" aria-label="Password requirements" aria-live="polite">
+          <li data-rule="length"><i data-lucide="circle"></i><span>Minimum 8 characters</span></li>
+          <li data-rule="number"><i data-lucide="circle"></i><span>At least one number</span></li>
+          <li data-rule="special"><i data-lucide="circle"></i><span>At least one special character</span></li>
         </ul>
         <p class="field-error" data-error-for="signUpPassword"></p>
       </div>
