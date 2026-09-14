@@ -1,203 +1,146 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sign in · Impose</title>
 <meta name="description" content="Sign in to Impose or create your account.">
-<meta name="color-scheme" content="light">
-<meta name="theme-color" content="#f5f4ef">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0a0a">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="stylesheet" href="./auth.css">
 </head>
 <body>
-<div class="auth-shell">
-  <aside class="auth-story" aria-label="About Impose">
-    <a class="brand brand-inverse" href="./index.html" aria-label="Impose home">
-      <span class="brand-mark" aria-hidden="true">I</span>
-      <span>Impose</span>
-    </a>
+<header class="auth-header">
+  <a class="auth-brand" href="./index.html" aria-label="Impose home"><span class="brand-ring" aria-hidden="true"></span><span>Impose</span></a>
+  <button class="language-btn" type="button" aria-label="Language: English"><i data-lucide="globe-2"></i><span>EN</span></button>
+</header>
 
-    <div class="story-copy">
-      <p class="eyebrow">One workspace. Any model.</p>
-      <h1>Bring your best thinking together.</h1>
-      <p>Chat, research, and work across providers without losing the thread.</p>
+<main class="auth-main">
+  <section class="auth-view sign-in-view" data-view="sign-in">
+    <h1>Welcome back</h1>
+    <div class="provider-stack">
+      <button class="provider-btn" type="button" data-provider="Google"><span class="google-mark" aria-hidden="true">G</span><span>Sign in with Google</span></button>
+      <button class="provider-btn" type="button" data-provider="Passkey"><i data-lucide="fingerprint"></i><span>Sign in with Passkey</span></button>
+      <div class="sso-grid" aria-label="Continue with SSO">
+        <button class="provider-btn provider-icon" type="button" data-provider="Microsoft" aria-label="Sign in with Microsoft"><span class="microsoft-mark" aria-hidden="true"><b></b><b></b><b></b><b></b></span></button>
+        <button class="provider-btn provider-icon" type="button" data-provider="GitHub" aria-label="Sign in with GitHub"><span class="sso-glyph github-glyph" aria-hidden="true">GH</span></button>
+        <button class="provider-btn provider-icon" type="button" data-provider="Apple" aria-label="Sign in with Apple"><span class="sso-glyph apple-glyph" aria-hidden="true">A</span></button>
+      </div>
+      <p class="sso-label">Continue with SSO</p>
     </div>
+    <div class="divider"><span>or</span></div>
+    <form id="signInForm" novalidate>
+      <div class="field">
+        <label for="signInEmail">Email</label>
+        <input id="signInEmail" name="email" type="email" autocomplete="email" inputmode="email" required>
+        <p class="field-error" data-error-for="signInEmail"></p>
+      </div>
+      <div class="field">
+        <div class="label-row"><label for="signInPassword">Password</label><button class="muted-link" type="button" data-route="forgot-password">Forgot your password?</button></div>
+        <div class="password-wrap"><input id="signInPassword" name="password" type="password" autocomplete="current-password" minlength="8" required><button class="reveal" type="button" data-reveal="signInPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div>
+        <p class="field-error" data-error-for="signInPassword"></p>
+      </div>
+      <button class="primary-btn" type="submit">Sign in</button>
+    </form>
+    <p class="switch-copy">Don't have an account? <button class="link-btn" type="button" data-route="sign-up">Sign Up</button></p>
+    <p class="agent-link">Are you an AI agent? <a href="./index.html">Open Impose</a></p>
+  </section>
 
-    <div class="product-window" aria-hidden="true">
-      <div class="window-bar">
-        <span class="window-brand"><span class="mini-mark">I</span> Impose</span>
-        <span class="window-status"><i data-lucide="shield-check"></i> Private by default</span>
+  <section class="auth-view sign-up-view" data-view="sign-up" hidden>
+    <h1>Create an account</h1>
+    <div class="provider-stack signup-providers">
+      <button class="provider-btn" type="button" data-provider="Google"><span class="google-mark" aria-hidden="true">G</span><span>Sign up with Google</span></button>
+      <div class="sso-grid" aria-label="Continue with SSO">
+        <button class="provider-btn provider-icon" type="button" data-provider="Microsoft" aria-label="Sign up with Microsoft"><span class="microsoft-mark" aria-hidden="true"><b></b><b></b><b></b><b></b></span></button>
+        <button class="provider-btn provider-icon" type="button" data-provider="GitHub" aria-label="Sign up with GitHub"><span class="sso-glyph github-glyph" aria-hidden="true">GH</span></button>
+        <button class="provider-btn provider-icon" type="button" data-provider="Apple" aria-label="Sign up with Apple"><span class="sso-glyph apple-glyph" aria-hidden="true">A</span></button>
       </div>
-      <div class="window-body">
-        <nav class="mock-nav">
-          <span class="mock-new"><i data-lucide="square-pen"></i> New chat</span>
-          <span class="mock-label">Today</span>
-          <span class="mock-link active">Launch plan review</span>
-          <span class="mock-link">Customer research</span>
-          <span class="mock-link">API migration notes</span>
-        </nav>
-        <div class="mock-chat">
-          <span class="mock-model">Impose <i data-lucide="chevron-down"></i></span>
-          <div class="mock-thread">
-            <p class="mock-user">Turn these notes into a clear launch plan.</p>
-            <div class="mock-answer">
-              <span class="answer-mark">I</span>
-              <div><strong>Here is a focused three-stage plan.</strong><span>Start with a private beta, measure activation, then widen access once the onboarding path is proven.</span></div>
-            </div>
-          </div>
-          <div class="mock-composer"><span>Ask anything</span><i data-lucide="arrow-up"></i></div>
-        </div>
-      </div>
+      <p class="sso-label">Continue with SSO</p>
     </div>
-
-    <p class="story-foot">Keys and chats stay under your control.</p>
-  </aside>
-
-  <main class="auth-main">
-    <header class="mobile-head">
-      <a class="brand" href="./index.html" aria-label="Impose home"><span class="brand-mark" aria-hidden="true">I</span><span>Impose</span></a>
-      <a class="back-app" href="./index.html">Back to app</a>
-    </header>
-
-    <section class="auth-card" aria-live="polite">
-      <div class="view" data-view="sign-in">
-        <div class="view-head">
-          <p class="eyebrow">Welcome back</p>
-          <h2>Sign in to Impose</h2>
-          <p>Continue to your chats and connected models.</p>
-        </div>
-        <div class="social-grid">
-          <button class="social-btn" type="button" data-provider="Google"><span class="google-g" aria-hidden="true">G</span><span>Continue with Google</span></button>
-          <button class="social-btn" type="button" data-provider="Passkey"><i data-lucide="fingerprint"></i><span>Use a passkey</span></button>
-        </div>
-        <div class="divider"><span>or continue with email</span></div>
-        <form id="signInForm" novalidate>
-          <div class="field">
-            <label for="signInEmail">Email address</label>
-            <input id="signInEmail" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@company.com" required>
-            <p class="field-error" data-error-for="signInEmail"></p>
-          </div>
-          <div class="field">
-            <div class="label-row"><label for="signInPassword">Password</label><button class="text-btn" type="button" data-route="forgot-password">Forgot password?</button></div>
-            <div class="password-wrap"><input id="signInPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="8" required><button class="reveal" type="button" data-reveal="signInPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div>
-            <p class="field-error" data-error-for="signInPassword"></p>
-          </div>
-          <button class="primary-btn" type="submit"><span>Sign in</span><i data-lucide="arrow-right"></i></button>
-        </form>
-        <p class="switch-copy">New to Impose? <button class="text-btn strong" type="button" data-route="sign-up">Create an account</button></p>
+    <div class="divider"><span>or</span></div>
+    <form id="signUpForm" novalidate>
+      <div class="field">
+        <label for="signUpEmail">Email</label>
+        <input id="signUpEmail" name="email" type="email" autocomplete="email" inputmode="email" required>
+        <p class="field-error" data-error-for="signUpEmail"></p>
       </div>
-
-      <div class="view" data-view="sign-up" hidden>
-        <div class="view-head">
-          <p class="eyebrow">Get started</p>
-          <h2>Create your account</h2>
-          <p>Set up your workspace in less than a minute.</p>
-        </div>
-        <button class="social-btn full" type="button" data-provider="Google"><span class="google-g" aria-hidden="true">G</span><span>Sign up with Google</span></button>
-        <div class="divider"><span>or continue with email</span></div>
-        <form id="signUpForm" novalidate>
-          <div class="field">
-            <label for="signUpName">Full name</label>
-            <input id="signUpName" name="name" type="text" autocomplete="name" placeholder="Your name" maxlength="60" required>
-            <p class="field-error" data-error-for="signUpName"></p>
-          </div>
-          <div class="field">
-            <label for="signUpEmail">Work email</label>
-            <input id="signUpEmail" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@company.com" required>
-            <p class="field-error" data-error-for="signUpEmail"></p>
-          </div>
-          <div class="field">
-            <label for="signUpPassword">Password</label>
-            <div class="password-wrap"><input id="signUpPassword" name="password" type="password" autocomplete="new-password" placeholder="Create a password" minlength="8" required><button class="reveal" type="button" data-reveal="signUpPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div>
-            <div class="requirements" id="passwordRequirements">
-              <span data-rule="length"><i data-lucide="circle"></i>8 characters</span>
-              <span data-rule="number"><i data-lucide="circle"></i>1 number</span>
-              <span data-rule="special"><i data-lucide="circle"></i>1 special character</span>
-            </div>
-            <p class="field-error" data-error-for="signUpPassword"></p>
-          </div>
-          <label class="check-row"><input id="terms" type="checkbox" required><span>I agree to the <a href="#terms">Terms of Service</a> and acknowledge the <a href="#privacy">Privacy Policy</a>.</span></label>
-          <p class="field-error" data-error-for="terms"></p>
-          <button class="primary-btn" type="submit"><span>Create account</span><i data-lucide="arrow-right"></i></button>
-        </form>
-        <p class="switch-copy">Already have an account? <button class="text-btn strong" type="button" data-route="sign-in">Sign in</button></p>
+      <div class="field">
+        <label for="signUpPassword">Password</label>
+        <div class="password-wrap"><input id="signUpPassword" name="password" type="password" autocomplete="new-password" minlength="8" required><button class="reveal" type="button" data-reveal="signUpPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div>
+        <ul class="requirements" id="passwordRequirements">
+          <li data-rule="length"><i data-lucide="x"></i><span>Minimum 8 letters</span></li>
+          <li data-rule="number"><i data-lucide="x"></i><span>At least one number</span></li>
+          <li data-rule="special"><i data-lucide="x"></i><span>At least one special character</span></li>
+        </ul>
+        <p class="field-error" data-error-for="signUpPassword"></p>
       </div>
+      <label class="check-row"><input id="terms" type="checkbox" required><span>I agree to the <a href="#terms">Terms of Service</a>, and acknowledge the <a href="#privacy">Privacy Policy</a></span></label>
+      <p class="field-error" data-error-for="terms"></p>
+      <button class="primary-btn" type="submit">Sign up</button>
+    </form>
+    <p class="switch-copy">Already registered? <button class="link-btn" type="button" data-route="sign-in">Sign In</button></p>
+  </section>
 
-      <div class="view compact" data-view="forgot-password" hidden>
-        <button class="back-btn" type="button" data-route="sign-in"><i data-lucide="arrow-left"></i><span>Back to sign in</span></button>
-        <div class="view-icon"><i data-lucide="key-round"></i></div>
-        <div class="view-head">
-          <h2>Reset your password</h2>
-          <p>Enter the email linked to your account and we will send you a six-digit code.</p>
-        </div>
-        <form id="forgotForm" novalidate>
-          <div class="field">
-            <label for="forgotEmail">Email address</label>
-            <input id="forgotEmail" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@company.com" required>
-            <p class="field-error" data-error-for="forgotEmail"></p>
-          </div>
-          <button class="primary-btn" type="submit"><span>Send reset code</span><i data-lucide="arrow-right"></i></button>
-        </form>
+  <section class="auth-view simple-view forgot-view" data-view="forgot-password" hidden>
+    <h1>Reset your password</h1>
+    <p class="intro-copy">Enter the email address associated with your account, and we'll send you a link to reset your password.</p>
+    <form id="forgotForm" novalidate>
+      <div class="field">
+        <label for="forgotEmail">Email</label>
+        <input id="forgotEmail" name="email" type="email" autocomplete="email" inputmode="email" required>
+        <p class="field-error" data-error-for="forgotEmail"></p>
       </div>
+      <button class="primary-btn" type="submit">Send email</button>
+    </form>
+    <p class="switch-copy">Return to <button class="link-btn" type="button" data-route="sign-in">Sign In</button></p>
+  </section>
 
-      <div class="view compact" data-view="otp" hidden>
-        <button class="back-btn" type="button" data-route="sign-in"><i data-lucide="arrow-left"></i><span>Back to sign in</span></button>
-        <div class="view-icon"><i data-lucide="mail-check"></i></div>
-        <div class="view-head">
-          <h2>Check your inbox</h2>
-          <p>Enter the six-digit code sent to <strong id="otpEmail">your email</strong>.</p>
-        </div>
-        <form id="otpForm" novalidate>
-          <fieldset class="otp-group" aria-label="Six-digit verification code">
-            <legend class="sr-only">Verification code</legend>
-            <input class="otp-input" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1">
-            <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 2">
-            <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 3">
-            <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 4">
-            <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 5">
-            <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 6">
-          </fieldset>
-          <p class="field-error center-error" id="otpError"></p>
-          <button class="primary-btn" type="submit"><span>Verify code</span><i data-lucide="arrow-right"></i></button>
-        </form>
-        <p class="switch-copy">Did not receive it? <button class="text-btn strong" id="resendBtn" type="button">Resend code</button></p>
-      </div>
+  <section class="auth-view simple-view otp-view" data-view="otp" hidden>
+    <h1>Check your Inbox</h1>
+    <div class="intro-copy otp-copy">
+      <p>We've sent an 8-digit confirmation code to <strong id="otpEmail">your email</strong>. Enter it below to finish signing up.</p>
+      <p>If you haven't received an email in 5 minutes, check your spam, <button class="inline-link" type="button" id="inlineResend">resend</button>, or <button class="inline-link" type="button" data-route="sign-up">try a different email address</button>.</p>
+    </div>
+    <form id="otpForm" novalidate>
+      <label class="otp-label" for="otpDigit1">Confirmation code</label>
+      <fieldset class="otp-group" aria-label="Eight-digit confirmation code">
+        <legend class="sr-only">Confirmation code</legend>
+        <input id="otpDigit1" class="otp-input" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1">
+        <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 2">
+        <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 3">
+        <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 4">
+        <span class="otp-dash" aria-hidden="true">-</span>
+        <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 5">
+        <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 6">
+        <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 7">
+        <input class="otp-input" inputmode="numeric" maxlength="1" aria-label="Digit 8">
+      </fieldset>
+      <p class="field-error center-error" id="otpError"></p>
+      <button class="primary-btn" type="submit">Confirm account</button>
+    </form>
+    <button class="secondary-btn" id="resendBtn" type="button">Resend (60s)</button>
+    <p class="switch-copy">Return to <button class="link-btn" type="button" data-route="sign-in">Sign In</button></p>
+  </section>
 
-      <div class="view compact" data-view="reset-password" hidden>
-        <div class="view-icon"><i data-lucide="lock-keyhole"></i></div>
-        <div class="view-head">
-          <h2>Choose a new password</h2>
-          <p>Make it strong and different from passwords you use elsewhere.</p>
-        </div>
-        <form id="resetForm" novalidate>
-          <div class="field">
-            <label for="resetPassword">New password</label>
-            <div class="password-wrap"><input id="resetPassword" type="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required><button class="reveal" type="button" data-reveal="resetPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div>
-            <p class="field-error" data-error-for="resetPassword"></p>
-          </div>
-          <div class="field">
-            <label for="confirmPassword">Confirm password</label>
-            <div class="password-wrap"><input id="confirmPassword" type="password" autocomplete="new-password" placeholder="Repeat your password" minlength="8" required><button class="reveal" type="button" data-reveal="confirmPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div>
-            <p class="field-error" data-error-for="confirmPassword"></p>
-          </div>
-          <button class="primary-btn" type="submit"><span>Update password</span><i data-lucide="arrow-right"></i></button>
-        </form>
-      </div>
+  <section class="auth-view simple-view reset-view" data-view="reset-password" hidden>
+    <h1>Choose a new password</h1>
+    <p class="intro-copy">Your new password must be at least 8 characters long.</p>
+    <form id="resetForm" novalidate>
+      <div class="field"><label for="resetPassword">New password</label><div class="password-wrap"><input id="resetPassword" type="password" autocomplete="new-password" minlength="8" required><button class="reveal" type="button" data-reveal="resetPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div><p class="field-error" data-error-for="resetPassword"></p></div>
+      <div class="field"><label for="confirmPassword">Confirm password</label><div class="password-wrap"><input id="confirmPassword" type="password" autocomplete="new-password" minlength="8" required><button class="reveal" type="button" data-reveal="confirmPassword" aria-label="Show password"><i data-lucide="eye"></i></button></div><p class="field-error" data-error-for="confirmPassword"></p></div>
+      <button class="primary-btn" type="submit">Update password</button>
+    </form>
+    <p class="switch-copy">Return to <button class="link-btn" type="button" data-route="sign-in">Sign In</button></p>
+  </section>
 
-      <div class="view compact success-view" data-view="success" hidden>
-        <div class="view-icon success"><i data-lucide="check"></i></div>
-        <div class="view-head">
-          <h2 id="successTitle">You are all set</h2>
-          <p id="successCopy">Your account is ready.</p>
-        </div>
-        <a class="primary-btn" href="./index.html"><span>Continue to Impose</span><i data-lucide="arrow-right"></i></a>
-      </div>
-    </section>
-
-    <footer class="auth-footer"><span>© 2026 Impose</span><a href="#privacy">Privacy</a><a href="#terms">Terms</a></footer>
-  </main>
-</div>
+  <section class="auth-view simple-view success-view" data-view="success" hidden>
+    <span class="success-icon"><i data-lucide="check"></i></span>
+    <h1 id="successTitle">Email verified</h1>
+    <p class="intro-copy" id="successCopy">Your Impose account is ready to use.</p>
+    <a class="primary-btn" id="successAction" href="./index.html">Continue to Impose</a>
+  </section>
+</main>
 <div class="toast" id="authToast" role="status" hidden></div>
 <script src="./lucide.min.js"></script>
 <script src="./auth.js"></script>

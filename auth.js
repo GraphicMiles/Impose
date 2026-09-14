@@ -5,6 +5,8 @@
   var pendingEmail = sessionStorage.getItem("impose.auth.pendingEmail") || "";
   var otpPurpose = sessionStorage.getItem("impose.auth.otpPurpose") || "signup";
   var toastTimer = null;
+  var resendTimer = null;
+  var resendRemaining = 0;
 
   function $(id) { return document.getElementById(id); }
   function all(selector, root) { return Array.prototype.slice.call((root || document).querySelectorAll(selector)); }
@@ -25,7 +27,8 @@
 
   function renderRoute() {
     var name = routeName();
-    all(".view").forEach(function (view) { view.hidden = view.dataset.view !== name; });
+    all(".auth-view").forEach(function (view) { view.hidden = view.dataset.view !== name; });
+    document.body.dataset.route = name;
     var titles = {
       "sign-in": "Sign in · Impose",
       "sign-up": "Create account · Impose",
@@ -37,6 +40,7 @@
     document.title = titles[name];
     if (name === "otp") {
       $("otpEmail").textContent = pendingEmail || "your email";
+      startResendCountdown();
       window.setTimeout(function () { var first = document.querySelector(".otp-input"); if (first) first.focus(); }, 40);
     }
     clearErrors();
@@ -112,6 +116,13 @@
     });
   });
 
+  all(".check-row a").forEach(function (link) {
+    link.addEventListener("click", function (event) {
+      event.preventDefault();
+      showToast("Legal document link is ready for integration.");
+    });
+  });
+
   $("signInForm").addEventListener("submit", function (event) {
     event.preventDefault();
     clearErrors();
@@ -141,17 +152,15 @@
   $("signUpForm").addEventListener("submit", function (event) {
     event.preventDefault();
     clearErrors();
-    var name = $("signUpName").value.trim();
     var email = $("signUpEmail").value.trim();
     var password = $("signUpPassword").value;
     var okay = true;
-    if (name.length < 2) { setError("signUpName", "Enter your full name."); okay = false; }
     if (!validEmail(email)) { setError("signUpEmail", "Enter a valid email address."); okay = false; }
     if (password.length < 8 || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) { setError("signUpPassword", "Use 8 characters, a number, and a special character."); okay = false; }
     if (!$("terms").checked) { setError("terms", "Accept the terms to continue."); okay = false; }
     if (!okay) return;
     savePending(email, "signup");
-    sessionStorage.setItem("impose.auth.pendingName", name);
+    sessionStorage.setItem("impose.auth.pendingName", email.split("@")[0]);
     briefWork(event.currentTarget, function () { route("otp"); });
   });
 
@@ -161,7 +170,14 @@
     var email = $("forgotEmail").value.trim();
     if (!validEmail(email)) { setError("forgotEmail", "Enter the email linked to your account."); return; }
     savePending(email, "reset");
-    briefWork(event.currentTarget, function () { route("otp"); });
+    briefWork(event.currentTarget, function () {
+      $("successTitle").textContent = "Check your inbox";
+      $("successCopy").textContent = "We sent a password reset link to " + email + ".";
+      var successLink = $("successAction");
+      successLink.href = "#sign-in";
+      successLink.textContent = "Return to sign in";
+      route("success");
+    });
   });
 
   var otpInputs = all(".otp-input");
@@ -177,18 +193,18 @@
       if (event.key === "ArrowRight" && otpInputs[index + 1]) otpInputs[index + 1].focus();
     });
     input.addEventListener("paste", function (event) {
-      var digits = (event.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "").slice(0, 6);
+      var digits = (event.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "").slice(0, 8);
       if (!digits) return;
       event.preventDefault();
       digits.split("").forEach(function (digit, digitIndex) { if (otpInputs[digitIndex]) otpInputs[digitIndex].value = digit; });
-      otpInputs[Math.min(digits.length, 6) - 1].focus();
+      otpInputs[Math.min(digits.length, 8) - 1].focus();
     });
   });
 
   $("otpForm").addEventListener("submit", function (event) {
     event.preventDefault();
     var code = otpInputs.map(function (input) { return input.value; }).join("");
-    if (code.length !== 6) { $("otpError").textContent = "Enter the complete six-digit code."; return; }
+    if (code.length !== 8) { $("otpError").textContent = "Enter the complete eight-digit code."; return; }
     briefWork(event.currentTarget, function () {
       if (otpPurpose === "reset") route("reset-password");
       else {
@@ -200,12 +216,33 @@
     });
   });
 
-  $("resendBtn").addEventListener("click", function () {
-    var button = this;
+  function startResendCountdown() {
+    var button = $("resendBtn");
+    if (resendTimer) clearInterval(resendTimer);
+    resendRemaining = 60;
     button.disabled = true;
-    button.textContent = "Code sent";
+    button.textContent = "Resend (60s)";
+    resendTimer = setInterval(function () {
+      resendRemaining -= 1;
+      button.textContent = resendRemaining > 0 ? "Resend (" + resendRemaining + "s)" : "Resend";
+      if (resendRemaining <= 0) {
+        clearInterval(resendTimer);
+        resendTimer = null;
+        button.disabled = false;
+      }
+    }, 1000);
+  }
+
+  function resendCode() {
+    if (resendRemaining > 0) return;
     showToast("A new code was sent to " + (pendingEmail || "your email") + ".");
-    setTimeout(function () { button.disabled = false; button.textContent = "Resend code"; }, 5000);
+    startResendCountdown();
+  }
+
+  $("resendBtn").addEventListener("click", resendCode);
+  $("inlineResend").addEventListener("click", function () {
+    if (resendRemaining > 0) showToast("You can request another code in " + resendRemaining + " seconds.");
+    else resendCode();
   });
 
   $("resetForm").addEventListener("submit", function (event) {
@@ -220,9 +257,9 @@
     briefWork(event.currentTarget, function () {
       $("successTitle").textContent = "Password updated";
       $("successCopy").textContent = "You can now sign in with your new password.";
-      var successLink = document.querySelector('[data-view="success"] .primary-btn');
+      var successLink = $("successAction");
       successLink.href = "#sign-in";
-      successLink.querySelector("span").textContent = "Return to sign in";
+      successLink.textContent = "Return to sign in";
       route("success");
     });
   });

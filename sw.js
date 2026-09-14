@@ -5,7 +5,7 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v6";
+var CACHE = "impose-shell-v7";
 var CORE = [
   "./",
   "./index.html",
