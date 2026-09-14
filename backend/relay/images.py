@@ -24,6 +24,11 @@ from relay.search import AttemptFail, UA, _significant
 OPENVERSE = "https://api.openverse.org/v1/images/"
 WIKIMEDIA = "https://commons.wikimedia.org/w/api.php"
 IMAGE_SEARCH_TIMEOUT_SECONDS = 13.0
+IMAGE_GENERIC_TOKENS = {
+    "iconic", "classic", "famous", "representative", "related",
+    "images", "image", "photos", "photo", "pictures", "picture",
+    "photographs", "photograph", "wallpapers", "wallpaper",
+}
 
 
 def _http_ok(url):
@@ -209,6 +214,9 @@ async def _wikimedia(client, query, limit):
             "gsrsearch": query + " filetype:bitmap", "gsrnamespace": 6,
             "gsrlimit": min(limit * 2, 20), "prop": "imageinfo",
             "iiprop": "url|size|mime", "iiurlwidth": 600,
+        }, headers={
+            "User-Agent": "Impose/1.0 (https://impose-web.onrender.com; contact: rfarouq69@gmail.com)",
+            "Api-User-Agent": "Impose/1.0 (https://impose-web.onrender.com; contact: rfarouq69@gmail.com)",
         }, timeout=12.0)
     except httpx.TimeoutException:
         raise AttemptFail("timed out")
@@ -233,8 +241,9 @@ def _relevant_images(results, query):
     boundary. AND instead of OR on purpose: an image query is a subject
     ("mark rober"), and 'check mark icon' or a whisky bottle share the token
     'mark' without being the subject. Word boundaries keep 'checkmark' from
-    matching 'mark'. Queries without significant tokens pass untouched."""
-    toks = _significant(query)
+    matching 'mark'. Generic request adjectives such as “iconic” are ignored;
+    queries without meaningful subject tokens pass untouched."""
+    toks = [t for t in _significant(query) if t not in IMAGE_GENERIC_TOKENS]
     if not toks:
         return results
     keep = []

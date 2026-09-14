@@ -188,6 +188,11 @@ test("image intent and subject extraction", function () {
   eq(H.imageSubject("photos of cats"), "cats", "photos of stripped");
 });
 
+test("image retry removes generic descriptive words", function () {
+  eq(H.broadenSubject("Billie Jean Michael Jackson iconic classic hit"),
+    "Billie Jean Michael Jackson", "subject keeps names and drops decoration");
+});
+
 test("images tool cleans and caps results", function () {
   return H.imagesTool.run({
     query: "mark rober",
@@ -447,21 +452,57 @@ test("runAgent retries images with a simpler query before failing", function () 
   });
 });
 
-test("total image failure emits imagesfail and bans fabricated links", function () {
+test("total image failure is deterministic and never reaches the model", function () {
   var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "sa" }], provider: "p" }]);
   var failed = false;
-  var completed = null;
+  var completed = false;
   return H.harness.runAgent({
     query: "photos of chupacabra",
     search: s.fn,
     images: function () { return Promise.reject(new Error("down")); },
     emit: function (e) { if (e.t === "imagesfail") failed = true; },
     onDelta: function () {},
-    complete: function (system) { completed = system; return Promise.resolve(); }
-  }).then(function () {
+    complete: function () { completed = true; return Promise.resolve(); }
+  }).then(function (out) {
     ok(failed, "imagesfail emitted");
-    ok(completed.indexOf("could not be retrieved") !== -1 && completed.indexOf("must come verbatim from the evidence") !== -1, "no fabricated links note");
-    ok(completed.indexOf("image gallery") === -1, "no gallery note when none exists");
+    ok(out.imageFailed && out.images === null, "typed image failure returned");
+    ok(!completed, "model completion skipped");
+    ok(out.answer.indexOf("http") === -1 && out.answer.indexOf("![") === -1, "fixed answer has no link surface");
+  });
+});
+
+test("image search uses the user subject instead of the embellished web plan", function () {
+  var imageQuery = "";
+  var s = searchStub([{ results: [{ title: "Billie Jean", url: "https://a.io/", snippet: "song" }], provider: "p" }]);
+  return H.harness.runAgent({
+    query: "show me photos of Michael Jackson Billie Jean",
+    rewrite: function () { return Promise.resolve("Michael Jackson Billie Jean iconic hit"); },
+    search: s.fn,
+    images: function (q) {
+      imageQuery = q;
+      return Promise.resolve({ provider: "p", results: [
+        { title: "Michael Jackson Billie Jean", image: "https://x.io/billie.jpg" }
+      ] });
+    },
+    emit: function () {}, onDelta: function () {},
+    complete: function () { return Promise.resolve(); }
+  }).then(function () {
+    eq(imageQuery, "Michael Jackson Billie Jean", "planner embellishment excluded from image query");
+  });
+});
+
+test("image failure with empty web results also skips completion", function () {
+  var s = searchStub([{ results: [], provider: "p" }]);
+  var completed = false;
+  return H.harness.runAgent({
+    query: "show me photos of an unknown subject",
+    search: s.fn,
+    images: function () { return Promise.reject(new Error("down")); },
+    emit: function () {}, onDelta: function () {},
+    complete: function () { completed = true; return Promise.resolve(); }
+  }).then(function (out) {
+    ok(out.imageFailed, "typed image failure returned");
+    ok(!completed, "empty-search branch also skips model completion");
   });
 });
 

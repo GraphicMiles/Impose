@@ -105,6 +105,11 @@ def main():
           and kept[0]["image"] == "https://x.io/4.png", [k["title"] for k in kept])
     check("relevance passes plain queries", len(_relevant_images(junk, "a")) == 5)
     check("relevance keeps multiword matches", len(_relevant_images(junk, "mark rober youtube")) == 1)
+    descriptive = [{"title": "Michael Jackson Billie Jean music video",
+                    "image": "https://x.io/billie.jpg", "thumb": "",
+                    "page": "", "source": "example.test"}]
+    check("relevance ignores generic image adjectives",
+          len(_relevant_images(descriptive, "Michael Jackson Billie Jean iconic classic")) == 1)
 
     # live engine run: informational only, sandbox IPs are often challenged
     async def live():

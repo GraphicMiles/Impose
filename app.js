@@ -934,6 +934,18 @@
     return humanizeUserError(err);
   }
 
+  /* Research models may describe verified gallery results, but they never
+     get authority to create image URLs. Only the image pipeline can do that. */
+  function stripUnverifiedImageMarkup(value) {
+    return String(value || "")
+      .replace(/!\[([^\]]*)\]\(\s*[\s\S]*?\)/gi, "$1")
+      .replace(/<img\b[^>]*>/gi, "")
+      .replace(/\[([^\]]+)\]\(\s*https?:\/\/[^)\s]+\.(?:png|jpe?g|gif|webp|svg)(?:\?[^)]*)?\s*\)/gi, "$1")
+      .replace(/(^|\s)https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)(?:\?\S*)?(?=\s|$)/gi, "$1")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
   function withTimeout(ms) {
     if (window.AbortSignal && AbortSignal.timeout) return AbortSignal.timeout(ms);
     /* Older browsers: build the same thing by hand instead of returning
@@ -3345,7 +3357,7 @@
      canned bank silently when the model is out of ideas or money. */
   function maybeSmartFollowups(chat, msg) {
     if (!state.settings.followupsSmart) return;
-    if (!msg || msg.suggested || msg.suggesting) return;
+    if (!msg || msg.suggested || msg.suggesting || msg.imageFailed) return;
     var t = getTarget();
     if (!t || String(msg.content || "").length < 40) return;
     msg.suggesting = true;
@@ -3548,7 +3560,7 @@
       row = messagesEl.querySelector('.msg[data-i="' + idx + '"]');
       if (!row) return;
       var rm = chat.messages[idx];
-      if (rm) { rm.error = null; rm.researched = true; }
+      if (rm) { rm.error = null; rm.researched = true; delete rm.imageFailed; }
       var oldTrace = row.querySelector(".agent-trace");
       if (oldTrace) oldTrace.remove();
       var oldActions = row.querySelector(".msg-actions");
@@ -3594,7 +3606,7 @@
       s.dirty = false;
       var stick = isNearBottom();
       if (s.body.isConnected) {
-        s.body.innerHTML = renderMarkdown(fullText(s)) + '<span class="cursor"></span>';
+        s.body.innerHTML = renderMarkdown(stripUnverifiedImageMarkup(fullText(s))) + '<span class="cursor"></span>';
         if (s.thinkOpen) {
           var th = s.body.querySelector(".think-body");
           var hd = s.body.querySelector(".think-head");
@@ -3708,6 +3720,21 @@
       clearTimeout(slowTimer);
       var c = getChat(s.chatId);
       var m = c && c.messages[s.index];
+      if (out && out.imageFailed) {
+        /* A model never gets to invent fallback image links. The harness
+           supplies this fixed answer only after every verified path failed. */
+        s.text = String(out.answer || "I couldn’t find reliable images for this request. Try again with different search words.");
+        s.imageSearchFailed = true;
+        if (m) m.imageFailed = true;
+      } else {
+        var beforeImageGuard = s.text;
+        s.text = stripUnverifiedImageMarkup(s.text);
+        if (beforeImageGuard && !s.text) {
+          s.text = out && out.images && out.images.length
+            ? "Here are the verified images I found."
+            : "I couldn’t verify the image links in that reply.";
+        }
+      }
       if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
       if (m && out && out.sources) {
         m.sources = out.sources.map(function (r) { return { title: r.title || r.url, url: r.url }; });
