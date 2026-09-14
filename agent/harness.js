@@ -61,24 +61,45 @@
   }
 
   var VIDEO_NOUN = /\b(videos?|watch|youtube|twitch(?:\s*live)?|livestream|live\s+stream|streaming|clips?|vod|trailers?|teasers?)\b/i;
-  var VIDEO_FAILURE_TEXT = "I couldn’t verify a playable result for this request. Try a specific channel or video name.";
+  var AUDIO_NOUN = /\b(songs?|tracks?|audio|music)\b/i;
+  var MEDIA_ACTION = /\b(?:find|play|listen(?:\s+to)?|watch|show|get|open|check|search|pull|embed)\b/i;
+  var VIDEO_FAILURE_TEXT = "I couldn’t verify a playable result for this request. Try a specific channel, song, or video name.";
   var RESEARCH_FAILURE_TEXT = "I couldn’t find reliable sources for this request. Try different search words.";
+  function hasMediaNoun(text) {
+    var s = String(text || "");
+    return VIDEO_NOUN.test(s) || AUDIO_NOUN.test(s);
+  }
   function looksLikeVideoRequest(text, context) {
     var s = String(text || "");
-    if (VIDEO_NOUN.test(s) || /\b(latest|newest|most recent)\s+(?:video\s+)?uploads?\b/i.test(s) ||
+    if (VIDEO_NOUN.test(s) ||
+        (AUDIO_NOUN.test(s) && (MEDIA_ACTION.test(s) || /\b(?:latest|newest|most recent)\b/i.test(s))) ||
+        /\b(latest|newest|most recent)\s+(?:video\s+)?uploads?\b/i.test(s) ||
         /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|twitch\.tv)\//i.test(s)) return true;
     /* Resolve short media follow-ups from conversation state instead of
        making each wording a new special case. */
-    return /\b(?:play|watch|open)\s+(?:it|that|this)\b/i.test(s) &&
-      VIDEO_NOUN.test(String(context || ""));
+    return /\b(?:play|watch|open|embed)\s+(?:it|that|this)\b/i.test(s) &&
+      hasMediaNoun(context);
   }
 
   function looksLikeMediaAction(text, context) {
     var s = String(text || "").trim();
     if (!looksLikeVideoRequest(s, context)) return false;
-    return /^(?:please\s+)?(?:find|play|watch|show|get|open|check|search|pull)\b/i.test(s) ||
+    return /^(?:please\s+)?(?:find|play|listen(?:\s+to)?|watch|show|get|open|check|search|pull|embed)\b/i.test(s) ||
       /^\s*(?:the\s+)?(?:latest|newest|most recent)\b/i.test(s) ||
-      /\b(?:play|watch|open)\s+(?:it|that|this)\b/i.test(s);
+      /\b(?:play|watch|open|embed)\s+(?:it|that|this)\b/i.test(s);
+  }
+
+  function resolveMediaFollowup(text, context) {
+    var s = String(text || "").trim();
+    var generic = /^(?:please\s+)?(?:can\s+you\s+)?(?:play|listen\s+to|watch|open|embed)\s+(?:me\s+)?(?:the\s+)?(?:it|that|this|song|track|video|stream|trailer|audio|music)(?:\s+(?:now|here))?[?.!]*$/i;
+    if (!generic.test(s)) return "";
+    var lines = String(context || "").split("\n");
+    for (var i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].indexOf("user: ") !== 0) continue;
+      var prior = lines[i].slice(6).trim();
+      if (prior && prior !== s && hasMediaNoun(prior) && !generic.test(prior)) return prior;
+    }
+    return "";
   }
 
   /* "Show me 4 images of Mark Rober" -> "Mark Rober": strip the request
@@ -279,12 +300,12 @@
         return String(ans).replace(/^QUERY:\s*/i, "").trim().slice(0, 200);
       }
       function plan() {
-        var fallback = fallbackSearchQuery(modelQuestion);
-        /* Explicit capability commands already carry their intent. Preserve
-           the user's words; only short pronoun follow-ups need model-assisted
-           context resolution. */
-        var shortMediaFollowup = /^\s*(?:please\s+)?(?:play|watch|open)\s+(?:it|that|this)\W*$/i.test(modelQuestion);
-        if (mediaOnly && !shortMediaFollowup) return Promise.resolve(fallback);
+        var resolvedMedia = mediaOnly ? resolveMediaFollowup(modelQuestion, context) : "";
+        var fallback = fallbackSearchQuery(resolvedMedia || modelQuestion);
+        /* Explicit capability commands already carry their intent. A generic
+           follow-up inherits the last concrete media request deterministically;
+           neither path needs a model to invent a channel or URL. */
+        if (mediaOnly) return Promise.resolve(fallback);
         if (typeof deps.rewrite !== "function") return Promise.resolve(fallback);
         deps.emit({ t: "status", text: "Planning the search" });
         return Promise.resolve().then(function () { return deps.rewrite(modelQuestion, context); }).then(function (q) {
@@ -373,11 +394,13 @@
             deps.emit({ t: "settle", text: "Checked playable media" });
             if (videoResults && videoResults.length) {
               return { sources: [], provider: videoProvider, images: null,
-                videos: videoResults, answer: "Here’s the verified video I found." };
+                videos: videoResults, traceStatus: "Checked playable media",
+                answer: "Here’s the verified media I found." };
             }
             deps.emit({ t: "videosfail" });
             return { sources: [], provider: videoProvider, images: null,
-              videos: null, videoFailed: true, answer: VIDEO_FAILURE_TEXT };
+              videos: null, videoFailed: true, traceStatus: "Checked playable media",
+              answer: VIDEO_FAILURE_TEXT };
           });
         }
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
@@ -603,6 +626,7 @@
     looksLikeImageRequest: looksLikeImageRequest,
     looksLikeVideoRequest: looksLikeVideoRequest,
     looksLikeMediaAction: looksLikeMediaAction,
+    resolveMediaFollowup: resolveMediaFollowup,
     imageSubject: imageSubject,
     imagesTool: imagesTool,
     videosTool: videosTool,

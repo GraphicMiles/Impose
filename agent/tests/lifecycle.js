@@ -18,6 +18,7 @@ var safeImportedId = extractFunction("safeImportedId", "\n\n  function safeHttpU
 var safeHttpUrl = extractFunction("safeHttpUrl", "\n\n  function normalizeImportedMessage");
 var sanitizeLogDetail = extractFunction("sanitizeLogDetail", "\n\n  function debugRow");
 var detailOf = extractFunction("detailOf", "\n\n  /* Someone else's HTTP code");
+var stripUnverifiedMediaMarkup = extractFunction("stripUnverifiedMediaMarkup", "\n\n  function withTimeout");
 global.detailOf = detailOf;
 var explain = extractFunction("explain", "\n\n  /* Technical detail stays");
 var tests = [];
@@ -56,6 +57,17 @@ test("provider logs redact account IDs and credentials", async function () {
   var clean = sanitizeLogDetail("organization org_01abc token " + fakeCredential);
   ok(clean.indexOf("org_01abc") === -1, "organization id redacted");
   ok(clean.indexOf(fakeCredential) === -1, "credential redacted");
+});
+
+test("research output cannot fabricate embedded media", async function () {
+  var dirty = "Ready.\n<iframe src=\"https://www.youtube.com/embed/fake\"></iframe>\n" +
+    "<video><source src=\"https://evil.example/fake.mp4\"></video>\n" +
+    "<https://www.youtube.com/channel/fake>\nSafe explanation.";
+  var clean = stripUnverifiedMediaMarkup(dirty);
+  ok(clean.indexOf("iframe") === -1, "iframe removed");
+  ok(clean.indexOf("video") === -1 && clean.indexOf("source") === -1, "HTML media removed");
+  ok(clean.indexOf("youtube.com") === -1, "angle-bracketed media URL removed");
+  ok(clean.indexOf("Safe explanation.") > -1, "ordinary text kept");
 });
 
 test("Groq token 413 is not mislabeled as chat length", async function () {

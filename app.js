@@ -938,6 +938,10 @@
      get authority to create image or video URLs. Only structured tools can do that. */
   function stripUnverifiedMediaMarkup(value) {
     return String(value || "")
+      .replace(/<\s*iframe\b[\s\S]*?(?:<\s*\/\s*iframe\s*>|$)/gi, "")
+      .replace(/<\s*(?:video|audio)\b[\s\S]*?(?:<\s*\/\s*(?:video|audio)\s*>|$)/gi, "")
+      .replace(/<\s*source\b[^>]*>/gi, "")
+      .replace(/<\s*https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtube-nocookie\.com|youtu\.be|twitch\.tv)\/[^>\s]*\s*>/gi, "")
       .replace(/!\[([^\]]*)\]\(\s*[\s\S]*?\)/gi, "$1")
       .replace(/<img\b[^>]*>/gi, "")
       .replace(/\[([^\]]+)\]\(\s*https?:\/\/[^)\s]+\.(?:png|jpe?g|gif|webp|svg)(?:\?[^)]*)?\s*\)/gi, "$1")
@@ -3826,12 +3830,12 @@
       if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
       if (m && out && out.videos && out.videos.length) {
         m.videos = out.videos.slice(0, 6);
-        s.autoPlayMedia = /\b(?:play|watch|open)\b/i.test(userText);
+        s.autoPlayMedia = /\b(?:play|watch|open|listen|embed)\b/i.test(userText);
       }
       if (m && out && out.sources) {
         m.sources = out.sources.map(function (r) { return { title: r.title || r.url, url: r.url }; });
         m.trace = {
-          status: "Searched the web",
+          status: out.traceStatus || "Searched the web",
           secs: Math.max(1, Math.round((Date.now() - (s.t0 || Date.now())) / 1000)),
           query: s.query || null
         };
