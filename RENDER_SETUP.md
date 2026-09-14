@@ -8,7 +8,7 @@ chat UI as a static site and the slim relay as a Python web service.
 - `impose-web`: the chat UI (`index.html`, `styles.css`, `app.js`, icons).
   Static, never sleeps, free.
 - `impose-relay`: the optional service in `backend/relay/`. It provides
-  keyless search, images, page reading, and an optional provider proxy.
+  keyless search, images, verified YouTube and Twitch media results, page reading, and an optional provider proxy.
 
 The UI and public relay tools do not require a GPU gateway. Direct browser
 providers and demo mode also work without the relay. Lightning gateway wake

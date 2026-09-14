@@ -934,14 +934,16 @@
     return humanizeUserError(err);
   }
 
-  /* Research models may describe verified gallery results, but they never
-     get authority to create image URLs. Only the image pipeline can do that. */
-  function stripUnverifiedImageMarkup(value) {
+  /* Research models may describe verified media results, but they never
+     get authority to create image or video URLs. Only structured tools can do that. */
+  function stripUnverifiedMediaMarkup(value) {
     return String(value || "")
       .replace(/!\[([^\]]*)\]\(\s*[\s\S]*?\)/gi, "$1")
       .replace(/<img\b[^>]*>/gi, "")
       .replace(/\[([^\]]+)\]\(\s*https?:\/\/[^)\s]+\.(?:png|jpe?g|gif|webp|svg)(?:\?[^)]*)?\s*\)/gi, "$1")
+      .replace(/\[([^\]]+)\]\(\s*https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtu\.be|twitch\.tv)\/[^)]*\)/gi, "$1")
       .replace(/(^|\s)https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)(?:\?\S*)?(?=\s|$)/gi, "$1")
+      .replace(/(^|\s)https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtu\.be|twitch\.tv)\/\S*(?=\s|$)/gi, "$1")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
@@ -2541,6 +2543,43 @@
     return html;
   }
 
+  /* Verified media is rendered from structured relay results, never from
+     model-authored iframe HTML. Players load only after an explicit click. */
+  function videosHtml(msg) {
+    var videos = msg && msg.videos;
+    if (!videos || !videos.length) return "";
+    var cards = "";
+    for (var i = 0; i < videos.length && i < 6; i++) {
+      var v = videos[i] || {};
+      var kind = String(v.kind || "");
+      var id = String(v.id || "");
+      var valid = kind === "youtube-video" ? /^[A-Za-z0-9_-]{11}$/.test(id)
+        : kind === "twitch-channel" ? /^[a-z0-9_]{3,25}$/.test(id)
+        : kind === "twitch-video" ? /^\d+$/.test(id)
+        : kind === "twitch-clip" ? /^[A-Za-z0-9_-]+$/.test(id) : false;
+      if (!valid) continue;
+      var title = escapeHtml(String(v.title || "Video").slice(0, 200));
+      var canonical = kind === "youtube-video" ? "https://www.youtube.com/watch?v=" + id
+        : kind === "twitch-channel" ? "https://www.twitch.tv/" + id
+        : kind === "twitch-video" ? "https://www.twitch.tv/videos/" + id
+        : "https://www.twitch.tv/clip/" + id;
+      var url = escapeHtml(canonical);
+      var platform = kind.indexOf("youtube") === 0 ? "YouTube" : "Twitch";
+      var thumb = /^https:\/\//.test(String(v.thumb || ""))
+        ? '<img src="' + escapeHtml(v.thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : "";
+      var date = String(v.publishedAt || "").slice(0, 10);
+      cards += '<article class="video-card"><div class="video-shell"><button type="button" class="video-play"' +
+        ' data-kind="' + kind + '" data-video-id="' + escapeHtml(id) + '" data-url="' + url +
+        '" aria-label="Play ' + title + '">' + thumb + '<span class="video-playmark"><i data-lucide="play"></i></span>' +
+        (v.live ? '<span class="video-live">Live</span>' : (v.latest ? '<span class="video-latest">Latest</span>' : "")) +
+        '</button></div><div class="video-meta"><strong>' + title +
+        '</strong><span>' + platform + (date ? " · " + escapeHtml(date) : "") + '</span></div>' +
+        '<a class="video-open" href="' + url + '" target="_blank" rel="noopener noreferrer">Open on ' + platform +
+        '<i data-lucide="external-link"></i></a></article>';
+    }
+    return cards ? '<div class="video-grid">' + cards + "</div>" : "";
+  }
+
   /* The image gallery a researched answer carries when the request asked
      for pictures. Tiles keep a square box so loading never shifts layout;
      the photo fades in over the box once it decodes. */
@@ -2562,7 +2601,7 @@
   }
 
   function assistantRowHtml(msg, withActions, chatModel) {
-    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + imagesHtml(msg) +
+    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + videosHtml(msg) + imagesHtml(msg) +
       (withActions ? actionsHtml(msg, false, chatModel) : "") + sourcesPanelHtml(msg, !withActions);
   }
 
@@ -3285,8 +3324,11 @@
     if (s.galleryImages && msg && !(msg.images && msg.images.length)) {
       msg.images = s.galleryImages.slice(0, 8);
     }
-    if (!s.text && (s.stopped || !failed)) {
-      /* Stopped before a word arrived: leave no empty bubble behind. */
+    if (s.videoResults && msg && !(msg.videos && msg.videos.length)) {
+      msg.videos = s.videoResults.slice(0, 6);
+    }
+    if (!s.text && !(msg && ((msg.images && msg.images.length) || (msg.videos && msg.videos.length))) && (s.stopped || !failed)) {
+      /* Stopped before a word or verified media arrived: leave no empty bubble behind. */
       if (chat) {
         chat.messages.splice(s.index, 1);
         save();
@@ -3330,7 +3372,7 @@
     if (s.row.isConnected) {
       s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(s.text);
       if (!s.row.querySelector(".msg-actions")) {
-        s.row.insertAdjacentHTML("beforeend", imagesHtml(msg) + actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
+        s.row.insertAdjacentHTML("beforeend", videosHtml(msg) + imagesHtml(msg) + actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
       }
       refreshIcons();
       settleBodyIn(s.body);
@@ -3518,6 +3560,29 @@
     });
   }
 
+  function fetchVideosViaRelay(query, limit, signal) {
+    var cfg = relayCfg();
+    if (!cfg.url) return Promise.reject(new Error("Set the relay address to search videos."));
+    var headers = { "Content-Type": "application/json" };
+    if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
+    var opts = { method: "POST", headers: headers,
+      body: JSON.stringify({ query: query, limit: limit || 4 }) };
+    if (signal) opts.signal = signal;
+    return fetch(stripSlash(cfg.url) + "/v1/videos", opts).then(function (res) {
+      if (res.status === 401) throw new Error("That relay key was rejected.");
+      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+        throw new Error("The video search came back unreadable.");
+      });
+    }).then(function (env) {
+      if (env.status !== 200) {
+        var detail = (env.data && env.data.detail) || ("Video search failed (" + env.status + ").");
+        dwarn("videos", sanitizeLogDetail(detail).slice(0, 240));
+        throw new Error(detail);
+      }
+      return { results: env.data.results || [], provider: env.data.provider || "" };
+    });
+  }
+
   /* Fire-and-forget wake for a sleeping relay. Render free spins down on
      idle and the first request pays the wake, so this moves the wake ahead
      of the first real request. Silent by design: no log, no toast. */
@@ -3560,7 +3625,7 @@
       row = messagesEl.querySelector('.msg[data-i="' + idx + '"]');
       if (!row) return;
       var rm = chat.messages[idx];
-      if (rm) { rm.error = null; rm.researched = true; delete rm.imageFailed; }
+      if (rm) { rm.error = null; rm.researched = true; delete rm.imageFailed; delete rm.videos; }
       var oldTrace = row.querySelector(".agent-trace");
       if (oldTrace) oldTrace.remove();
       var oldActions = row.querySelector(".msg-actions");
@@ -3606,7 +3671,7 @@
       s.dirty = false;
       var stick = isNearBottom();
       if (s.body.isConnected) {
-        s.body.innerHTML = renderMarkdown(stripUnverifiedImageMarkup(fullText(s))) + '<span class="cursor"></span>';
+        s.body.innerHTML = renderMarkdown(stripUnverifiedMediaMarkup(fullText(s))) + '<span class="cursor"></span>';
         if (s.thinkOpen) {
           var th = s.body.querySelector(".think-body");
           var hd = s.body.querySelector(".think-head");
@@ -3638,6 +3703,10 @@
         s.galleryImages = ev.images || null;
         trace.addRow({ primary: ev.n + " images", secondary: ev.provider || "" });
       }
+      else if (ev.t === "videos") {
+        s.videoResults = ev.videos || null;
+        trace.addRow({ primary: ev.n + " playable video" + (ev.n === 1 ? "" : "s"), secondary: ev.provider || "" });
+      }
       else if (ev.t === "imagestry") {
         trace.addRow({ primary: ev.better ? "Critic asked for better photos" : "Photos did not land - trying again",
           secondary: ev.q || "" });
@@ -3661,6 +3730,7 @@
       emit: emit,
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
       images: state.settings.imageTools === false ? undefined : function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
+      videos: function (q, limit) { return fetchVideosViaRelay(q, limit, signal); },
       read: function (url) {
         /* Deep reading: the top cited sources become fit text the answer
            can cite into. Owner key only; failures fall back to snippets
@@ -3728,7 +3798,7 @@
         if (m) m.imageFailed = true;
       } else {
         var beforeImageGuard = s.text;
-        s.text = stripUnverifiedImageMarkup(s.text);
+        s.text = stripUnverifiedMediaMarkup(s.text);
         if (beforeImageGuard && !s.text) {
           s.text = out && out.images && out.images.length
             ? "Here are the verified images I found."
@@ -3736,6 +3806,7 @@
         }
       }
       if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
+      if (m && out && out.videos && out.videos.length) m.videos = out.videos.slice(0, 6);
       if (m && out && out.sources) {
         m.sources = out.sources.map(function (r) { return { title: r.title || r.url, url: r.url }; });
         m.trace = {
@@ -4329,7 +4400,41 @@
     document.addEventListener("keydown", imgboxKeys);
   }
 
+  function playVerifiedVideo(btn) {
+    if (!btn || !btn.isConnected) return;
+    var kind = btn.getAttribute("data-kind") || "";
+    var id = btn.getAttribute("data-video-id") || "";
+    var shell = btn.parentElement;
+    var src = "";
+    if (kind === "youtube-video" && /^[A-Za-z0-9_-]{11}$/.test(id)) {
+      src = "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&playsinline=1&rel=0";
+    } else {
+      var parent = window.location.hostname;
+      if (!parent || (shell && shell.clientWidth < 400)) {
+        window.open(btn.getAttribute("data-url"), "_blank", "noopener,noreferrer");
+        return;
+      }
+      if (kind === "twitch-channel" && /^[a-z0-9_]{3,25}$/.test(id)) {
+        src = "https://player.twitch.tv/?channel=" + encodeURIComponent(id) + "&parent=" + encodeURIComponent(parent) + "&autoplay=true";
+      } else if (kind === "twitch-video" && /^\d+$/.test(id)) {
+        src = "https://player.twitch.tv/?video=v" + encodeURIComponent(id) + "&parent=" + encodeURIComponent(parent) + "&autoplay=true";
+      } else if (kind === "twitch-clip" && /^[A-Za-z0-9_-]+$/.test(id)) {
+        src = "https://clips.twitch.tv/embed?clip=" + encodeURIComponent(id) + "&parent=" + encodeURIComponent(parent) + "&autoplay=true";
+      }
+    }
+    if (!src) return;
+    var frame = document.createElement("iframe");
+    frame.src = src;
+    frame.title = "Embedded video player";
+    frame.allow = "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share";
+    frame.allowFullscreen = true;
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
+    shell.replaceChildren(frame);
+  }
+
   messagesEl.addEventListener("click", function (e) {
+    var playBtn = e.target.closest ? e.target.closest(".video-play") : null;
+    if (playBtn) { playVerifiedVideo(playBtn); return; }
     var tile = e.target.closest ? e.target.closest(".img-tile") : null;
     if (tile) { openImgbox(tile); return; }
     if (e.target.closest && e.target.closest(".imgbox")) closeImgbox();
@@ -4344,6 +4449,8 @@
   messagesEl.addEventListener("error", function (e) {
     if (e.target && e.target.tagName === "IMG" && e.target.parentElement && e.target.parentElement.classList.contains("img-tile")) {
       e.target.parentElement.classList.add("broken");
+    } else if (e.target && e.target.tagName === "IMG" && e.target.parentElement && e.target.parentElement.classList.contains("video-play")) {
+      e.target.remove();
     }
   }, true);
 

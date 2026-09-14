@@ -186,6 +186,9 @@ test("image intent and subject extraction", function () {
   ok(!H.looksLikeImageRequest("write a python function that draws a circle"), "no image noun");
   eq(H.imageSubject("Show me 4 images of mark rober"), "mark rober", "subject stripped");
   eq(H.imageSubject("photos of cats"), "cats", "photos of stripped");
+  ok(H.looksLikeVideoRequest("show MrBeast's most recent upload"), "recent upload is video intent");
+  ok(H.looksLikeVideoRequest("watch https://twitch.tv/twitchdev"), "direct Twitch URL is video intent");
+  ok(!H.looksLikeVideoRequest("upload this PDF"), "ordinary file upload is not video intent");
 });
 
 test("image retry removes generic descriptive words", function () {
@@ -255,6 +258,48 @@ test("the images event carries the array", function () {
     complete: function () { return Promise.resolve(); }
   }).then(function () {
     ok(imgEvent && Array.isArray(imgEvent.images) && imgEvent.images.length === 1, "array on the event");
+  });
+});
+
+test("runAgent attaches verified playable video results", function () {
+  var s = searchStub([{ results: [{ title: "MrBeast", url: "https://youtube.com/", snippet: "channel" }], provider: "p" }]);
+  var emitted = null, system = "";
+  return H.harness.runAgent({
+    query: "watch MrBeast latest video",
+    search: s.fn,
+    videos: function (q) {
+      ok(/MrBeast/i.test(q), "video query keeps subject");
+      return Promise.resolve({ provider: "bing-videos", results: [{
+        title: "Newest upload", url: "https://www.youtube.com/watch?v=gTKS8SAwUzE",
+        kind: "youtube-video", id: "gTKS8SAwUzE", thumb: "https://thumb.test/v.jpg",
+        publishedAt: "2026-09-05T16:00:01+00:00", latest: true
+      }] });
+    },
+    emit: function (e) { if (e.t === "videos") emitted = e; },
+    onDelta: function () {},
+    complete: function (sys) { system = sys; return Promise.resolve(); }
+  }).then(function (out) {
+    ok(emitted && emitted.videos.length === 1, "video event emitted");
+    eq(out.videos[0].id, "gTKS8SAwUzE", "verified video returned");
+    ok(system.indexOf("playable video cards") !== -1, "answer knows card is already visible");
+    ok(system.indexOf("Latest: Newest upload") !== -1 && system.indexOf("2026-09-05") !== -1,
+      "verified latest metadata reaches the answer");
+  });
+});
+
+test("video failure forbids invented latest and live links", function () {
+  var s = searchStub([{ results: [{ title: "A", url: "https://a.io/", snippet: "s" }], provider: "p" }]);
+  var system = "";
+  return H.harness.runAgent({
+    query: "watch the latest Twitch live stream",
+    search: s.fn,
+    videos: function () { return Promise.reject(new Error("down")); },
+    emit: function () {}, onDelta: function () {},
+    complete: function (sys) { system = sys; return Promise.resolve(); }
+  }).then(function (out) {
+    ok(!out.videos, "no unverified cards returned");
+    ok(system.indexOf("Do not invent video links") !== -1 && system.indexOf("latest or live") !== -1,
+      "failure prompt forbids fabricated media claims");
   });
 });
 

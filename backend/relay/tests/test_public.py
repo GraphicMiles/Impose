@@ -25,8 +25,13 @@ def _patch_engines(monkeypatch):
         return dict(FAKE)
     async def fake_images(*a, **k):
         return dict(FAKE)
+    async def fake_videos(*a, **k):
+        return {"results": [{"title": "v", "url": "https://www.youtube.com/watch?v=gTKS8SAwUzE",
+                             "platform": "youtube", "kind": "youtube-video", "id": "gTKS8SAwUzE"}],
+                "provider": "test", "query": "q", "count": 1}
     monkeypatch.setattr(server, "engine_search", fake_search)
     monkeypatch.setattr(server, "engine_images", fake_images)
+    monkeypatch.setattr(server, "engine_videos", fake_videos)
 
 
 def test_public_search_needs_no_key(monkeypatch):
@@ -40,6 +45,13 @@ def test_public_images_needs_no_key(monkeypatch):
     _patch_engines(monkeypatch)
     r = client.post("/v1/images", json={"query": "test"})
     assert r.status_code == 200, r.text
+
+
+def test_public_videos_need_no_key(monkeypatch):
+    _patch_engines(monkeypatch)
+    r = client.post("/v1/videos", json={"query": "latest MrBeast video"})
+    assert r.status_code == 200, r.text
+    assert r.json()["results"][0]["kind"] == "youtube-video"
 
 
 def test_owner_key_still_works_and_has_own_bucket(monkeypatch):

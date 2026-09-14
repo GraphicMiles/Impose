@@ -21,7 +21,7 @@ with everything inlined, so it works from disk with no server.
 
 - `index.html` markup and dialogs
 - `styles.css` theme tokens, layout, motion
-- `app.js` state, providers, streaming, markdown renderer, search
+- `app.js` state, providers, streaming, markdown renderer, search, and verified media cards
 - `auth.html`, `auth.css`, and `auth.js` responsive sign in, sign up, password reset, and email verification UI
 - `lucide.min.js` icon library, vendored so the app works offline
 - `impose-standalone.html` portable single file build
@@ -39,7 +39,8 @@ python3 build_inline.py
 
 `backend/` holds the control plane adopted from Luna: a Lightning GPU box
 gateway (auth, generation proxy, web search, llama watchdog) plus an
-optional always-on relay with wake on chat and idle auto stop. See
+optional always-on relay with keyless web, image, and verified video search.
+It can also wake a model on chat and stop it after an idle period. See
 `backend/README.md` for the architecture and setup.
 
 ## Providers

@@ -5,7 +5,7 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v18";
+var CACHE = "impose-shell-v19";
 var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
 var PUBLIC_ROUTE = {
   "/about": "./about.html",

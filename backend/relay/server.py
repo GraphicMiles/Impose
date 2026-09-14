@@ -48,6 +48,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from relay.search import SearchFailed, engine_search
 from relay.images import ImagesFailed, engine_images
+from relay.videos import VideosFailed, engine_videos
 
 BASE_DIR = Path(os.environ.get("CP_DIR", str(Path(__file__).resolve().parent)))
 ENV_FILE = BASE_DIR / ".env"
@@ -204,6 +205,7 @@ def _authed(request: Request) -> None:
 PUBLIC_TIER = os.environ.get("PUBLIC_TIER", "1").strip().lower() not in ("0", "false", "no")
 PUB_SEARCH_LIMIT = int(os.environ.get("PUB_SEARCH_LIMIT", "10"))
 PUB_IMAGES_LIMIT = int(os.environ.get("PUB_IMAGES_LIMIT", "10"))
+PUB_VIDEO_LIMIT = int(os.environ.get("PUB_VIDEO_LIMIT", "10"))
 PUB_WINDOW = 60.0
 
 
@@ -660,6 +662,42 @@ async def images_proxy(request: Request):
     except ImagesFailed as e:
         raise HTTPException(status_code=502, detail=str(e))
     _cache_put("images", ckey, out, 180.0)
+    return out
+
+
+@app.api_route("/v1/videos", methods=["GET", "POST"])
+async def videos_proxy(request: Request):
+    """Verified YouTube and Twitch results for click-to-play media cards."""
+    _tier_auth(request, "videos", "pubvideos", 60, PUB_VIDEO_LIMIT)
+    if request.method == "POST":
+        try:
+            data = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="body must be JSON")
+        query = str(data.get("query", ""))
+        limit = data.get("limit", 6)
+    else:
+        q = request.query_params
+        query = str(q.get("query", "") or q.get("q", ""))
+        limit = q.get("limit", 6)
+    query = query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    if len(query) > 500:
+        raise HTTPException(status_code=400, detail="query is too long (max 500 chars)")
+    try:
+        limit = max(1, min(10, int(limit)))
+    except Exception:
+        raise HTTPException(status_code=400, detail="limit must be 1..10")
+    ckey = query.lower() + "|" + str(limit)
+    cached = _cache_get("videos", ckey)
+    if cached is not None:
+        return cached
+    try:
+        out = await engine_videos(query, limit=limit)
+    except VideosFailed as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    _cache_put("videos", ckey, out, 120.0)
     return out
 
 

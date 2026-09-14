@@ -6,7 +6,7 @@
 # Render does not read this Netlify-style file; the same rules are declared
 # in render.yaml for the deployed static site.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-jK07h4AyclQXrogD0NbnWLIjoXOg5ND8AaLOucyiTw8=' 'sha256-Fj0RQn2PeQP+pQvRPrc9chapGMwZdZ9O+cZ2Ge/SnHQ=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-jK07h4AyclQXrogD0NbnWLIjoXOg5ND8AaLOucyiTw8=' 'sha256-Fj0RQn2PeQP+pQvRPrc9chapGMwZdZ9O+cZ2Ge/SnHQ=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; frame-src https://www.youtube-nocookie.com https://player.twitch.tv https://clips.twitch.tv; object-src 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(self), geolocation=()
