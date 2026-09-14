@@ -138,6 +138,30 @@ def test_gateway_probe_rejects_unrelated_http_pages(monkeypatch):
     assert "unexpected" in server._gateway_snapshot()["error"]
 
 
+def test_file_discovery_endpoint_returns_typed_artifacts(monkeypatch):
+    async def fake_files(query, limit, extensions, platforms):
+        return {"query": query, "provider": "fixture", "results": [{"name": "guide.md",
+            "sourceUrl": "https://github.com/a/b/blob/main/guide.md",
+            "previewUrl": "https://raw.githubusercontent.com/a/b/main/guide.md",
+            "downloadUrl": "https://raw.githubusercontent.com/a/b/main/guide.md", "kind": "text"}]}
+    monkeypatch.setattr(server, "discover_files", fake_files)
+    server._CACHE.clear()
+    response = client.post("/v1/files", headers=H, json={"query": "a guide", "extensions": ["md"]})
+    assert response.status_code == 200
+    assert response.json()["results"][0]["name"] == "guide.md"
+
+
+def test_file_transport_preserves_bytes_and_forces_download(monkeypatch):
+    async def fake_bytes(url):
+        return b"hello", "text/plain", "https://files.example/guide.txt"
+    monkeypatch.setattr(server, "_safe_file_bytes", fake_bytes)
+    response = client.post("/v1/file", headers=H, json={"url": "https://files.example/guide.txt", "download": True})
+    assert response.status_code == 200
+    assert response.content == b"hello"
+    assert response.headers["content-disposition"] == 'attachment; filename="guide.txt"'
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
 def test_gateway_probe_records_model_state(monkeypatch):
     class FakeResponse:
         status_code = 200

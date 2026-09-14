@@ -224,8 +224,25 @@
         preferences: options.preferences || {}, previousFailures: list(options.previousFailures) });
     var registry = this.registry;
     return Promise.resolve(options.interpreter(prompt)).then(function (answer) {
-      var intent = normalizeIntent(typeof answer === "string" ? parseJson(answer) : answer, options.request);
-      return registry.expandIntentRequirements(intent);
+      function normalize(answerValue) {
+        var intent = normalizeIntent(typeof answerValue === "string" ? parseJson(answerValue) : answerValue, options.request);
+        return registry.expandIntentRequirements(intent);
+      }
+      try {
+        return normalize(answer);
+      } catch (firstError) {
+        /* One bounded structured-output repair. It sees the schema and the
+           malformed value, but not a fresh open-ended task; if repair also
+           fails the caller may use its conservative compatibility path. */
+        var repair = "Repair the malformed intent result below into one valid JSON object only. Do not add markdown or commentary. " +
+          "Keep the original meaning and use only capability ids present in the original catalog. Required shape: " +
+          "{goal,confidence,risk,constraints,desiredOutput,continuationOf,clarification,assumptions,successCriteria,rationale," +
+          "subgoals:[{id,goal,requirements:[{id,capability,description,required,inputs,successCriterion}]}]}.\n\n" +
+          "Current request:\n" + text(options.request, 2000) + "\n\nAvailable capability catalog:\n" +
+          text(JSON.stringify(registry.catalog()), 6000) + "\n\nMalformed result:\n" +
+          text(typeof answer === "string" ? answer : JSON.stringify(answer), 8000);
+        return Promise.resolve(options.interpreter(repair)).then(normalize);
+      }
     });
   };
 

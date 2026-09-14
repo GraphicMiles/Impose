@@ -2588,6 +2588,44 @@
     return cards ? '<div class="video-grid">' + cards + "</div>" : "";
   }
 
+  function fileSizeLabel(value) {
+    if (value == null || value === "") return "Size checked on download";
+    var n = Number(value);
+    if (!isFinite(n) || n < 0) return "Size checked on download";
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + " KB";
+    return (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
+  }
+
+  function safeArtifactUrl(raw) {
+    try {
+      var parsed = new URL(String(raw || ""));
+      return parsed.protocol === "https:" && !parsed.username && !parsed.password && parsed.hostname ? parsed.href : "";
+    } catch (e) { return ""; }
+  }
+
+  function filesHtml(msg) {
+    var files = msg && msg.files;
+    if (!files || !files.length) return "";
+    var cards = "";
+    for (var i = 0; i < files.length && i < 12; i++) {
+      var f = files[i] || {};
+      var source = safeArtifactUrl(f.sourceUrl), preview = safeArtifactUrl(f.previewUrl), download = safeArtifactUrl(f.downloadUrl);
+      if (!source || !preview || !download) continue;
+      var name = escapeHtml(String(f.name || f.title || "download").slice(0, 180));
+      var kind = String(f.kind || "binary").replace(/[^a-z]/g, "") || "binary";
+      var meta = escapeHtml(String(f.platform || "Web") + " · " + String(f.mime || "File") + " · " + fileSizeLabel(f.size));
+      cards += '<article class="file-card"><div class="file-glyph file-' + kind + '"><i data-lucide="file"></i><span>' +
+        escapeHtml(String(f.extension || kind).toUpperCase().slice(0, 8)) + '</span></div><div class="file-info"><strong title="' + name + '">' + name +
+        '</strong><span>' + meta + '</span><a href="' + escapeHtml(source) + '" target="_blank" rel="noopener noreferrer">View source<i data-lucide="external-link"></i></a></div>' +
+        '<div class="file-actions"><button type="button" class="btn small file-preview" data-url="' + escapeHtml(preview) + '" data-kind="' + kind +
+        '" data-name="' + name + '" data-source="' + escapeHtml(source) + '"><i data-lucide="eye"></i><span>Preview</span></button>' +
+        '<button type="button" class="btn small primary file-download" data-url="' + escapeHtml(download) + '" data-name="' + name +
+        '"><i data-lucide="download"></i><span>Download</span></button></div></article>';
+    }
+    return cards ? '<div class="file-list">' + cards + "</div>" : "";
+  }
+
   /* The image gallery a researched answer carries when the request asked
      for pictures. Tiles keep a square box so loading never shifts layout;
      the photo fades in over the box once it decodes. */
@@ -2609,7 +2647,7 @@
   }
 
   function assistantRowHtml(msg, withActions, chatModel) {
-    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + videosHtml(msg) + imagesHtml(msg) +
+    return '<div class="msg-body">' + assistantBodyHtml(msg) + "</div>" + videosHtml(msg) + filesHtml(msg) + imagesHtml(msg) +
       (withActions ? actionsHtml(msg, false, chatModel) : "") + sourcesPanelHtml(msg, !withActions);
   }
 
@@ -2931,7 +2969,7 @@
     }
     s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(content);
     if (!s.row.querySelector(".msg-actions")) {
-      s.row.insertAdjacentHTML("beforeend", imagesHtml(msg) + actionsHtml(msg || { content: content }, true, chat.model) + sourcesPanelHtml(msg || { content: content }));
+      s.row.insertAdjacentHTML("beforeend", filesHtml(msg) + imagesHtml(msg) + actionsHtml(msg || { content: content }, true, chat.model) + sourcesPanelHtml(msg || { content: content }));
     }
     refreshIcons();
     settleBodyIn(s.body);
@@ -3406,7 +3444,7 @@
     if (s.row.isConnected) {
       s.body.innerHTML = msg ? assistantBodyHtml(msg) : renderMarkdown(s.text);
       if (!s.row.querySelector(".msg-actions")) {
-        s.row.insertAdjacentHTML("beforeend", videosHtml(msg) + imagesHtml(msg) + actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
+        s.row.insertAdjacentHTML("beforeend", videosHtml(msg) + filesHtml(msg) + imagesHtml(msg) + actionsHtml(msg || { content: s.text }, true, chat.model) + sourcesPanelHtml(msg || { content: s.text }));
       }
       refreshIcons();
       settleBodyIn(s.body);
@@ -3621,6 +3659,39 @@
     });
   }
 
+  function fetchFilesViaRelay(query, limit, signal, options) {
+    var cfg = relayCfg();
+    if (!cfg.url) return Promise.reject(new Error("Set the relay address to discover files."));
+    var headers = { "Content-Type": "application/json" };
+    if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
+    var body = { query: query, limit: limit || 8,
+      extensions: options && options.extensions || [], platforms: options && options.platforms || [] };
+    var request = { method: "POST", headers: headers, body: JSON.stringify(body) };
+    if (signal) request.signal = signal;
+    return fetch(stripSlash(cfg.url) + "/v1/files", request).then(function (res) {
+      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+        throw new Error("The file search came back unreadable.");
+      });
+    }).then(function (env) {
+      if (env.status !== 200) throw new Error(env.data && env.data.detail || ("File search failed (" + env.status + ")."));
+      return { results: env.data.results || [], provider: env.data.provider || "", query: env.data.query || query };
+    });
+  }
+
+  function relayFileBlob(url, download) {
+    var cfg = relayCfg();
+    if (!cfg.url) return Promise.reject(new Error("Set the relay address to preview or download this file."));
+    var headers = { "Content-Type": "application/json" };
+    if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
+    return fetch(stripSlash(cfg.url) + "/v1/file", { method: "POST", headers: headers,
+      body: JSON.stringify({ url: url, download: download === true }) }).then(function (res) {
+      if (!res.ok) return res.json().catch(function () { return {}; }).then(function (data) {
+        throw new Error(data.detail || "The file could not be retrieved safely.");
+      });
+      return res.blob();
+    });
+  }
+
   /* Fire-and-forget wake for a sleeping relay. Render free spins down on
      idle and the first request pays the wake, so this moves the wake ahead
      of the first real request. Silent by design: no log, no toast. */
@@ -3754,6 +3825,11 @@
         s.videoResults = ev.videos || null;
         trace.addRow({ primary: ev.n + " playable video" + (ev.n === 1 ? "" : "s"), secondary: ev.provider || "" });
       }
+      else if (ev.t === "files") {
+        s.fileResults = ev.files || null;
+        trace.addRow({ primary: ev.n + " downloadable file" + (ev.n === 1 ? "" : "s"), secondary: ev.provider || "" });
+      }
+      else if (ev.t === "filesfail") trace.addRow({ primary: "File discovery found no safe artifact", secondary: "try a filename or extension" });
       else if (ev.t === "imagestry") {
         trace.addRow({ primary: ev.better ? "Critic asked for better photos" : "Photos did not land - trying again",
           secondary: ev.q || "" });
@@ -3779,6 +3855,7 @@
       search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
       images: state.settings.imageTools === false ? undefined : function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
       videos: function (q, limit, constraints) { return fetchVideosViaRelay(q, limit, signal, constraints); },
+      files: function (q, limit, options) { return fetchFilesViaRelay(q, limit, signal, options); },
       read: function (url) {
         /* Deep reading: the top cited sources become fit text the answer
            can cite into. Owner key only; failures fall back to snippets
@@ -3850,6 +3927,9 @@
            prose never become a fallback player or a made-up live lineup. */
         s.text = String(out.answer || "I couldn’t verify a playable result for this request. Try a specific channel or video name.");
         if (m) m.videoFailed = true;
+      } else if (out && out.fileFailed) {
+        s.text = String(out.answer || "I couldn’t find a downloadable file that I could safely verify.");
+        if (m) m.fileFailed = true;
       } else if (out && out.researchFailed) {
         /* Empty or off-topic search evidence fails closed. Do not turn model
            memory into a fabricated researched answer. */
@@ -3866,6 +3946,7 @@
         }
       }
       if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
+      if (m && out && out.files && out.files.length) m.files = out.files.slice(0, 12);
       if (m && out && out.videos && out.videos.length) {
         m.videos = out.videos.slice(0, 6);
         s.autoPlayMedia = intentDecision
@@ -4685,7 +4766,72 @@
     shell.replaceChildren(frame);
   }
 
+  var activeFileObjectUrl = "";
+  function closeFilebox() {
+    var box = document.querySelector(".filebox");
+    if (box) box.remove();
+    if (activeFileObjectUrl) { URL.revokeObjectURL(activeFileObjectUrl); activeFileObjectUrl = ""; }
+  }
+
+  function previewFile(btn) {
+    closeFilebox();
+    var kind = btn.dataset.kind || "binary", name = btn.dataset.name || "File", source = btn.dataset.source || "";
+    var box = document.createElement("div");
+    box.className = "filebox";
+    box.innerHTML = '<div class="filebox-panel" role="dialog" aria-modal="true" aria-label="File preview"><div class="filebox-head"><strong>' +
+      escapeHtml(name) + '</strong><button type="button" class="iconbtn filebox-close" aria-label="Close preview"><i data-lucide="x"></i></button></div>' +
+      '<div class="filebox-body"><div class="filebox-loading"><span class="spinner"></span>Preparing safe preview…</div></div></div>';
+    document.body.appendChild(box); refreshIcons();
+    box.querySelector(".filebox-close").addEventListener("click", closeFilebox);
+    box.addEventListener("click", function (ev) { if (ev.target === box) closeFilebox(); });
+    var body = box.querySelector(".filebox-body");
+    if (["image", "audio", "video", "pdf", "text"].indexOf(kind) === -1) {
+      body.innerHTML = '<div class="file-fallback"><i data-lucide="file-search"></i><h3>Metadata preview</h3><p>This binary type is not executed in the browser. You can inspect its source or download it safely.</p>' +
+        (source ? '<a class="btn" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(source) + '">Open source</a>' : "") + '</div>';
+      refreshIcons(); return;
+    }
+    relayFileBlob(btn.dataset.url, false).then(function (blob) {
+      if (!box.isConnected) return;
+      if (kind === "text") return blob.text().then(function (text) {
+        body.innerHTML = '<pre class="file-text-preview">' + escapeHtml(text.slice(0, 500000)) + (text.length > 500000 ? "\n\n[Preview truncated]" : "") + '</pre>';
+      });
+      var actual = String(blob.type || "").toLowerCase();
+      if ((kind === "image" && actual.indexOf("image/") !== 0) ||
+          (kind === "audio" && actual.indexOf("audio/") !== 0) ||
+          (kind === "video" && actual.indexOf("video/") !== 0) ||
+          (kind === "pdf" && actual !== "application/pdf")) {
+        throw new Error("The host returned a different content type, so the preview was blocked.");
+      }
+      activeFileObjectUrl = URL.createObjectURL(blob);
+      if (kind === "image") body.innerHTML = '<img class="file-media-preview" alt="' + escapeHtml(name) + '" src="' + activeFileObjectUrl + '">';
+      else if (kind === "audio") body.innerHTML = '<audio class="file-av-preview" controls src="' + activeFileObjectUrl + '"></audio>';
+      else if (kind === "video") body.innerHTML = '<video class="file-av-preview" controls playsinline src="' + activeFileObjectUrl + '"></video>';
+      else body.innerHTML = '<iframe class="file-pdf-preview" title="' + escapeHtml(name) + ' preview" src="' + activeFileObjectUrl + '"></iframe>';
+    }).catch(function (err) {
+      if (!box.isConnected) return;
+      body.innerHTML = '<div class="file-fallback"><i data-lucide="circle-alert"></i><h3>Preview unavailable</h3><p>' + escapeHtml(humanizeUserError(err.message)) + '</p>' +
+        (source ? '<a class="btn" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(source) + '">Open source</a>' : "") + '</div>';
+      refreshIcons();
+    });
+  }
+
+  function downloadFile(btn) {
+    if (btn.disabled) return;
+    btn.disabled = true; btn.classList.add("busy");
+    relayFileBlob(btn.dataset.url, true).then(function (blob) {
+      var objectUrl = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = objectUrl; a.download = btn.dataset.name || "download"; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 30000);
+    }).catch(function (err) { toast(humanizeUserError(err.message)); }).then(function () {
+      btn.disabled = false; btn.classList.remove("busy");
+    });
+  }
+
   messagesEl.addEventListener("click", function (e) {
+    var previewBtn = e.target.closest ? e.target.closest(".file-preview") : null;
+    if (previewBtn) { previewFile(previewBtn); return; }
+    var downloadBtn = e.target.closest ? e.target.closest(".file-download") : null;
+    if (downloadBtn) { downloadFile(downloadBtn); return; }
     var playBtn = e.target.closest ? e.target.closest(".video-play") : null;
     if (playBtn) { playVerifiedVideo(playBtn); return; }
     var tile = e.target.closest ? e.target.closest(".img-tile") : null;
@@ -7294,6 +7440,21 @@
         dropped.count += raw.images.length - msg.images.length;
       }
       if (!msg.images.length) delete msg.images;
+    }
+    if (raw.role === "assistant" && Array.isArray(raw.files)) {
+      msg.files = raw.files.map(function (file) {
+        if (!file || typeof file !== "object") return null;
+        var sourceUrl = safeArtifactUrl(file.sourceUrl), previewUrl = safeArtifactUrl(file.previewUrl), downloadUrl = safeArtifactUrl(file.downloadUrl);
+        if (!sourceUrl || !previewUrl || !downloadUrl) return null;
+        var kind = String(file.kind || "binary").toLowerCase().replace(/[^a-z]/g, "");
+        if (["image", "audio", "video", "pdf", "text", "archive", "document", "binary"].indexOf(kind) === -1) kind = "binary";
+        return { name: String(file.name || file.title || "download").slice(0, 180), title: String(file.title || "").slice(0, 180),
+          sourceUrl: sourceUrl, previewUrl: previewUrl, downloadUrl: downloadUrl, platform: String(file.platform || "Web").slice(0, 80),
+          mime: String(file.mime || "application/octet-stream").slice(0, 120), extension: String(file.extension || "").replace(/[^A-Za-z0-9.+_-]/g, "").slice(0, 16),
+          kind: kind, size: isFinite(+file.size) && +file.size >= 0 ? +file.size : null };
+      }).filter(Boolean).slice(0, 12);
+      dropped.count += raw.files.length - msg.files.length;
+      if (!msg.files.length) delete msg.files;
     }
     return msg;
   }

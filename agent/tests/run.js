@@ -859,6 +859,27 @@ test("runAgent hands context to the rewrite and the answer", function () {
   });
 });
 
+
+test("semantic file discovery returns typed artifacts without generic research", function () {
+  var h = H.createHarness();
+  h.registerTool(H.filesTool);
+  var searched = 0, completed = 0, events = [];
+  return h.runAgent({ query: "Find a frontend design skill", intent: {
+    constraints: {}, subgoals: [{ requirements: [{ capability: "discover_files", inputs: {
+      query: "frontend design agent skill", extensions: ["md"] } }] }]
+  }, files: function (query, limit, options) {
+    eq(query, "frontend design agent skill"); eq(options.extensions[0], "md");
+    return Promise.resolve({ provider: "fixture", results: [{ name: "SKILL.md", kind: "text", mime: "text/markdown",
+      sourceUrl: "https://github.com/acme/design/blob/main/SKILL.md", previewUrl: "https://raw.githubusercontent.com/acme/design/main/SKILL.md",
+      downloadUrl: "https://raw.githubusercontent.com/acme/design/main/SKILL.md" }] });
+  }, search: function () { searched++; return Promise.resolve({ results: [] }); },
+    complete: function () { completed++; return Promise.resolve(); }, emit: function (event) { events.push(event); }
+  }).then(function (out) {
+    eq(searched, 0); eq(completed, 0); eq(out.files.length, 1); eq(out.traceStatus, "Found downloadable files");
+    ok(events.some(function (event) { return event.t === "files"; }));
+  });
+});
+
 async function main() {
   for (var i = 0; i < queue.length; i++) {
     try {

@@ -160,6 +160,21 @@ test("developer trace exposes intent, candidates, plan, observations and verific
   ok(done.observations.length === 1 && done.verification.length === 1);
 });
 
+
+test("malformed intent JSON receives exactly one bounded repair", async function () {
+  var orch = O.createOrchestrator(), calls = [];
+  orch.registry.register(tool("files.discover", ["discover_files"], function () { return {}; }));
+  var repaired = { goal: "find a file", confidence: 0.95, risk: "low", constraints: {}, desiredOutput: { type: "files" },
+    subgoals: [{ id: "g1", goal: "find it", requirements: [{ id: "r1", capability: "discover_files", required: true,
+      inputs: { query: "frontend design", extensions: ["md"] }, successCriterion: "file returned" }] }] };
+  var result = await orch.interpret({ request: "find it", interpreter: function (prompt) {
+    calls.push(prompt); return calls.length === 1 ? "{not valid json" : JSON.stringify(repaired);
+  }});
+  eq(calls.length, 2);
+  ok(calls[1].indexOf("Repair the malformed intent result") === 0);
+  eq(result.intent.subgoals[0].requirements[0].capability, "discover_files");
+});
+
 (async function () {
   var pass = 0;
   for (var i = 0; i < tests.length; i++) {
