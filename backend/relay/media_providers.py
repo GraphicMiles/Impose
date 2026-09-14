@@ -124,13 +124,16 @@ class YouTubeMediaAdapter:
     capabilities = frozenset({"media.playable"})
 
     def supports(self, request):
-        return "youtube" in request.platforms and not request.options.get("live")
+        return "youtube" in request.platforms
 
     async def discover(self, request, client):
         # Search the subject, not conversational framing such as “find me a
-        # YouTube tutorial on …”. The original query still owns constraints
-        # (platform, live, latest); adapters receive a clean discovery phrase.
-        discovery_query = request.subject or request.query
+        # YouTube tutorial on …”. Typed constraints determine live/latest;
+        # exact YouTube renderer metadata proves live state.
+        wants_live = bool(request.options.get("live"))
+        discovery_query = request.subject or ("live" if wants_live else request.query)
+        if wants_live and request.subject:
+            discovery_query = request.subject + " live"
         response = await client.get(
             YOUTUBE_SEARCH,
             params={"search_query": discovery_query},
@@ -138,7 +141,11 @@ class YouTubeMediaAdapter:
         )
         if response.status_code != 200:
             return []
-        rows = parse_youtube_search(response.text, discovery_query, request.limit)
+        rows = parse_youtube_search(response.text, discovery_query, 12 if wants_live else request.limit)
+        if wants_live:
+            live_rows = [row for row in rows if row.get("live") is True][:request.limit]
+            return [_candidate(row, "youtube-live-search", {"playable", "live"}, 2800 - index)
+                    for index, row in enumerate(live_rows)]
         if request.options.get("latest"):
             wanted = re.sub(r"[^a-z0-9]", "", request.subject.lower())
             channel_id = ""

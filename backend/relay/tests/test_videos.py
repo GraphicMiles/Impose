@@ -188,6 +188,41 @@ def test_bing_parser_keeps_supported_relevant_results_only():
     assert rows[0]["thumb"] == "https://thumb.test/mrbeast.jpg"
 
 
+def test_youtube_live_badge_becomes_an_authoritative_live_claim():
+    page = '''<script>var ytInitialData = {"contents":[{"videoRenderer":{
+      "videoId":"uxskKNcsFLU",
+      "title":{"runs":[{"text":"Live newsroom"}]},
+      "ownerText":{"runs":[{"text":"News Channel","navigationEndpoint":{
+        "browseEndpoint":{"browseId":"UC2gMbAUTXBQMQYP5dL7uoug"}}}]},
+      "badges":[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_LIVE_NOW","label":"LIVE"}}],
+      "viewCountText":{"runs":[{"text":"2,400 watching"}]},
+      "thumbnail":{"thumbnails":[{"url":"https://i.ytimg.com/vi/uxskKNcsFLU/hq.jpg"}]}
+    }},{"videoRenderer":{"videoId":"gTKS8SAwUzE",
+      "title":{"simpleText":"Recorded show with live in its title"},
+      "ownerText":{"runs":[{"text":"Archive"}]}}}]};</script>'''
+    rows = parse_youtube_search(page, "live", 4)
+    assert rows[0]["live"] is True
+    assert rows[0]["viewersText"] == "2,400 watching"
+    assert rows[1]["live"] is False
+
+    class Response:
+        status_code = 200
+        text = page
+
+    class Client:
+        async def get(self, url, **kwargs):
+            assert kwargs["params"]["search_query"] == "live"
+            return Response()
+
+    request = parse_media_request("Who is live right now on YouTube", 3,
+                                  {"live": True, "platforms": ["youtube"], "subject": ""})
+    rows = asyncio.run(YouTubeMediaAdapter().discover(request, Client()))
+    assert len(rows) == 1
+    assert rows[0].value["id"] == "uxskKNcsFLU"
+    assert rows[0].claims == frozenset({"playable", "live"})
+    assert rows[0].provider == "youtube-live-search"
+
+
 def test_youtube_search_parser_returns_verified_ids_and_channel():
     page = '''<script>var ytInitialData = {"contents":[{"videoRenderer":{
       "videoId":"FMggEmTmQ0U",

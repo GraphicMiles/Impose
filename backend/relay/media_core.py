@@ -31,8 +31,8 @@ _VIDEO_GENERIC = {
     "give", "play", "open", "check", "pull", "search", "any", "me",
     "currently", "available", "right", "now",
     "music", "song", "by", "from", "for", "the", "a", "an", "playing",
-    "and", "it", "one", "some", "please", "can", "could", "you", "on", "about", "to",
-    "tutorial", "tutorials",
+    "and", "it", "one", "some", "please", "can", "could", "you", "who", "is", "what",
+    "on", "about", "to", "tutorial", "tutorials",
 }
 _TWITCH_RESERVED = {
     "directory", "downloads", "jobs", "login", "payments", "search",
@@ -248,6 +248,23 @@ def parse_youtube_search(page, query="", limit=8):
                             == "BADGE_STYLE_TYPE_VERIFIED"
                             for badge in owner_badges if isinstance(badge, dict)
                         )
+                        # YouTube's own renderer metadata is authoritative for
+                        # current live state. Never infer liveness from titles.
+                        badges = renderer.get("badges") or []
+                        badge_live = any(
+                            str((badge.get("metadataBadgeRenderer") or {}).get("style", ""))
+                            == "BADGE_STYLE_TYPE_LIVE_NOW"
+                            for badge in badges if isinstance(badge, dict)
+                        )
+                        overlays = renderer.get("thumbnailOverlays") or []
+                        overlay_live = any(
+                            str((overlay.get("thumbnailOverlayTimeStatusRenderer") or {}).get("style", ""))
+                            == "LIVE"
+                            for overlay in overlays if isinstance(overlay, dict)
+                        )
+                        row["live"] = bool(badge_live or overlay_live)
+                        if row["live"]:
+                            row["viewersText"] = _youtube_text(renderer.get("viewCountText"))[:80]
                         out.append(row)
                         seen.add(vid)
             for child in value.values():
@@ -411,7 +428,10 @@ def parse_media_request(query, limit=6, constraints=None):
         )
     if isinstance(constraints.get("creator"), bool):
         creator_hint = constraints["creator"]
-    subject = str(constraints.get("subject") or "").strip()[:500] or _video_subject(query)
+    if isinstance(constraints.get("subject"), str):
+        subject = constraints["subject"].strip()[:500]
+    else:
+        subject = _video_subject(query)
     return CapabilityRequest(
         capability="media.playable",
         query=query,
