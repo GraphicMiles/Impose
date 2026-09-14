@@ -22,6 +22,7 @@ with everything inlined, so it works from disk with no server.
 - `index.html` markup and dialogs
 - `styles.css` theme tokens, layout, motion
 - `app.js` state, providers, streaming, markdown renderer, search
+- `auth.html`, `auth.css`, and `auth.js` responsive sign in, sign up, password reset, and email verification UI
 - `lucide.min.js` icon library, vendored so the app works offline
 - `impose-standalone.html` portable single file build
 - `brand/` generated Agent Atlas logo assets, kept separate from the app UI

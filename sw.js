@@ -5,12 +5,15 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v5";
+var CACHE = "impose-shell-v6";
 var CORE = [
   "./",
   "./index.html",
   "./app.js",
   "./styles.css",
+  "./auth.html",
+  "./auth.js",
+  "./auth.css",
   "./agent/trace.js",
   "./agent/harness.js",
   "./agent/features.js",
@@ -23,6 +26,9 @@ var PRECACHE = [
   "./index.html",
   "./app.js",
   "./styles.css",
+  "./auth.html",
+  "./auth.js",
+  "./auth.css",
   "./agent/trace.js",
   "./agent/harness.js",
   "./agent/features.js",
@@ -74,10 +80,12 @@ self.addEventListener("fetch", function (e) {
   if (e.request.mode === "navigate") {
     e.respondWith(fetch(e.request).then(function (res) {
       var copy = res.clone();
-      caches.open(CACHE).then(function (c) { c.put("./index.html", copy); });
+      caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
       return res;
     }).catch(function () {
-      return caches.match("./index.html");
+      return caches.match(e.request).then(function (hit) {
+        return hit || caches.match("./index.html");
+      });
     }));
     return;
   }
