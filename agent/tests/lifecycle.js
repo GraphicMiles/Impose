@@ -19,6 +19,7 @@ var safeHttpUrl = extractFunction("safeHttpUrl", "\n\n  function normalizeImport
 var sanitizeLogDetail = extractFunction("sanitizeLogDetail", "\n\n  function debugRow");
 var detailOf = extractFunction("detailOf", "\n\n  /* Someone else's HTTP code");
 var stripUnverifiedMediaMarkup = extractFunction("stripUnverifiedMediaMarkup", "\n\n  function withTimeout");
+var looksLikeCasualChat = extractFunction("looksLikeCasualChat", "\n\n  function routeSend");
 global.detailOf = detailOf;
 var explain = extractFunction("explain", "\n\n  /* Technical detail stays");
 var tests = [];
@@ -57,6 +58,13 @@ test("provider logs redact account IDs and credentials", async function () {
   var clean = sanitizeLogDetail("organization org_01abc token " + fakeCredential);
   ok(clean.indexOf("org_01abc") === -1, "organization id redacted");
   ok(clean.indexOf(fakeCredential) === -1, "credential redacted");
+});
+
+test("casual reactions bypass broad research without hiding real requests", async function () {
+  ok(looksLikeCasualChat("I like the song"), "song reaction is ordinary chat");
+  ok(looksLikeCasualChat("Thanks!"), "thanks is ordinary chat");
+  ok(!looksLikeCasualChat("I like the iPhone; compare it with Samsung"), "comparison still researches");
+  ok(!looksLikeCasualChat("Help me pick the best iPhone under 500k"), "shopping request still researches");
 });
 
 test("research output cannot fabricate embedded media", async function () {

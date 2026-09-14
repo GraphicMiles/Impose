@@ -3983,6 +3983,14 @@
     renderMessages();
   }
 
+  function looksLikeCasualChat(text) {
+    var s = String(text || "").trim().replace(/\s+/g, " ");
+    if (!s || s.length > 140) return false;
+    if (/^(?:thanks|thank you|okay|ok|got it|nice|cool|great|awesome|perfect|sounds good)[!.]*$/i.test(s)) return true;
+    return /^(?:i\s+)?(?:like|love|enjoy|prefer|dislike|hate)\s+.+[!.]*$/i.test(s) &&
+      !/\b(?:find|search|compare|recommend|show|tell|which|what|why|how)\b/i.test(s);
+  }
+
   function routeSend(chat, text, replaceIdx, override, options) {
     clearFollowups();
     stopSpeak();
@@ -4019,6 +4027,9 @@
         return;
       }
       var useSearch = options && options.searchMode != null ? !!options.searchMode : !!state.settings.searchMode;
+      /* Deep search is not useful for acknowledgements or reactions. Keep
+         those as ordinary conversation even if the broad toggle remains on. */
+      if (looksLikeCasualChat(text)) useSearch = false;
       /* Explicit web-capability requests route through the tool harness even
          when the broad Web search toggle is off. The toggle controls ordinary
          researched answers; it must not disable "play this", image, or future

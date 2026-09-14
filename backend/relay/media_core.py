@@ -175,6 +175,36 @@ def _youtube_text(value):
                    if isinstance(run, dict))
 
 
+def parse_youtube_channels(page):
+    """Extract authoritative channel IDs from YouTube's own search payload."""
+    marker = re.search(r"(?:var\s+)?ytInitialData\s*=\s*", page or "")
+    if not marker:
+        return []
+    try:
+        data = json.JSONDecoder().raw_decode((page or "")[marker.end():])[0]
+    except Exception:
+        return []
+    out, seen = [], set()
+
+    def visit(value):
+        if isinstance(value, dict):
+            renderer = value.get("channelRenderer")
+            if isinstance(renderer, dict):
+                channel_id = str(renderer.get("channelId", ""))
+                title = _youtube_text(renderer.get("title"))
+                if re.fullmatch(r"UC[A-Za-z0-9_-]{20,}", channel_id) and channel_id not in seen:
+                    seen.add(channel_id)
+                    out.append({"channelId": channel_id, "title": title[:120]})
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(data)
+    return out
+
+
 def parse_youtube_search(page, query="", limit=8):
     """Extract real video IDs and channel IDs from YouTube's search page."""
     marker = re.search(r"(?:var\s+)?ytInitialData\s*=\s*", page or "")

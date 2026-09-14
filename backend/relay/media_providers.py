@@ -9,7 +9,7 @@ from relay.media_core import (
     BING_VIDEOS, YOUTUBE_SEARCH, VIDEO_TIMEOUT_SECONDS,
     _direct_urls, _find_youtube_channel, _latest_from_feed,
     _supported_result, _twitch_target, _verify_twitch_channel,
-    parse_bing_videos, parse_media_request, parse_youtube_search,
+    parse_bing_videos, parse_media_request, parse_youtube_channels, parse_youtube_search,
     TWITCH_CLIENT_ID, TWITCH_GQL, VideosFailed,
 )
 
@@ -139,18 +139,21 @@ class YouTubeMediaAdapter:
         if response.status_code != 200:
             return []
         rows = parse_youtube_search(response.text, discovery_query, request.limit)
-        if not rows:
-            return []
         if request.options.get("latest"):
             wanted = re.sub(r"[^a-z0-9]", "", request.subject.lower())
             channel_id = ""
+            for channel in parse_youtube_channels(response.text):
+                label = re.sub(r"[^a-z0-9]", "", str(channel.get("title", "")).lower())
+                if wanted and label == wanted:
+                    channel_id = channel["channelId"]
+                    break
             for row in rows:
                 owner = re.sub(r"[^a-z0-9]", "", str(row.get("channel", "")).lower())
-                if row.get("channelId") and wanted and owner == wanted:
+                if not channel_id and row.get("channelId") and wanted and owner == wanted:
                     channel_id = row["channelId"]
                     break
             if (not channel_id and request.options.get("creator_hint")
-                    and rows[0].get("channelId")):
+                    and rows and rows[0].get("channelId")):
                 channel_id = rows[0]["channelId"]
             if not channel_id and request.options.get("creator_hint"):
                 channel_id = await _find_youtube_channel(request.query)

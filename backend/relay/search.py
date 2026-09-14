@@ -1,4 +1,4 @@
-"""Keyless web search for the agent: SearXNG JSON, then Bing HTML, then DDG HTML.
+"""Keyless web search for the agent: SearXNG JSON, then Bing and DDG Lite.
 
 No API keys, no browser. httpx plus BeautifulSoup with the stdlib parser.
 SearXNG instances are env-overridable (SEARXNG_URLS, comma separated).
@@ -190,33 +190,46 @@ def parse_bing(html):
     return out
 
 
+def _ddg_target(href):
+    href = str(href or "")
+    if href.startswith("//"):
+        href = "https:" + href
+    try:
+        params = urllib.parse.parse_qs(urllib.parse.urlsplit(href).query)
+    except Exception:
+        params = {}
+    target = (params.get("uddg") or [""])[0] or href
+    return target if _is_external_source(target) else None
+
+
 def parse_ddg(html):
+    """Parse both DuckDuckGo's full HTML and its lighter, more reliable UI."""
     soup = BeautifulSoup(html or "", "html.parser")
     out = []
-    for div in soup.select(".result"):
-        a = div.select_one("a.result__a[href]") or div.select_one("a[href]")
-        if not a:
+    full = soup.select(".result")
+    if full:
+        nodes = [(div.select_one("a.result__a[href]") or div.select_one("a[href]"),
+                  div.select_one(".result__snippet"), None) for div in full]
+    else:
+        nodes = []
+        for anchor in soup.select("a.result-link[href]"):
+            row = anchor.find_parent("tr")
+            snippet_row = row.find_next_sibling("tr") if row else None
+            snippet = snippet_row.select_one(".result-snippet") if snippet_row else None
+            stamp_row = snippet_row.find_next_sibling("tr") if snippet_row else None
+            stamp = stamp_row.select_one(".timestamp") if stamp_row else None
+            nodes.append((anchor, snippet, stamp))
+    for anchor, snippet, stamp in nodes:
+        if not anchor:
             continue
-        href = a.get("href", "")
-        if href.startswith("//"):
-            href = "https:" + href
-        try:
-            m = urllib.parse.parse_qs(urllib.parse.urlsplit(href).query)
-        except Exception:
-            m = {}
-        url = None
-        if "uddg" in m and m["uddg"]:
-            url = m["uddg"][0]
-        elif _is_http(href):
-            url = href
-        if not url or not _is_external_source(url):
+        url = _ddg_target(anchor.get("href", ""))
+        if not url:
             continue
-        snip = div.select_one(".result__snippet")
-        out.append({"title": _clean(a.get_text(" ", strip=True), 200) or url,
+        out.append({"title": _clean(anchor.get_text(" ", strip=True), 200) or url,
                     "url": url,
-                    "snippet": _clean(snip.get_text(" ", strip=True) if snip else ""),
+                    "snippet": _clean(snippet.get_text(" ", strip=True) if snippet else ""),
                     "source": "duckduckgo",
-                    "publishedAt": None})
+                    "publishedAt": _clean(stamp.get_text(" ", strip=True), 60) if stamp else None})
     return out
 
 
@@ -294,8 +307,10 @@ async def _bing(client, query, limit):
 
 async def _ddg(client, query, limit):
     try:
-        r = await client.get("https://html.duckduckgo.com/html/",
-                             params={"q": query}, timeout=10.0)
+        # The lite endpoint is server-rendered, quick, and substantially less
+        # prone to bot-wall timeouts than html.duckduckgo.com.
+        r = await client.get("https://lite.duckduckgo.com/lite/",
+                             params={"q": query}, timeout=8.0)
     except httpx.TimeoutException:
         raise AttemptFail("timed out")
     except Exception:
@@ -344,7 +359,7 @@ async def engine_search(query, limit=8, domains=None, freshness=None,
                       language, freshness))
              for base in SEARXNG_URLS],
             [("bing-html", partial(_bing, client, query, limit)),
-             ("ddg-html", partial(_ddg, client, query, limit))],
+             ("ddg-lite", partial(_ddg, client, query, limit))],
         ]
         for tier in tiers:
             runs = await asyncio.gather(*[_run_job(n, j) for n, j in tier])

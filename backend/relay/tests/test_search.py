@@ -41,6 +41,13 @@ check("searxng parses", len(s) == 2 and s[0]["source"] == "google", len(s))
 d = parse_ddg((FIX / "ddg.html").read_text())
 check("ddg parses and unwraps uddg",
       len(d) == 2 and d[0]["url"] == "https://example.com/phones", len(d))
+lite = parse_ddg('''<table><tr><td><a class="result-link"
+ href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fiphone">Best iPhone</a></td></tr>
+ <tr><td class="result-snippet">Current prices in Nigeria</td></tr>
+ <tr><td><span class="timestamp">2026-09-01</span></td></tr></table>''')
+check("ddg lite parses results, snippets, and dates",
+      len(lite) == 1 and lite[0]["url"] == "https://example.com/iphone"
+      and lite[0]["publishedAt"] == "2026-09-01", lite)
 
 tok = "a1" + base64.urlsafe_b64encode(b"https://example.com/x").decode().rstrip("=")
 check("bing redirect decodes",

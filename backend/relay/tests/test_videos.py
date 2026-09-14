@@ -12,6 +12,7 @@ from relay.videos import (  # noqa: E402
     _video_subject, _verify_twitch_channel, parse_bing_videos, parse_media_request,
     parse_youtube_feed, parse_youtube_search, _twitch_live_row, TwitchLiveAdapter,
 )
+from relay.media_core import parse_youtube_channels  # noqa: E402
 from relay.media_providers import YouTubeMediaAdapter  # noqa: E402
 
 
@@ -70,6 +71,36 @@ def test_youtube_adapter_searches_clean_subject_not_chat_framing():
     assert seen == ["system architecture"]
     assert rows[0].value["id"] == "uxskKNcsFLU"
     assert rows[0].claims == frozenset({"playable"})
+
+
+def test_latest_creator_can_resolve_from_youtube_channel_result(monkeypatch):
+    import relay.media_providers as providers
+    page = '''<script>var ytInitialData = {"contents":[{"channelRenderer":{
+      "channelId":"UCZKlRAremXc5AfWgkFWgQDg",
+      "title":{"simpleText":"VERYDARKBLACKMAN"}
+    }}]};</script>'''
+    found = parse_youtube_channels(page)
+    assert found == [{"channelId": "UCZKlRAremXc5AfWgkFWgQDg", "title": "VERYDARKBLACKMAN"}]
+
+    class Response:
+        status_code = 200
+        text = page
+
+    class Client:
+        async def get(self, url, **kwargs):
+            return Response()
+
+    async def fake_latest(client, channel_id):
+        assert channel_id == "UCZKlRAremXc5AfWgkFWgQDg"
+        return {"title": "Latest creator upload", "url": "https://www.youtube.com/watch?v=uxskKNcsFLU",
+                "platform": "youtube", "kind": "youtube-video", "id": "uxskKNcsFLU",
+                "thumb": "", "publishedAt": "2026-09-14", "live": False, "latest": True}
+
+    monkeypatch.setattr(providers, "_latest_from_feed", fake_latest)
+    request = parse_media_request("Play me verydark black man latest video", 3)
+    rows = asyncio.run(YouTubeMediaAdapter().discover(request, Client()))
+    assert rows[0].provider == "youtube-feed"
+    assert rows[0].claims == frozenset({"playable", "latest"})
 
 
 def test_twitch_live_nodes_become_typed_verified_players():
