@@ -5,7 +5,8 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v7";
+var CACHE = "impose-shell-v9";
+var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
 var CORE = [
   "./",
   "./index.html",
@@ -79,12 +80,14 @@ self.addEventListener("fetch", function (e) {
   /* Navigations: network first, cached shell when offline. */
   if (e.request.mode === "navigate") {
     e.respondWith(fetch(e.request).then(function (res) {
+      if (!res || !res.ok) throw new Error("Navigation returned " + (res ? res.status : "no response"));
       var copy = res.clone();
       caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
       return res;
     }).catch(function () {
       return caches.match(e.request).then(function (hit) {
-        return hit || caches.match("./index.html");
+        if (hit) return hit;
+        return caches.match(AUTH_ROUTE.test(url.pathname) ? "./auth.html" : "./index.html");
       });
     }));
     return;
