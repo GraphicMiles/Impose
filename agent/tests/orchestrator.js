@@ -44,6 +44,31 @@ test("registering capability metadata makes a new tool discoverable", function (
   eq(registry.discover("extract_pdf_tables", { environment: "browser" }).map(function (x) { return x.tool.id; }), ["pdf.analyze"]);
 });
 
+test("provider id in structured capability field is repaired through metadata", function () {
+  var orch = O.createOrchestrator();
+  orch.registry.register(tool("videos.search", ["discover_playable_media", "verify_live_status"], function () { return {}; },
+    { primaryCapability: "discover_playable_media" }));
+  var parsed = intent("find current live media", ["videos.search"], { constraints: { live: true } });
+  var plan = orch.planner.plan(parsed);
+  eq(plan.status, "planned");
+  eq(plan.steps[0].toolId, "videos.search");
+  eq(plan.steps[0].capability, "discover_playable_media");
+  eq(parsed.subgoals[0].requirements[0].capability, "discover_playable_media");
+  ok(plan.trace[1].decisions[0].repair.fromProviderId === "videos.search");
+});
+
+test("typed constraints expand verification requirements through metadata", async function () {
+  var orch = O.createOrchestrator();
+  orch.registry.register(tool("videos.search", ["discover_playable_media", "verify_live_status"], function () { return {}; },
+    { primaryCapability: "discover_playable_media", constraintCapabilities: { live: "verify_live_status" } }));
+  var decision = await orch.interpret({ request: "Find current broadcasts", interpreter: function () {
+    return intent("find current broadcasts", ["videos.search"], { constraints: { live: true } });
+  } });
+  eq(decision.intent.subgoals[0].requirements.map(function (r) { return r.capability; }),
+    ["discover_playable_media", "verify_live_status"]);
+  eq(decision.plan.steps.map(function (s) { return s.toolId; }), ["videos.search", "videos.search"]);
+});
+
 test("tool names in user text do not select irrelevant tools", async function () {
   var orch = O.createOrchestrator();
   orch.registry.register(tool("email", ["send_message"], function () { throw new Error("must not run"); }, { reliability: 0.99 }));

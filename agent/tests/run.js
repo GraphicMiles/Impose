@@ -312,6 +312,41 @@ test("videos tool enforces provider verification claims", function () {
   });
 });
 
+test("tool-id-shaped media intent is repaired and executes verified live discovery", function () {
+  var searchCalls = 0, seenConstraints = null;
+  return H.harness.interpretIntent({
+    request: "Who is live right now on youtube",
+    interpreter: function () { return {
+      goal: "Identify currently live YouTube streams", confidence: 0.98, risk: "low",
+      constraints: { live: true, platform: "youtube" }, desiredOutput: { type: "media" },
+      successCriteria: ["Every result is currently live"],
+      subgoals: [{ id: "g1", goal: "discover live streams", requirements: [
+        { id: "r1", capability: "videos.search", required: true,
+          inputs: { query: "YouTube live streams" }, successCriterion: "Live streams verified" }
+      ] }]
+    }; }
+  }).then(function (decision) {
+    eq(decision.plan.status, "planned", "recoverable schema mismatch is not blocked");
+    eq(decision.plan.steps[0].toolId, "videos.search", "media provider selected");
+    return H.harness.runAgent({ query: "Who is live right now on youtube", intent: decision.intent,
+      emit: function () {}, search: function () { searchCalls++; return Promise.resolve({ results: [] }); },
+      videos: function (query, limit, constraints) {
+        seenConstraints = constraints;
+        return Promise.resolve({ provider: "youtube-live-search", results: [{
+          title: "Live newsroom", url: "https://www.youtube.com/watch?v=uxskKNcsFLU",
+          platform: "youtube", kind: "youtube-video", id: "uxskKNcsFLU", live: true,
+          verifiedClaims: ["playable", "live"]
+        }] });
+      }
+    });
+  }).then(function (out) {
+    eq(searchCalls, 0, "generic web search is not substituted");
+    ok(seenConstraints && seenConstraints.live === true, "typed live requirement reaches provider");
+    eq(seenConstraints.platforms[0], "youtube", "singular platform normalized");
+    eq(out.videos[0].live, true, "verified live result returned");
+  });
+});
+
 test("runAgent attaches verified playable video results", function () {
   var s = searchStub([{ results: [{ title: "MrBeast", url: "https://youtube.com/", snippet: "channel" }], provider: "p" }]);
   var emitted = null, system = "";

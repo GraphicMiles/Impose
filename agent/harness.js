@@ -147,7 +147,7 @@
   var imagesTool = {
     id: "images.search", name: "Image discovery", version: "1.0",
     description: "Discovers externally hosted images and returns validated gallery records.",
-    capabilities: ["images", "discover_images", "retrieve_images"],
+    capabilities: ["images", "discover_images", "retrieve_images"], primaryCapability: "discover_images",
     inputs: { query: "string, 1 to 500 chars", limit: "int, 1 to 12" },
     outputs: { images: "validated image records", provider: "string", query: "string" },
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
@@ -190,6 +190,8 @@
     id: "videos.search", name: "Playable media discovery", version: "1.0",
     description: "Discovers playable media and returns provider-verified recency or live-state claims when required.",
     capabilities: ["videos", "media.playable", "discover_playable_media", "verify_media_recency", "verify_live_status"],
+    primaryCapability: "discover_playable_media",
+    constraintCapabilities: { live: "verify_live_status", latest: "verify_media_recency" },
     inputs: { query: "string, 1 to 500 chars", limit: "int, 1 to 10",
       constraints: "optional {subject, live, latest, creator, platforms}" },
     outputs: { videos: "validated playable media records", provider: "string", query: "string" },
@@ -239,6 +241,7 @@
     id: "web.search", name: "Web search", version: "1.0",
     description: "Retrieves current public web resources with source metadata.",
     capabilities: ["search", "retrieve_information", "discover_web_resources", "search_current_information"],
+    primaryCapability: "search_current_information",
     inputs: { query: "string, 1 to 500 chars", limit: "int, 1 to 20" },
     outputs: { results: "ranked source records", provider: "string", query: "string" },
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
@@ -280,7 +283,7 @@
   var webreadTool = {
     id: "web.read", name: "Web page reader", version: "1.0",
     description: "Reads a public web resource and extracts bounded text, metadata, links, and images.",
-    capabilities: ["read_web_resource", "extract_web_content"],
+    capabilities: ["read_web_resource", "extract_web_content"], primaryCapability: "read_web_resource",
     inputs: { url: "validated http(s) URL" }, outputs: { text: "bounded text", meta: "page metadata", refs: "page links" },
     prerequisites: ["relay available", "public URL"], permissions: [], sideEffects: "none", requiresApproval: false,
     cost: { latency: "medium", monetary: "none" }, reliability: 0.82, environments: ["browser"], composable: true,
@@ -294,6 +297,7 @@
     id: "reasoning.synthesize", name: "Evidence synthesis", version: "1.0",
     description: "Compares observations and produces a result constrained to available evidence.",
     capabilities: ["synthesize_evidence", "evaluate_relevance", "compare_information", "compose_result"],
+    primaryCapability: "compose_result",
     inputs: { goal: "string", priorObservations: "array" }, outputs: { answer: "string" },
     prerequisites: ["configured model"], permissions: [], sideEffects: "none", requiresApproval: false,
     cost: { latency: "medium", monetary: "metered" }, reliability: 0.8, environments: ["browser"], composable: true,
@@ -307,6 +311,7 @@
     id: "browser.agent", name: "Browser agent", version: "1.0",
     description: "Navigates and interacts with websites through an origin-bounded, approved browser plan.",
     capabilities: ["navigate_web", "interact_with_websites", "authenticate_session", "submit_forms"],
+    primaryCapability: "interact_with_websites",
     inputs: { goal: "string", constraints: "object" }, outputs: { result: "verified browser execution report" },
     prerequisites: ["browser extension connected"], permissions: ["browser_control"], sideEffects: "external",
     requiresApproval: true, cost: { latency: "high", monetary: "metered" }, reliability: 0.72,
@@ -500,13 +505,20 @@
           : /\b(?:latest|newest|most recent)\b/i.test(question);
         var videoJob = wantVideos ? Promise.resolve().then(function () {
           deps.emit({ t: "status", text: "Finding videos" });
-          return videosFn.run({ query: planned, limit: 4, constraints: {
-            subject: intentConstraints.subject || intentConstraints.creatorName || "",
-            live: needsVerifiedLive,
-            latest: needsVerifiedLatest,
-            creator: intentConstraints.creator === true,
-            platforms: Array.isArray(intentConstraints.platforms) ? intentConstraints.platforms : []
-          } }, { videos: deps.videos });
+          var providerConstraints = { live: needsVerifiedLive, latest: needsVerifiedLatest };
+          if (semanticIntent) {
+            if (Object.prototype.hasOwnProperty.call(intentConstraints, "subject")) {
+              providerConstraints.subject = String(intentConstraints.subject || "");
+            } else if (intentConstraints.creatorName) {
+              providerConstraints.subject = String(intentConstraints.creatorName);
+            }
+            if (Object.prototype.hasOwnProperty.call(intentConstraints, "creator")) {
+              providerConstraints.creator = intentConstraints.creator === true;
+            }
+            if (Array.isArray(intentConstraints.platforms)) providerConstraints.platforms = intentConstraints.platforms;
+            else if (typeof intentConstraints.platform === "string") providerConstraints.platforms = [intentConstraints.platform];
+          }
+          return videosFn.run({ query: planned, limit: 4, constraints: providerConstraints }, { videos: deps.videos });
         }).then(function (v) {
           var usable = v.videos || [];
           if (needsVerifiedLive) usable = usable.filter(function (item) { return item.live === true; });

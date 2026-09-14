@@ -56,9 +56,22 @@
     if (["none", "local", "external", "destructive"].indexOf(sideEffects) === -1) throw new Error("Tool has invalid sideEffects metadata.");
     var mutability = text(tool.mutability || (sideEffects === "none" ? "read-only" : "mutating"), 30).toLowerCase();
     if (["read-only", "mutating"].indexOf(mutability) === -1) throw new Error("Tool has invalid mutability metadata.");
+    var primaryCapability = text(tool.primaryCapability || capabilities[0].id, 120);
+    if (!capabilities.some(function (item) { return item.id === primaryCapability; })) {
+      throw new Error("Tool primaryCapability must be one of its advertised capabilities.");
+    }
+    var constraintCapabilities = clone(tool.constraintCapabilities || {});
+    Object.keys(constraintCapabilities).forEach(function (key) {
+      var implied = text(constraintCapabilities[key], 120);
+      if (!capabilities.some(function (item) { return item.id === implied; })) {
+        throw new Error("Tool constraintCapabilities must reference advertised capabilities.");
+      }
+      constraintCapabilities[key] = implied;
+    });
     return {
       id: text(tool.id, 120), name: text(tool.name || tool.id, 160), version: text(tool.version || "1", 40),
-      description: text(tool.description, 1000), capabilities: capabilities,
+      description: text(tool.description, 1000), capabilities: capabilities, primaryCapability: primaryCapability,
+      constraintCapabilities: constraintCapabilities,
       inputs: clone(tool.inputs || tool.inputSchema || {}), outputs: clone(tool.outputs || {}),
       prerequisites: unique(tool.prerequisites), permissions: unique(tool.permissions),
       sideEffects: sideEffects, requiresApproval: tool.requiresApproval === true,
@@ -87,13 +100,43 @@
     return this._tools.map(function (tool) {
       return {
         id: tool.id, name: tool.name, description: tool.description,
-        capabilities: tool.capabilities, inputs: tool.inputs, outputs: tool.outputs,
+        capabilities: tool.capabilities, primaryCapability: tool.primaryCapability,
+        constraintCapabilities: tool.constraintCapabilities,
+        inputs: tool.inputs, outputs: tool.outputs,
         prerequisites: tool.prerequisites, permissions: tool.permissions,
         sideEffects: tool.sideEffects, requiresApproval: tool.requiresApproval,
         cost: tool.cost, reliability: tool.reliability, environments: tool.environments,
         composable: tool.composable, mutability: tool.mutability, failureModes: tool.failureModes
       };
     });
+  };
+  CapabilityRegistry.prototype.expandIntentRequirements = function (intent) {
+    var constraints = intent && intent.constraints || {};
+    var known = Object.create(null);
+    requirementsOf(intent).forEach(function (entry) { known[entry.requirement.capability] = true; });
+    (intent.subgoals || []).forEach(function (subgoal) {
+      var additions = [];
+      (subgoal.requirements || []).forEach(function (requirement) {
+        var providers = this._tools.filter(function (tool) {
+          return tool.id === requirement.capability || tool.capabilities.some(function (item) {
+            return item.id === requirement.capability;
+          });
+        });
+        providers.forEach(function (tool) {
+          Object.keys(tool.constraintCapabilities || {}).forEach(function (constraint) {
+            var capability = tool.constraintCapabilities[constraint];
+            if (constraints[constraint] !== true || known[capability]) return;
+            known[capability] = true;
+            additions.push({ id: requirement.id + "-verify-" + constraint,
+              capability: capability, description: "Verify typed constraint: " + constraint,
+              required: true, inputs: clone(requirement.inputs || {}),
+              success: "The " + constraint + " constraint is independently verified." });
+          });
+        });
+      }, this);
+      Array.prototype.push.apply(subgoal.requirements, additions);
+    }, this);
+    return intent;
   };
   CapabilityRegistry.prototype.discover = function (capability, state) {
     var wanted = text(capability, 120);
@@ -160,7 +203,7 @@
 
   function interpretationPrompt(request, context, activeTask, catalog, state) {
     return "Infer the user’s desired outcome and the conditions required to achieve it. This is goal decomposition, not intent classification. " +
-      "Do not match words in the request to tool names. Select only canonical capability ids advertised below, based on what must actually be true for success. " +
+      "Do not match words in the request to tool names. In every requirement.capability, select only an id from a provider's capabilities array based on what must actually be true for success; never place the provider's top-level id in that field. " +
       "A conversational reply needs no requirements. Preserve and modify an active task when the new turn constrains or continues it. " +
       "For ambiguity: low confidence or ambiguous high-risk work must ask one focused clarification. External or mutating work must be marked high risk when appropriate. " +
       "Return JSON only with: goal, confidence (0..1), risk (low|medium|high), constraints, desiredOutput:{type,presentation,autoplay}, continuationOf, clarification, assumptions, successCriteria, rationale, " +
@@ -179,8 +222,10 @@
     var prompt = interpretationPrompt(options.request, options.context, options.activeTask,
       this.registry.catalog(), { environment: options.environment || "browser", permissions: list(options.permissions),
         preferences: options.preferences || {}, previousFailures: list(options.previousFailures) });
+    var registry = this.registry;
     return Promise.resolve(options.interpreter(prompt)).then(function (answer) {
-      return normalizeIntent(typeof answer === "string" ? parseJson(answer) : answer, options.request);
+      var intent = normalizeIntent(typeof answer === "string" ? parseJson(answer) : answer, options.request);
+      return registry.expandIntentRequirements(intent);
     });
   };
 
@@ -188,14 +233,32 @@
   RequirementResolver.prototype.resolve = function (intent, state) {
     var trace = [], unresolved = [], resolutions = [];
     requirementsOf(intent).forEach(function (entry) {
-      var candidates = this.registry.discover(entry.requirement.capability, state);
+      var requestedCapability = entry.requirement.capability;
+      var resolvedCapability = requestedCapability;
+      var candidates = this.registry.discover(resolvedCapability, state);
+      var providerReference = null;
+      /* Models occasionally place a catalog provider id in the capability
+         field. Repair that exact schema mistake through provider metadata,
+         then rediscover all providers for its primary capability. This does
+         not inspect user wording and does not permanently force that tool. */
+      if (!candidates.length) {
+        providerReference = this.registry.get(requestedCapability);
+        if (providerReference) {
+          resolvedCapability = providerReference.primaryCapability;
+          entry.requirement.capability = resolvedCapability;
+          candidates = this.registry.discover(resolvedCapability, state);
+        }
+      }
       var available = candidates.filter(function (candidate) { return candidate.missingPermissions.length === 0; });
       var chosen = available[0] || null;
-      trace.push({ requirement: entry.requirement.id, capability: entry.requirement.capability,
+      trace.push({ requirement: entry.requirement.id, capability: resolvedCapability,
+        requestedCapability: requestedCapability,
+        repair: providerReference ? { fromProviderId: providerReference.id, toCapability: resolvedCapability } : null,
         candidates: candidates.map(function (candidate) { return { tool: candidate.tool.id, score: candidate.score,
           reason: candidate.reason, missingPermissions: candidate.missingPermissions }; }), chosen: chosen && chosen.tool.id });
       if (!chosen && entry.requirement.required) unresolved.push(entry);
-      resolutions.push({ entry: entry, chosen: chosen, alternatives: available.slice(1) });
+      resolutions.push({ entry: entry, chosen: chosen, alternatives: available.slice(1),
+        requestedCapability: requestedCapability, resolvedCapability: resolvedCapability });
     }, this);
     return { resolutions: resolutions, unresolved: unresolved, trace: trace };
   };
