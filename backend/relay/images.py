@@ -206,7 +206,7 @@ async def _simple_icons(client, queries, limit):
         if not slug: continue
         source = str(row.get("source") or "")
         license_data = row.get("license") or {}
-        image_url = "https://cdn.simpleicons.org/" + quote(slug, safe="")
+        image_url = "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/" + quote(slug, safe="") + ".svg"
         try: artifact = await client.get(image_url, timeout=8.0)
         except (httpx.TimeoutException, httpx.RequestError): continue
         if artifact.status_code != 200 or "svg" not in artifact.headers.get("content-type", "").lower() or b"<svg" not in artifact.content[:500]: continue
