@@ -186,6 +186,41 @@
     }
   };
 
+  var filesTool = {
+    id: "files.discover", name: "Remote file discovery", version: "1.0",
+    description: "Discovers actual downloadable files across source platforms and returns typed artifact records with canonical source, preview, and download URLs.",
+    capabilities: ["discover_files", "retrieve_file_artifacts", "files"], primaryCapability: "discover_files",
+    inputs: { query: "string, 1 to 500 chars", extensions: "optional file extensions", platforms: "optional source platforms", limit: "int, 1 to 12" },
+    outputs: { files: "typed remote file records", provider: "string", query: "string" },
+    prerequisites: ["relay available"], permissions: [], sideEffects: "none",
+    requiresApproval: false, cost: { latency: "medium", monetary: "none" }, reliability: 0.82,
+    environments: ["browser"], composable: true, mutability: "read-only",
+    failureModes: ["provider unavailable", "no relevant downloadable files", "unsupported source page"],
+    verify: function (out) { var rows = out && out.files || []; return {
+      ok: rows.length > 0 && rows.every(function (row) {
+        return /^https:\/\//i.test(String(row.sourceUrl || "")) && /^https:\/\//i.test(String(row.downloadUrl || ""));
+      }), evidence: rows.length + " typed file records", reason: "no downloadable file output" }; },
+    inputSchema: { query: "string, 1 to 500 chars", extensions: "optional string array", platforms: "optional string array", limit: "int, 1 to 12" },
+    run: function (args, ctx) {
+      var query = args && typeof args.query === "string" ? args.query.trim() : "";
+      if (!query) return Promise.reject(new Error("File discovery needs a query."));
+      var limit = args && args.limit ? Math.max(1, Math.min(12, parseInt(args.limit, 10) || 8)) : 8;
+      return ctx.files(query, limit, {
+        extensions: Array.isArray(args && args.extensions) ? args.extensions.slice(0, 8) : [],
+        platforms: Array.isArray(args && args.platforms) ? args.platforms.slice(0, 8) : []
+      }).then(function (out) {
+        var clean = [], seen = {};
+        ((out && out.results) || []).forEach(function (row) {
+          var download = String(row.downloadUrl || "");
+          if (!/^https:\/\//i.test(download) || seen[download] || clean.length >= limit) return;
+          if (!/^https:\/\//i.test(String(row.sourceUrl || "")) || !/^https:\/\//i.test(String(row.previewUrl || ""))) return;
+          seen[download] = true; clean.push(row);
+        });
+        return { files: clean, provider: out && out.provider || "", query: out && out.query || query };
+      });
+    }
+  };
+
   var videosTool = {
     id: "videos.search", name: "Playable media discovery", version: "1.0",
     description: "Discovers playable media and returns provider-verified recency or live-state claims when required.",
@@ -357,6 +392,11 @@
           try { return resolve("media.playable"); } catch (legacy) { return null; }
         }
       }() : null;
+      var filesFn = (typeof deps.files === "function") ? function () {
+        try { return resolve("discover_files"); } catch (e) {
+          try { return resolve("retrieve_file_artifacts"); } catch (legacy) { return null; }
+        }
+      }() : null;
       var semanticIntent = deps.intent && typeof deps.intent === "object" ? deps.intent : null;
       var intentRequirements = [];
       if (semanticIntent) {
@@ -387,6 +427,7 @@
       var wantVideos = !!(videosFn && (semanticIntent
         ? intentNeeds(["discover_playable_media", "media.playable", "videos", "verify_media_recency", "verify_live_status"])
         : (deps.forceVideos || looksLikeVideoRequest(question, context))));
+      var wantFiles = !!(filesFn && semanticIntent && intentNeeds(["discover_files", "retrieve_file_artifacts", "files"]));
       var legacyMediaAction = !semanticIntent && wantVideos && !wantImages && looksLikeMediaAction(question, context);
       var wantsSearch = semanticIntent
         ? intentNeeds(["retrieve_information", "discover_web_resources", "search_current_information", "search"])
@@ -424,6 +465,7 @@
         var resolvedMedia = !semanticIntent && mediaOnly ? resolveMediaFollowup(modelQuestion, context) : "";
         var semanticQuery = semanticIntent ? intentQuery([
           "discover_playable_media", "media.playable", "videos", "discover_images", "retrieve_images", "images",
+          "discover_files", "retrieve_file_artifacts", "files",
           "retrieve_information", "discover_web_resources", "search_current_information", "search"
         ]) : "";
         var fallback = fallbackSearchQuery(semanticQuery || resolvedMedia || modelQuestion);
@@ -444,7 +486,7 @@
       return plan().then(function (planned) {
         if (deps.signal && deps.signal.aborted) throw abortErr();
         deps.emit({ t: "status", text: !wantsResearch
-          ? (wantVideos ? "Finding playable media" : "Finding images")
+          ? (wantFiles ? "Finding downloadable files" : (wantVideos ? "Finding playable media" : "Finding images"))
           : "Searching the web" });
         var gallery = null;
         var galleryFailed = false;
@@ -530,6 +572,25 @@
           } else videoFailed = true;
         }, function () { videoFailed = true; }) : null;
 
+        var fileResults = null;
+        var fileProvider = "";
+        var fileFailed = false;
+        var fileJob = wantFiles ? Promise.resolve().then(function () {
+          var typed = {};
+          intentRequirements.some(function (requirement) {
+            if (["discover_files", "retrieve_file_artifacts", "files"].indexOf(String(requirement.capability || "")) === -1) return false;
+            typed = requirement.inputs || {}; return true;
+          });
+          deps.emit({ t: "status", text: "Finding downloadable files" });
+          return filesFn.run({ query: planned, limit: typed.limit || 8,
+            extensions: typed.extensions || typed.fileTypes || [], platforms: typed.platforms || [] }, { files: deps.files });
+        }).then(function (result) {
+          if (result.files && result.files.length) {
+            fileResults = result.files; fileProvider = result.provider || "";
+            deps.emit({ t: "files", n: fileResults.length, provider: fileProvider, files: fileResults });
+          } else fileFailed = true;
+        }, function () { fileFailed = true; }) : null;
+
         var directPages = [];
         var directReadJob = semanticIntent && wantsRead && !wantsSearch ? Promise.resolve().then(function () {
           if (typeof deps.read !== "function") throw new Error("Page reading is unavailable.");
@@ -561,7 +622,7 @@
         }) : null;
 
         if (semanticIntent && !wantsSearch && wantsRead) {
-          return Promise.all([directReadJob, galleryJob || Promise.resolve(), videoJob || Promise.resolve()]).then(function () {
+          return Promise.all([directReadJob, galleryJob || Promise.resolve(), videoJob || Promise.resolve(), fileJob || Promise.resolve()]).then(function () {
             if (!directPages.length) throw new Error("No requested page could be read and verified.");
             var evidence = directPages.map(function (page, i) {
               return "[" + (i + 1) + "] " + page.title + "\nURL: " + page.url + "\n" + page.content;
@@ -571,8 +632,8 @@
             return deps.complete(system, withContext(modelQuestion) + "\n\nEvidence:\n" + evidence,
               deps.onDelta, deps.onThink).then(function () {
                 return { sources: directPages.map(function (page) { return { title: page.title, url: page.url }; }),
-                  provider: "web.read", images: gallery ? gallery.images : null, videos: videoResults,
-                  imageFailed: wantImages && !gallery, videoFailed: wantVideos && !videoResults,
+                  provider: "web.read", images: gallery ? gallery.images : null, videos: videoResults, files: fileResults,
+                  imageFailed: wantImages && !gallery, videoFailed: wantVideos && !videoResults, fileFailed: wantFiles && !fileResults,
                   traceStatus: "Read and verified requested pages", answer: "" };
               });
           });
@@ -581,25 +642,32 @@
         /* If the semantic plan asks only for typed artifacts, execute exactly
            those capability providers. Generic search and answer synthesis are
            not an implicit tax on every task. */
-        if (!wantsResearch && (wantVideos || wantImages)) {
-          return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve()]).then(function () {
-            var status = wantVideos ? "Checked playable media" : "Found verified images";
+        if (!wantsResearch && (wantVideos || wantImages || wantFiles)) {
+          return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve(), fileJob || Promise.resolve()]).then(function () {
+            var status = wantFiles ? "Found downloadable files" : (wantVideos ? "Checked playable media" : "Found verified images");
             deps.emit({ t: "settle", text: status });
-            if (wantVideos && (!videoResults || !videoResults.length) && !gallery) {
+            if (wantVideos && (!videoResults || !videoResults.length) && !gallery && !fileResults) {
               deps.emit({ t: "videosfail" });
               return { sources: [], provider: videoProvider, images: null, videos: null,
                 videoFailed: true, traceStatus: status, answer: VIDEO_FAILURE_TEXT };
             }
-            if (wantImages && (!gallery || !gallery.images.length) && !videoResults) {
+            if (wantImages && (!gallery || !gallery.images.length) && !videoResults && !fileResults) {
               deps.emit({ t: "imagesfail" });
-              return { sources: [], provider: "", images: null, videos: null,
+              return { sources: [], provider: "", images: null, videos: null, files: null,
                 imageFailed: true, traceStatus: status, answer: IMAGE_FAILURE_TEXT };
             }
-            return { sources: [], provider: videoProvider,
-              images: gallery ? gallery.images : null, videos: videoResults,
+            if (wantFiles && (!fileResults || !fileResults.length) && !videoResults && !gallery) {
+              deps.emit({ t: "filesfail" });
+              return { sources: [], provider: fileProvider, images: null, videos: null, files: null,
+                fileFailed: true, traceStatus: status,
+                answer: "I couldn’t find a downloadable file that I could safely verify. Try a filename, extension, or source platform." };
+            }
+            return { sources: [], provider: fileProvider || videoProvider,
+              images: gallery ? gallery.images : null, videos: videoResults, files: fileResults,
               traceStatus: status,
-              answer: videoResults && gallery ? "Here are the verified media artifacts I found."
-                : (videoResults ? "Here’s the verified media I found." : "Here are the verified images I found.") };
+              answer: fileResults ? "Here are the downloadable files I found."
+                : (videoResults && gallery ? "Here are the verified media artifacts I found."
+                : (videoResults ? "Here’s the verified media I found." : "Here are the verified images I found.")) };
           });
         }
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
@@ -666,8 +734,12 @@
           function finishWith(rows) {
             results = rows;
             if (rows.length === 0) {
-              return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve()]).then(function () {
-                deps.emit({ t: "settle", text: "Searched the web" });
+              return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve(), fileJob || Promise.resolve()]).then(function () {
+                deps.emit({ t: "settle", text: fileResults ? "Found downloadable files" : "Searched the web" });
+                if (fileResults && fileResults.length) {
+                  return { sources: [], provider: fileProvider, images: gallery ? gallery.images : null,
+                    videos: videoResults, files: fileResults, answer: "Here are the downloadable files I found." };
+                }
                 /* Prompt rules are not a security boundary. If every image
                    source failed, never ask a model to improvise an image
                    answer: return deterministic text with no URL surface. */
@@ -740,7 +812,7 @@
             });
             var evidence = lines.join("\n\n");
             if (pageBlocks.length) evidence += "\n\nPage contents:\n\n" + pageBlocks.join("\n\n");
-            return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve()]).then(function () {
+            return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve(), fileJob || Promise.resolve()]).then(function () {
               /* The engines failed, but the pages just read may carry the
                  subject's photos themselves - og:image and content images
                  from the reader. That beats an honest failure. */
@@ -783,7 +855,7 @@
                 galleryNote();
               return deps.complete(system, withContext(modelQuestion) + "\n\nEvidence:\n" + evidence, deps.onDelta, deps.onThink).then(function () {
                 return { sources: results, provider: out.provider, read: pages.filter(Boolean).length,
-                         images: gallery ? gallery.images : null, videos: videoResults };
+                         images: gallery ? gallery.images : null, videos: videoResults, files: fileResults };
               });
             });
           });
@@ -831,6 +903,7 @@
     imageSubject: imageSubject,
     imagesTool: imagesTool,
     videosTool: videosTool,
+    filesTool: filesTool,
     broadenSubject: broadenSubject,
     domainOf: domainOf,
     websearchTool: websearchTool,
@@ -840,6 +913,7 @@
   api.harness.registerTool(webreadTool);
   api.harness.registerTool(imagesTool);
   api.harness.registerTool(videosTool);
+  api.harness.registerTool(filesTool);
   api.harness.registerTool(reasoningTool);
   api.harness.registerTool(browserTool);
 

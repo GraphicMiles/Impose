@@ -38,7 +38,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urljoin, urlparse, urlunparse
+from urllib.parse import unquote, urljoin, urlparse, urlunparse
 
 import httpx
 import uvicorn
@@ -49,6 +49,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from relay.search import SearchFailed, engine_search
 from relay.images import ImagesFailed, engine_images
 from relay.videos import VideosFailed, engine_videos
+from relay.files import discover_files
 
 BASE_DIR = Path(os.environ.get("CP_DIR", str(Path(__file__).resolve().parent)))
 ENV_FILE = BASE_DIR / ".env"
@@ -206,6 +207,8 @@ PUBLIC_TIER = os.environ.get("PUBLIC_TIER", "1").strip().lower() not in ("0", "f
 PUB_SEARCH_LIMIT = int(os.environ.get("PUB_SEARCH_LIMIT", "10"))
 PUB_IMAGES_LIMIT = int(os.environ.get("PUB_IMAGES_LIMIT", "10"))
 PUB_VIDEO_LIMIT = int(os.environ.get("PUB_VIDEO_LIMIT", "10"))
+PUB_FILES_LIMIT = int(os.environ.get("PUB_FILES_LIMIT", "10"))
+PUB_FILE_BYTES_LIMIT = int(os.environ.get("PUB_FILE_BYTES_LIMIT", "20"))
 PUB_WINDOW = 60.0
 
 
@@ -717,6 +720,44 @@ async def videos_proxy(request: Request):
     return out
 
 
+@app.api_route("/v1/files", methods=["GET", "POST"])
+async def files_proxy(request: Request):
+    """Discover typed remote artifacts and canonical source/download URLs."""
+    _tier_auth(request, "files", "pubfiles", 40, PUB_FILES_LIMIT)
+    if request.method == "POST":
+        try:
+            data = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="body must be JSON")
+    else:
+        q = request.query_params
+        data = {"query": q.get("query", "") or q.get("q", ""), "limit": q.get("limit", 8),
+                "extensions": q.get("extensions", "").split(",") if q.get("extensions") else [],
+                "platforms": q.get("platforms", "").split(",") if q.get("platforms") else []}
+    query = str(data.get("query", "")).strip()
+    if not query or len(query) > 500:
+        raise HTTPException(status_code=400, detail="query is required and must be at most 500 chars")
+    extensions, platforms = data.get("extensions") or [], data.get("platforms") or []
+    if not isinstance(extensions, list) or len(extensions) > 8:
+        raise HTTPException(status_code=400, detail="extensions must be a short array")
+    if not isinstance(platforms, list) or len(platforms) > 8:
+        raise HTTPException(status_code=400, detail="platforms must be a short array")
+    try:
+        limit = max(1, min(12, int(data.get("limit", 8))))
+    except Exception:
+        raise HTTPException(status_code=400, detail="limit must be 1..12")
+    ckey = query.lower() + "|" + str(limit) + "|" + json.dumps([extensions, platforms], sort_keys=True)
+    cached = _cache_get("files", ckey)
+    if cached is not None:
+        return cached
+    try:
+        out = await discover_files(query, limit, extensions, platforms)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    _cache_put("files", ckey, out, 120.0)
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # generic fetch proxy: lets browsers reach providers that block them.
 # Browsers call this; the relay calls the target server to server.
@@ -758,6 +799,82 @@ def _resolve_public_ips(host: str) -> list:
         if value not in ips:
             ips.append(value)
     return ips
+
+
+_FILE_BODY_CAP = 32 * 1024 * 1024
+_FILE_REDIRECTS = 5
+
+
+async def _safe_file_bytes(url: str) -> tuple[bytes, str, str]:
+    """Fetch public bytes with DNS pinning, hop-by-hop redirect validation,
+    and a hard response cap. Returns bytes, content type, final URL."""
+    current = str(url or "").strip()
+    async with httpx.AsyncClient(timeout=45.0, follow_redirects=False) as client:
+        for hop in range(_FILE_REDIRECTS + 1):
+            try:
+                parts = urlparse(current)
+            except Exception:
+                raise HTTPException(status_code=400, detail="bad URL")
+            if parts.scheme != "https" or parts.username or parts.password or not parts.hostname:
+                raise HTTPException(status_code=400, detail="file URL must be public HTTPS with no credentials")
+            ips = _resolve_public_ips(parts.hostname)
+            if not ips:
+                raise HTTPException(status_code=400, detail="private or unresolvable host")
+            ip = ips[0]
+            netloc = f"[{ip}]" if ":" in ip else ip
+            if parts.port: netloc += f":{parts.port}"
+            pinned = urlunparse(parts._replace(netloc=netloc))
+            headers = {"Host": parts.netloc, "User-Agent": "Impose-file-relay/1", "Accept": "*/*"}
+            ext = {"sni_hostname": parts.hostname}
+            try:
+                async with client.stream("GET", pinned, headers=headers, extensions=ext) as response:
+                    if response.status_code in (301, 302, 303, 307, 308):
+                        target = response.headers.get("location", "")
+                        if not target or hop >= _FILE_REDIRECTS:
+                            raise HTTPException(status_code=502, detail="too many or invalid redirects")
+                        current = urljoin(current, target)
+                        continue
+                    if response.status_code < 200 or response.status_code >= 300:
+                        raise HTTPException(status_code=502, detail=f"file host returned {response.status_code}")
+                    declared = response.headers.get("content-length", "")
+                    if declared.isdigit() and int(declared) > _FILE_BODY_CAP:
+                        raise HTTPException(status_code=413, detail="file exceeds the 32 MiB relay limit")
+                    chunks, total = [], 0
+                    async for chunk in response.aiter_bytes():
+                        total += len(chunk)
+                        if total > _FILE_BODY_CAP:
+                            raise HTTPException(status_code=413, detail="file exceeds the 32 MiB relay limit")
+                        chunks.append(chunk)
+                    ctype = response.headers.get("content-type", "application/octet-stream").split(";", 1)[0].strip().lower()
+                    if not re.fullmatch(r"[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+", ctype):
+                        ctype = "application/octet-stream"
+                    return b"".join(chunks), ctype, current
+            except HTTPException:
+                raise
+            except httpx.TimeoutException:
+                raise HTTPException(status_code=502, detail="file host timed out")
+            except Exception:
+                raise HTTPException(status_code=502, detail="file host unreachable")
+    raise HTTPException(status_code=502, detail="file fetch failed")
+
+
+@app.post("/v1/file")
+async def file_proxy(request: Request):
+    """Rate-limited, bounded binary transport for previews and downloads."""
+    _tier_auth(request, "file", "pubfile", 40, PUB_FILE_BYTES_LIMIT)
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    url = str(data.get("url", ""))
+    if not url or len(url) > 4000:
+        raise HTTPException(status_code=400, detail="url is required")
+    content, ctype, final_url = await _safe_file_bytes(url)
+    filename = re.sub(r"[^A-Za-z0-9._ -]+", "_", unquote(urlparse(final_url).path.rsplit("/", 1)[-1]))[:180] or "download"
+    mode = "attachment" if data.get("download") is True else "inline"
+    headers = {"Content-Disposition": f'{mode}; filename="{filename}"',
+               "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=60"}
+    return Response(content=content, media_type=ctype, headers=headers)
 
 
 @app.post("/v1/fetch")
