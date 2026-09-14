@@ -114,7 +114,7 @@ i[data-lucide] {
 
 /* ---------- layout ---------- */
 
-.app { display: flex; height: 100dvh; }
+.app { display: flex; height: var(--app-height, 100dvh); min-height: 0; }
 
 .main {
   flex: 1;
@@ -165,6 +165,7 @@ body:not(.nav-open) .sidebar-inner {
 .sidebar-top-right { display: flex; gap: 2px; }
 
 .icon-btn {
+  position: relative;
   width: 36px;
   height: 36px;
   display: inline-flex;
@@ -1956,6 +1957,21 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 /* ---------- tools menu ---------- */
 .pop-item .tool-check { margin-left: auto; width: 16px; height: 16px; opacity: 0; color: var(--text-2); transition: opacity 120ms ease; }
 .pop-item[aria-checked="true"] .tool-check { opacity: 1; }
+.tool-toggle[aria-checked="true"] { background: var(--hover); }
+.tool-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
+.tool-copy strong { color: var(--text); font-size: 14px; font-weight: 500; }
+.tool-copy em { color: var(--text-3); font-size: 11.5px; font-style: normal; }
+#searchBtn.tool-active { color: var(--text); background: var(--hover); }
+#searchBtn.tool-active::after { content: ""; position: absolute; right: 3px; bottom: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--text-2); box-shadow: 0 0 0 2px var(--composer); }
+
+/* Keep the active composer inside the actually visible mobile viewport. */
+.composer-dock { z-index: 12; background: var(--bg); }
+
+/* Failures are calm, readable inline states—not alarming technical cards. */
+.msg-error { align-items: flex-start; padding: 11px 12px; border: 0; border-radius: 12px; background: var(--border-soft); color: var(--text-2); }
+.msg-error .lucide, .msg-error i[data-lucide] { color: var(--text-3); }
+.banner.danger { color: var(--text-2); border: 0; background: var(--border-soft); }
+.banner.danger .lucide, .banner.danger i[data-lucide] { color: var(--text-3); }
 .pop-item[aria-checked="true"] span { color: var(--text); }
 .pop-item.soon { opacity: 0.55; }
 .soon-pill { margin-left: auto; font-style: normal; font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em;

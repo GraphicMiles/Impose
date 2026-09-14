@@ -10,6 +10,15 @@
   var ONE_SHOT_TIMEOUT = 60000;
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  /* 100dvh still includes the on-screen keyboard in some mobile browsers.
+     Mirror the visual viewport so the flex footer cannot fall underneath it. */
+  function syncVisibleViewport() {
+    var vv = window.visualViewport;
+    var height = vv && (!vv.scale || vv.scale === 1) ? vv.height + Math.max(0, vv.offsetTop || 0) : window.innerHeight;
+    if (!height || !isFinite(height)) return;
+    document.documentElement.style.setProperty("--app-height", Math.round(height) + "px");
+  }
+
   /* anime.js (vendored) drives JS motion; CSS owns hovers and reveals. */
   function motionOK() {
     return !REDUCED && typeof window.anime !== "undefined" && !!window.anime.animate;
@@ -866,11 +875,63 @@
     return where + " answered " + code + "." + tail;
   }
 
+  /* Technical detail stays in the debug log. Every visible failure passes
+     through this small vocabulary so people get one useful next step. */
+  function humanizeUserError(value) {
+    var raw = String(value && value.message != null ? value.message : (value || "")).replace(/\s+/g, " ").trim();
+    var low = raw.toLowerCase();
+    var name = String(value && value.name || "").toLowerCase();
+
+    if (name === "aborterror" || /timed? ?out|timeout|deadline|took too long|aborted/.test(low)) {
+      return "That took too long. Please try again.";
+    }
+    if (/quota|billing|insufficient (credit|fund)|payment required|credit balance/.test(low)) {
+      return "This AI account may need more credit. Check the account, then try again.";
+    }
+    if (/\b401\b|unauthori[sz]ed|invalid api.?key|key (was )?rejected|authentication/.test(low)) {
+      return "The saved key was not accepted. Check it in Settings, then try again.";
+    }
+    if (/\b403\b|forbidden|permission denied|lacks? (model )?access/.test(low)) {
+      return "This AI account did not allow the request. Check its access in Settings.";
+    }
+    if (/\b404\b|model.*(not found|not available)|does not exist.*provider|address does not exist/.test(low)) {
+      return "The selected model is not available. Choose another one in Settings.";
+    }
+    if (/\b413\b|context.{0,20}(long|length|window)|too many tokens|token allowance|request is too large|message is too long/.test(low)) {
+      return "This conversation is too long. Start a new chat or shorten your message.";
+    }
+    if (/\b429\b|rate.?limit|too many requests|resource exhausted/.test(low)) {
+      return "Too many requests were sent at once. Wait a moment and try again.";
+    }
+    if (/web search|search request|\/search/.test(low) && /(unreachable|unavailable|failed|error|\b50[0-9]\b)/.test(low)) {
+      return "Web search is not available right now. Please try again shortly.";
+    }
+    if (/\b50[0-9]\b|bad gateway|service unavailable|upstream|overloaded/.test(low)) {
+      return "The AI service is having trouble right now. Please try again shortly.";
+    }
+    if (name === "typeerror" || /failed to fetch|network.?error|network request failed|cors|econn|enotfound|connection (failed|refused)|could not reach/.test(low)) {
+      return "I couldn’t connect. Check your internet connection and try again.";
+    }
+    if (/json|malformed|unexpected token|invalid response|empty response|stream ended|incomplete reply/.test(low)) {
+      return "I received an incomplete reply. Please try again.";
+    }
+    if (/content (policy|filter)|safety system|moderation/.test(low)) {
+      return "That request could not be processed. Try changing the wording.";
+    }
+    if (/\b400\b|bad request|rejected the request/.test(low)) {
+      return "The request could not be processed. Try changing or shortening it.";
+    }
+    if (/^(tab list|threads|read|check|draft|send).*(failed|not confirmed)/i.test(raw)) {
+      return "That action did not finish. Please try again.";
+    }
+
+    var technical = raw.length > 220 || /https?:\/\/|\b(http|cors|json|api|status|response body|typeerror|syntaxerror|exception|stack|fetch|endpoint|gateway|relay)\b|[{}<>]/i.test(raw);
+    if (raw && !technical) return raw;
+    return "Something went wrong. Please try again.";
+  }
+
   function fetchSentence(err) {
-    if (err && err.name === "AbortError") return "The provider took too long to answer. Try again.";
-    if (err && err.name === "TypeError") return "Could not reach the provider. Check the address and your connection.";
-    if (err && err.message) return err.message;
-    return "Could not reach the provider. Check the address and your connection.";
+    return humanizeUserError(err);
   }
 
   function withTimeout(ms) {
@@ -1894,7 +1955,7 @@
   }
 
   toast.success = function (msg, ms) { return toast(msg, null, null, ms, "success"); };
-  toast.error = function (msg, ms) { buzz(25); return toast(msg, null, null, ms || 4200, "error"); };
+  toast.error = function (msg, ms) { buzz(25); return toast(humanizeUserError(msg), null, null, ms || 4200, "error"); };
   toast.warn = function (msg, ms) { return toast(msg, null, null, ms || 4200, "warn"); };
   toast.info = function (msg, ms) { return toast(msg, null, null, ms, "info"); };
   toast.promise = function (p, o) {
@@ -1906,7 +1967,7 @@
       return v;
     }, function (e) {
       dismiss();
-      toast(typeof o.error === "function" ? o.error(e) : (o.error || "Something failed"), null, null, 4200, "error");
+      toast(humanizeUserError(typeof o.error === "function" ? o.error(e) : (o.error || e || "Something failed")), null, null, 4200, "error");
       throw e;
     });
   };
@@ -1966,6 +2027,11 @@
     el.style.top = "0px";
     var w = el.offsetWidth;
     var h = el.offsetHeight;
+    var viewH = window.visualViewport && window.visualViewport.height || window.innerHeight;
+    var topRoom = rect.top - gap - 8;
+    var bottomRoom = viewH - rect.bottom - gap - 8;
+    if (side === "top" && h > topRoom && bottomRoom > topRoom) side = "bottom";
+    else if (side !== "top" && h > bottomRoom && topRoom > bottomRoom) side = "top";
     var left, top, origin;
     if (align === "end") {
       left = rect.right - w;
@@ -1985,7 +2051,7 @@
       origin = "top " + origin;
     }
     left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-    if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
+    if (top + h > viewH - 8) top = Math.max(8, viewH - h - 8);
     if (top < 8) top = 8;
     el.style.left = left + "px";
     el.style.top = top + "px";
@@ -2450,9 +2516,9 @@
   }
 
   function errorCardHtml(sentence, partial) {
-    return '<div class="msg-error"><i data-lucide="triangle-alert"></i><div class="msg-error-text"><strong>' +
-      (partial ? "Reply interrupted" : "Message failed") + '</strong><p>' +
-      escapeHtml(sentence || "Something went wrong.") + '</p><button type="button" class="btn small" data-act="retry"><i data-lucide="rotate-ccw"></i><span>Retry</span></button></div></div>';
+    return '<div class="msg-error" role="status"><i data-lucide="circle-alert"></i><div class="msg-error-text"><strong>' +
+      (partial ? "Reply stopped early" : "Couldn’t get a reply") + '</strong><p>' +
+      escapeHtml(humanizeUserError(sentence)) + '</p><button type="button" class="btn small" data-act="retry"><i data-lucide="rotate-ccw"></i><span>Try again</span></button></div></div>';
   }
 
   function assistantBodyHtml(msg) {
@@ -3319,16 +3385,19 @@
   }
 
   function syncSearchBtn() {
-    /* The tools button wears one face: plus. The menu carries the state. */
+    /* The button keeps its plus face; a restrained dot reflects Web search. */
     var btn = $("searchBtn");
-    if (btn.getAttribute("data-face") === "plus") return;
-    btn.setAttribute("data-face", "plus");
-    btn.innerHTML = '<i data-lucide="plus"></i>';
-    btn.title = "Assistant tools";
-    btn.setAttribute("aria-label", "Assistant tools");
+    var web = !!state.settings.searchMode;
+    if (btn.getAttribute("data-face") !== "plus") {
+      btn.setAttribute("data-face", "plus");
+      btn.innerHTML = '<i data-lucide="plus"></i>';
+      refreshIcons();
+    }
+    btn.classList.toggle("tool-active", web);
+    btn.title = web ? "Assistant tools — Web search on" : "Assistant tools";
+    btn.setAttribute("aria-label", web ? "Assistant tools, Web search on" : "Assistant tools");
     btn.setAttribute("aria-haspopup", "menu");
     btn.removeAttribute("aria-pressed");
-    refreshIcons();
   }
 
   function fetchReadViaRelay(url, signal) {
@@ -3493,7 +3562,7 @@
     trace.setElapsed();
     var tickTimer = setInterval(function () { trace.setElapsed(); }, 100);
     var slowTimer = setTimeout(function () {
-      if (stream === s && row.isConnected) trace.setStatus("Still working, the relay is waking up");
+      if (stream === s && row.isConnected) trace.setStatus("Still working while the connection wakes up");
     }, 12000);
     setStreamingUI(true);
     if (isNearBottom()) scrollBottom();
@@ -3964,7 +4033,7 @@
       html += '<div class="banner warn" role="status"><i data-lucide="wifi-off"></i><span>You are offline.' +
         (state.outbox.length ? " " + state.outbox.length + " queued in their original chats." : " Network messages will wait for reconnection.") + "</span></div>";
     } else if (relayDown) {
-      html += '<div class="banner danger" role="alert"><i data-lucide="triangle-alert"></i><span>Relay unreachable.</span><button type="button" class="btn small" id="relayRecheck">Recheck</button></div>';
+      html += '<div class="banner danger" role="status"><i data-lucide="circle-alert"></i><span>Some online features are temporarily unavailable.</span><button type="button" class="btn small" id="relayRecheck">Try again</button></div>';
     } else if (state.outbox.length) {
       var next = state.outbox.filter(function (o) { return o && o.v === 2 && getChat(o.chatId); })[0];
       html += '<div class="banner warn" role="status"><i data-lucide="clock-3"></i><span>' + state.outbox.length +
@@ -4005,8 +4074,8 @@
     relayHealth(cfg, 3).then(function () {
       relayDown = false;
       updateBanners();
-      toast.success("Relay is reachable again.");
-    }, function () { toast.error("Relay is still unreachable."); });
+      toast.success("Connection restored.");
+    }, function () { toast.error("Still unable to connect. Please try again shortly."); });
   }
 
   var legacyOutboxWarned = false;
@@ -5877,19 +5946,30 @@
   }
 
   $("searchBtn").addEventListener("click", function () {
+    syncToolMenu();
     showPop($("toolMenu"), $("searchBtn"), { side: "top", align: "end" });
   });
 
   function syncToolMenu() {
     var web = !!state.settings.searchMode;
     $("toolWeb").setAttribute("aria-checked", web ? "true" : "false");
+    $("toolWebState").textContent = web ? "On for new messages" : "Off";
+    syncSearchBtn();
   }
 
   function toggleTool(setting, btn) {
     state.settings[setting] = !state.settings[setting];
     save();
     syncToolMenu();
-    if (setting === "searchMode" && state.settings.searchMode) warmRelay();
+    if (setting === "searchMode") {
+      if (state.settings.searchMode) {
+        warmRelay();
+        var target = getTarget();
+        toast(target && !target.missingKey ? "Web search is on for new messages." : "Web search is on. Add a model provider to use it in replies.");
+      } else {
+        toast("Web search is off.");
+      }
+    }
     dnote("chat", (btn || setting) + " " + (state.settings[setting] ? "on" : "off"));
   }
   $("toolWeb").addEventListener("click", function () { toggleTool("searchMode", "web-search"); });
@@ -7995,6 +8075,19 @@
 
   function init() {
     if (REDUCED) document.documentElement.classList.add("reduce-motion");
+    syncVisibleViewport();
+    window.addEventListener("resize", syncVisibleViewport, { passive: true });
+    window.addEventListener("orientationchange", syncVisibleViewport, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", syncVisibleViewport, { passive: true });
+      window.visualViewport.addEventListener("scroll", syncVisibleViewport, { passive: true });
+    }
+    input.addEventListener("focus", function () {
+      setTimeout(function () {
+        syncVisibleViewport();
+        if (document.activeElement === input) input.scrollIntoView({ block: "nearest" });
+      }, 80);
+    });
     state.settings.theme = "dark";
     document.documentElement.setAttribute("data-theme", "dark");
     if (window.innerWidth <= 768) document.body.classList.remove("nav-open");
@@ -8016,7 +8109,7 @@
     syncSend();
     refreshIcons();
     dnote("app", "Ready. " + state.providers.length + " providers, " + state.chats.length + " chats, " + state.settings.theme + " theme.");
-    syncSearchBtn();
+    syncToolMenu();
     syncAvatars();
     updateBanners();
     renderMemory();
