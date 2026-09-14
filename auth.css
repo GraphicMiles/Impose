@@ -156,7 +156,7 @@ i[data-lucide] { display: inline-flex; width: 20px; height: 20px; flex: none; }
 .quiet-link { color: var(--text-2); font-size: 12.5px; }
 .link-btn { color: var(--text); font-size: inherit; font-weight: 600; text-decoration: underline; text-decoration-color: var(--text-3); text-underline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) { .quiet-link:hover, .link-btn:hover { color: var(--text); } }
-input[type="email"], input[type="password"] {
+input[type="email"], .password-wrap > input {
   width: 100%;
   height: 46px;
   padding: 0 12px;
