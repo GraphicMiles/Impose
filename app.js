@@ -3380,6 +3380,10 @@
       settleBodyIn(s.body);
       staggerActions(s.row);
       countUpStats(s.row, msg);
+      if (s.autoPlayMedia) {
+        var firstPlayer = s.row.querySelector(".video-play");
+        if (firstPlayer) playVerifiedVideo(firstPlayer);
+      }
       if (isNearBottom()) scrollBottom();
     }
     if (failed) {
@@ -3820,7 +3824,10 @@
         }
       }
       if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
-      if (m && out && out.videos && out.videos.length) m.videos = out.videos.slice(0, 6);
+      if (m && out && out.videos && out.videos.length) {
+        m.videos = out.videos.slice(0, 6);
+        s.autoPlayMedia = /\b(?:play|watch|open)\b/i.test(userText);
+      }
       if (m && out && out.sources) {
         m.sources = out.sources.map(function (r) { return { title: r.title || r.url, url: r.url }; });
         m.trace = {
@@ -4008,7 +4015,13 @@
         return;
       }
       var useSearch = options && options.searchMode != null ? !!options.searchMode : !!state.settings.searchMode;
-      if (useSearch && window.ImposeHarness && window.ImposeTrace) {
+      /* Explicit web-capability requests route through the tool harness even
+         when the broad Web search toggle is off. The toggle controls ordinary
+         researched answers; it must not disable "play this", image, or future
+         registered capability intents. */
+      var capabilityIntent = !!(window.ImposeHarness && window.ImposeHarness.harness &&
+        window.ImposeHarness.harness.detect(text, agentContext(chat, text)).length);
+      if ((useSearch || capabilityIntent) && window.ImposeHarness && window.ImposeTrace) {
         dnote("chat", "Research via " + providerDisplay(t.provider));
         streamResearched(chat, t.provider, t.model, text, replaceIdx);
       } else {

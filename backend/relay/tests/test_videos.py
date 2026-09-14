@@ -9,8 +9,8 @@ os.environ.setdefault("CONTROL_KEY", "test123")
 
 from relay.videos import (  # noqa: E402
     _supported_result, _twitch_target, _youtube_id, _youtube_channel_id,
-    _video_subject, _verify_twitch_channel, parse_bing_videos, parse_youtube_feed,
-    parse_youtube_search,
+    _video_subject, _verify_twitch_channel, parse_bing_videos, parse_media_request,
+    parse_youtube_feed, parse_youtube_search, _twitch_live_row, TwitchLiveAdapter,
 )
 
 
@@ -24,6 +24,52 @@ def test_youtube_url_shapes_are_normalized():
     assert _youtube_channel_id("https://youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA/videos") == "UCX6OQ3DkcsbYNE6H8uQQuVA"
     assert _video_subject("Watch MrBeast's most recent YouTube upload") == "MrBeast"
     assert _video_subject("Find any currently available live Twitch streams right now") == ""
+
+
+def test_media_intent_is_generic_and_claim_driven():
+    live = parse_media_request("find a Twitch live stream and play it", 3)
+    assert live.subject == ""
+    assert live.platforms == frozenset({"twitch"})
+    assert live.required_claims == frozenset({"playable", "live"})
+
+    creator = parse_media_request("find MrBeast latest video and play it", 3)
+    assert creator.platforms == frozenset({"youtube"})
+    assert creator.subject == "MrBeast"
+    assert "latest" in creator.required_claims
+
+    trailer = parse_media_request("latest Marvel trailer for Avengers Doomsday", 3)
+    assert trailer.options["creator_hint"] is False
+    assert trailer.subject == "Marvel trailer Avengers Doomsday"
+
+
+def test_twitch_live_nodes_become_typed_verified_players():
+    row = _twitch_live_row({
+        "id": "stream-1", "title": "Live chess", "viewersCount": 42,
+        "broadcaster": {"login": "chessplayer", "displayName": "ChessPlayer"},
+    })
+    assert row["url"] == "https://www.twitch.tv/chessplayer"
+    assert row["kind"] == "twitch-channel"
+    assert row["live"] is True
+    assert row["viewers"] == 42
+
+
+def test_generic_twitch_live_discovery_has_no_seeded_channel(monkeypatch):
+    import relay.media_providers as videos
+    calls = []
+
+    async def fake_gql(client, query, variables=None):
+        calls.append((query, variables))
+        return {"streams": {"edges": [{"node": {
+            "id": "live-1", "title": "A live stream", "viewersCount": 5,
+            "broadcaster": {"login": "dynamic_channel", "displayName": "Dynamic"},
+        }}]}}
+
+    monkeypatch.setattr(videos, "_twitch_graphql", fake_gql)
+    request = parse_media_request("find a Twitch live stream and play it", 2)
+    rows = asyncio.run(TwitchLiveAdapter().discover(request, object()))
+    assert len(calls) == 1 and calls[0][1] is None
+    assert rows[0].value["id"] == "dynamic_channel"
+    assert rows[0].claims == frozenset({"playable", "live"})
 
 
 def test_twitch_targets_are_bounded():
@@ -74,6 +120,7 @@ def test_youtube_search_parser_returns_verified_ids_and_channel():
       "title":{"runs":[{"text":"ICEKING OCHACHO - NO COMPETITION (OFFICIAL VIDEO)"}]},
       "ownerText":{"runs":[{"text":"ICEKING OCHACHO","navigationEndpoint":{
         "browseEndpoint":{"browseId":"UC2gMbAUTXBQMQYP5dL7uoug"}}}]},
+      "ownerBadges":[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_VERIFIED"}}],
       "publishedTimeText":{"simpleText":"1 day ago"},
       "thumbnail":{"thumbnails":[{"url":"https://i.ytimg.com/vi/FMggEmTmQ0U/hq.jpg"}]}
     }},{"videoRenderer":{"videoId":"gTKS8SAwUzE",
@@ -84,6 +131,7 @@ def test_youtube_search_parser_returns_verified_ids_and_channel():
     assert rows[0]["id"] == "FMggEmTmQ0U"
     assert rows[0]["channelId"] == "UC2gMbAUTXBQMQYP5dL7uoug"
     assert rows[0]["channel"] == "ICEKING OCHACHO"
+    assert rows[0]["channelVerified"] is True
 
 
 def test_feed_parser_returns_real_video_metadata():

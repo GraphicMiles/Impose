@@ -32,6 +32,15 @@ test("register and resolve", function () {
   eq(h.resolve("search").id, "a.tool", "resolves");
 });
 
+test("capability detection is registry driven", function () {
+  var h = H.createHarness();
+  h.registerTool({ id: "weather.current", capabilities: ["weather.current"],
+    matches: function (q) { return /weather/i.test(q); },
+    run: function () { return Promise.resolve(); } });
+  eq(h.detect("weather in Lagos", "").join(","), "weather.current", "registered intent detected");
+  eq(h.detect("write a poem", "").length, 0, "unrelated request ignored");
+});
+
 test("register rejects bad tools", function () {
   var h = H.createHarness();
   throws(function () { h.registerTool(null); }, "id");
@@ -45,8 +54,11 @@ test("resolve unknown capability throws", function () {
   throws(function () { H.createHarness().resolve("browse"); }, "No tool");
 });
 
-test("default harness ships websearch", function () {
-  eq(H.harness.resolve("search").id, "web.search", "default tool");
+test("default harness ships web capabilities", function () {
+  eq(H.harness.resolve("search").id, "web.search", "search tool");
+  eq(H.harness.resolve("media.playable").id, "videos.search", "typed playable-media tool");
+  ok(H.harness.detect("play a Twitch live stream", "").indexOf("videos.search") !== -1,
+    "media command routes without broad search mode");
 });
 
 test("simplifyQuery strips framing", function () {
@@ -189,7 +201,13 @@ test("image intent and subject extraction", function () {
   eq(H.imageSubject("Show me 4 images of mark rober"), "mark rober", "subject stripped");
   eq(H.imageSubject("photos of cats"), "cats", "photos of stripped");
   ok(H.looksLikeVideoRequest("show MrBeast's most recent upload"), "recent upload is video intent");
+  ok(H.looksLikeVideoRequest("latest Marvel trailer for Avengers Doomsday"), "trailer is media intent");
+  ok(H.looksLikeMediaAction("find a live stream and play it", ""), "direct command is media-only");
+  ok(!H.looksLikeMediaAction("explain this trailer", ""), "mixed research request is not media-only");
+  ok(H.looksLikeVideoRequest("find a twitchlive stream"), "compound Twitch live wording is media intent");
   ok(H.looksLikeVideoRequest("watch https://twitch.tv/twitchdev"), "direct Twitch URL is video intent");
+  ok(H.looksLikeVideoRequest("play it", "Earlier: find a Twitch live stream"), "media follow-up uses context");
+  ok(!H.looksLikeVideoRequest("play it", "Earlier: explain chess"), "non-media follow-up stays ordinary");
   ok(!H.looksLikeVideoRequest("upload this PDF"), "ordinary file upload is not video intent");
 });
 
@@ -263,11 +281,26 @@ test("the images event carries the array", function () {
   });
 });
 
+test("videos tool enforces provider verification claims", function () {
+  return H.videosTool.run({ query: "live stream", limit: 3 }, { videos: function () {
+    return Promise.resolve({ provider: "test", results: [
+      { title: "Good", url: "https://www.twitch.tv/goodlive", kind: "twitch-channel",
+        id: "goodlive", live: true, verifiedClaims: ["playable", "live"] },
+      { title: "Unsupported live", url: "https://www.twitch.tv/notproved", kind: "twitch-channel",
+        id: "notproved", live: true, verifiedClaims: ["playable"] }
+    ] });
+  } }).then(function (out) {
+    eq(out.videos.length, 1, "unsupported claim rejected");
+    eq(out.videos[0].id, "goodlive", "verified result retained");
+    eq(out.videos[0].verificationSource, "", "provenance is normalized");
+  });
+});
+
 test("runAgent attaches verified playable video results", function () {
   var s = searchStub([{ results: [{ title: "MrBeast", url: "https://youtube.com/", snippet: "channel" }], provider: "p" }]);
   var emitted = null, system = "";
   return H.harness.runAgent({
-    query: "watch MrBeast latest video",
+    query: "Who is MrBeast and include his latest video",
     search: s.fn,
     videos: function (q) {
       ok(/MrBeast/i.test(q), "video query keeps subject");
@@ -307,6 +340,26 @@ test("verified video with no web sources cannot trigger a fabricated biography",
     eq(out.answer, "Here’s the verified video I found.", "only deterministic media text returned");
     eq(out.videos[0].id, "FMggEmTmQ0U", "real typed video retained");
     ok(out.answer.indexOf("PLACEHOLDER") === -1, "no placeholder URL");
+  });
+});
+
+test("direct media commands bypass generic search and the answer model", function () {
+  var searches = 0, rewrites = 0, completions = 0;
+  return H.harness.runAgent({
+    query: "find a Twitch live stream and play it",
+    search: function () { searches += 1; return Promise.resolve({ results: [] }); },
+    rewrite: function () { rewrites += 1; return Promise.resolve("wrong query"); },
+    videos: function () { return Promise.resolve({ provider: "twitch-gql", results: [{
+      title: "Live now", url: "https://www.twitch.tv/dynamiclive", kind: "twitch-channel",
+      id: "dynamiclive", live: true, verifiedClaims: ["playable", "live"]
+    }] }); },
+    emit: function () {}, onDelta: function () {},
+    complete: function () { completions += 1; return Promise.resolve(); }
+  }).then(function (out) {
+    eq(searches, 0, "generic web search bypassed");
+    eq(rewrites, 0, "explicit capability query is not model-rewritten");
+    eq(completions, 0, "answer model bypassed");
+    eq(out.videos[0].id, "dynamiclive", "typed live artifact returned");
   });
 });
 

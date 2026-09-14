@@ -3793,13 +3793,25 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return /\b(images?|photos?|pictures?|pics?)\s+(of|for|from|about)\b/i.test(s);
   }
 
-  var VIDEO_NOUN = /\b(videos?|watch|youtube|twitch|livestream|live\s+stream|streaming|clips?|vod)\b/i;
+  var VIDEO_NOUN = /\b(videos?|watch|youtube|twitch(?:\s*live)?|livestream|live\s+stream|streaming|clips?|vod|trailers?|teasers?)\b/i;
   var VIDEO_FAILURE_TEXT = "I couldn’t verify a playable result for this request. Try a specific channel or video name.";
   var RESEARCH_FAILURE_TEXT = "I couldn’t find reliable sources for this request. Try different search words.";
-  function looksLikeVideoRequest(text) {
+  function looksLikeVideoRequest(text, context) {
     var s = String(text || "");
-    return VIDEO_NOUN.test(s) || /\b(latest|newest|most recent)\s+(?:video\s+)?uploads?\b/i.test(s) ||
-      /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|twitch\.tv)\//i.test(s);
+    if (VIDEO_NOUN.test(s) || /\b(latest|newest|most recent)\s+(?:video\s+)?uploads?\b/i.test(s) ||
+        /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|twitch\.tv)\//i.test(s)) return true;
+    /* Resolve short media follow-ups from conversation state instead of
+       making each wording a new special case. */
+    return /\b(?:play|watch|open)\s+(?:it|that|this)\b/i.test(s) &&
+      VIDEO_NOUN.test(String(context || ""));
+  }
+
+  function looksLikeMediaAction(text, context) {
+    var s = String(text || "").trim();
+    if (!looksLikeVideoRequest(s, context)) return false;
+    return /^(?:please\s+)?(?:find|play|watch|show|get|open|check|search|pull)\b/i.test(s) ||
+      /^\s*(?:the\s+)?(?:latest|newest|most recent)\b/i.test(s) ||
+      /\b(?:play|watch|open)\s+(?:it|that|this)\b/i.test(s);
   }
 
   /* "Show me 4 images of Mark Rober" -> "Mark Rober": strip the request
@@ -3838,6 +3850,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     version: "1.0",
     description: "Finds real photos on the web and returns gallery results.",
     capabilities: ["images"],
+    matches: function (query) { return looksLikeImageRequest(query); },
     inputSchema: { query: "string, 1 to 500 chars", limit: "int, 1 to 12" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
@@ -3871,7 +3884,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     id: "videos.search",
     version: "1.0",
     description: "Finds verified YouTube videos and Twitch streams that the app can play.",
-    capabilities: ["videos"],
+    capabilities: ["videos", "media.playable"],
+    matches: function (query, context) { return looksLikeVideoRequest(query, context); },
     inputSchema: { query: "string, 1 to 500 chars", limit: "int, 1 to 10" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
@@ -3889,12 +3903,17 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             : kind === "twitch-video" ? /^\d+$/.test(id)
             : kind === "twitch-clip" ? /^[A-Za-z0-9_-]+$/.test(id) : false;
           var url = String(r.url || "");
+          var claims = Array.isArray(r.verifiedClaims) ? r.verifiedClaims.map(String) : [];
           if (!valid || !/^https:\/\//.test(url) || seen[kind + ":" + id]) return;
+          if (claims.length && (claims.indexOf("playable") === -1 ||
+              (r.live === true && claims.indexOf("live") === -1) ||
+              (r.latest === true && claims.indexOf("latest") === -1))) return;
           seen[kind + ":" + id] = 1;
           clean.push({ title: String(r.title || "Video").replace(/[<>\r\n]/g, " ").replace(/\s+/g, " ").slice(0, 200), url: url,
             platform: kind.indexOf("youtube") === 0 ? "youtube" : "twitch",
             kind: kind, id: id, thumb: /^https:\/\//.test(String(r.thumb || "")) ? String(r.thumb) : "",
-            publishedAt: String(r.publishedAt || "").slice(0, 40), live: !!r.live, latest: !!r.latest });
+            publishedAt: String(r.publishedAt || "").slice(0, 40), live: !!r.live, latest: !!r.latest,
+            verifiedClaims: claims.slice(0, 8), verificationSource: String(r.verificationSource || "").slice(0, 80) });
         });
         return { videos: clean, provider: (out && out.provider) || "", query: query };
       });
@@ -3945,8 +3964,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       throw new Error("No tool registered for capability: " + capability);
     }
 
-    /* One researched answer: plan the query, search, then complete.
-       Empty results still complete, from knowledge with a one-line note.
+    /* One capability run: plan once, execute typed media directly when the
+       request is an action, otherwise research and complete from evidence.
+       Empty evidence fails closed without an answer-model call.
        deps: query, search(q, limit), complete(system, user, onDelta),
        images(q, limit) (optional, enables the image gallery on image asks),
        emit(event), onDelta(chunk), rewrite(text) (optional, a promise of a
@@ -3964,10 +3984,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         try { return resolve("images"); } catch (e) { return null; }
       }() : null;
       var videosFn = (typeof deps.videos === "function") ? function () {
-        try { return resolve("videos"); } catch (e) { return null; }
+        try { return resolve("media.playable"); } catch (e) {
+          try { return resolve("videos"); } catch (legacy) { return null; }
+        }
       }() : null;
       var wantImages = !!(imagesFn && (deps.forceImages || looksLikeImageRequest(question)));
-      var wantVideos = !!(videosFn && (deps.forceVideos || looksLikeVideoRequest(question)));
+      var wantVideos = !!(videosFn && (deps.forceVideos || looksLikeVideoRequest(question, context)));
+      var mediaOnly = !!(wantVideos && !wantImages && looksLikeMediaAction(question, context));
       var ctxBlock = context ? "Conversation so far:\n" + context + "\n\n" : "";
       function withContext(q) { return ctxBlock + "Question: " + q; }
       function abortErr() {
@@ -3990,6 +4013,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
       function plan() {
         var fallback = fallbackSearchQuery(modelQuestion);
+        /* Explicit capability commands already carry their intent. Preserve
+           the user's words; only short pronoun follow-ups need model-assisted
+           context resolution. */
+        var shortMediaFollowup = /^\s*(?:please\s+)?(?:play|watch|open)\s+(?:it|that|this)\W*$/i.test(modelQuestion);
+        if (mediaOnly && !shortMediaFollowup) return Promise.resolve(fallback);
         if (typeof deps.rewrite !== "function") return Promise.resolve(fallback);
         deps.emit({ t: "status", text: "Planning the search" });
         return Promise.resolve().then(function () { return deps.rewrite(modelQuestion, context); }).then(function (q) {
@@ -4003,7 +4031,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
       return plan().then(function (planned) {
         if (deps.signal && deps.signal.aborted) throw abortErr();
-        deps.emit({ t: "status", text: "Searching the web" });
+        deps.emit({ t: "status", text: mediaOnly ? "Finding playable media" : "Searching the web" });
         var gallery = null;
         var galleryFailed = false;
         function pause(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
@@ -4020,10 +4048,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             if (i >= variants.length) return Promise.reject(new Error("every image attempt failed"));
             if (i > 0) {
               deps.emit({ t: "imagestry", q: variants[i], n: i + 1 });
-              return pause(400).then(function () { return imagesTool.run({ query: variants[i], limit: 6 }, { images: deps.images }); })
+              return pause(400).then(function () { return imagesFn.run({ query: variants[i], limit: 6 }, { images: deps.images }); })
                 .then(good, function () { return attempt(i + 1); });
             }
-            return imagesTool.run({ query: variants[i], limit: 6 }, { images: deps.images }).then(good, function () { return attempt(i + 1); });
+            return imagesFn.run({ query: variants[i], limit: 6 }, { images: deps.images }).then(good, function () { return attempt(i + 1); });
             function good(g) { return g.images.length ? g : attempt(i + 1); }
           }
           function criticRound(g) {
@@ -4035,7 +4063,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
                 var q2 = parseQueryAns(ans);
                 if (!q2 || q2.toLowerCase() === String(g.query).toLowerCase()) return g;
                 deps.emit({ t: "imagestry", q: q2, better: true });
-                return imagesTool.run({ query: q2, limit: 6 }, { images: deps.images })
+                return imagesFn.run({ query: q2, limit: 6 }, { images: deps.images })
                   .then(function (g2) { return g2.images.length ? g2 : g; }, function () { return g; });
               });
           }
@@ -4052,21 +4080,39 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           });
         })() : null;
         var videoResults = null;
+        var videoProvider = "";
         var videoFailed = false;
-        var needsVerifiedLive = /\b(?:live|livestream|live\s+stream)\b/i.test(question);
+        var needsVerifiedLive = /\b(?:live|livestream|live\s+stream|twitchlive)\b/i.test(question);
         var needsVerifiedLatest = /\b(?:latest|newest|most recent)\b/i.test(question);
         var videoJob = wantVideos ? Promise.resolve().then(function () {
           deps.emit({ t: "status", text: "Finding videos" });
-          return videosTool.run({ query: planned, limit: 4 }, { videos: deps.videos });
+          return videosFn.run({ query: planned, limit: 4 }, { videos: deps.videos });
         }).then(function (v) {
           var usable = v.videos || [];
           if (needsVerifiedLive) usable = usable.filter(function (item) { return item.live === true; });
           if (needsVerifiedLatest) usable = usable.filter(function (item) { return item.latest === true; });
           if (usable.length) {
             videoResults = usable;
-            deps.emit({ t: "videos", n: usable.length, provider: v.provider, videos: usable });
+            videoProvider = v.provider || "";
+            deps.emit({ t: "videos", n: usable.length, provider: videoProvider, videos: usable });
           } else videoFailed = true;
         }, function () { videoFailed = true; }) : null;
+        /* A direct capability command does not need generic web snippets or
+           an answer model. The typed artifact is the answer. This keeps
+           discovery providers below the capability boundary and prevents
+           unrelated search pages from polluting a media result. */
+        if (mediaOnly) {
+          return (videoJob || Promise.resolve()).then(function () {
+            deps.emit({ t: "settle", text: "Checked playable media" });
+            if (videoResults && videoResults.length) {
+              return { sources: [], provider: videoProvider, images: null,
+                videos: videoResults, answer: "Here’s the verified video I found." };
+            }
+            deps.emit({ t: "videosfail" });
+            return { sources: [], provider: videoProvider, images: null,
+              videos: null, videoFailed: true, answer: VIDEO_FAILURE_TEXT };
+          });
+        }
         return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
           var results = (out.results || []).filter(function (r) {
@@ -4273,6 +4319,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       },
       resolve: resolve,
       tools: function () { return tools.slice(); },
+      detect: function (query, context) {
+        return tools.filter(function (tool) {
+          return typeof tool.matches === "function" && tool.matches(query, context);
+        }).map(function (tool) { return tool.id; });
+      },
       runAgent: runAgent
     };
   }
@@ -4284,6 +4335,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     fallbackSearchQuery: fallbackSearchQuery,
     looksLikeImageRequest: looksLikeImageRequest,
     looksLikeVideoRequest: looksLikeVideoRequest,
+    looksLikeMediaAction: looksLikeMediaAction,
     imageSubject: imageSubject,
     imagesTool: imagesTool,
     videosTool: videosTool,
@@ -8470,6 +8522,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       settleBodyIn(s.body);
       staggerActions(s.row);
       countUpStats(s.row, msg);
+      if (s.autoPlayMedia) {
+        var firstPlayer = s.row.querySelector(".video-play");
+        if (firstPlayer) playVerifiedVideo(firstPlayer);
+      }
       if (isNearBottom()) scrollBottom();
     }
     if (failed) {
@@ -8910,7 +8966,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         }
       }
       if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
-      if (m && out && out.videos && out.videos.length) m.videos = out.videos.slice(0, 6);
+      if (m && out && out.videos && out.videos.length) {
+        m.videos = out.videos.slice(0, 6);
+        s.autoPlayMedia = /\b(?:play|watch|open)\b/i.test(userText);
+      }
       if (m && out && out.sources) {
         m.sources = out.sources.map(function (r) { return { title: r.title || r.url, url: r.url }; });
         m.trace = {
@@ -9098,7 +9157,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         return;
       }
       var useSearch = options && options.searchMode != null ? !!options.searchMode : !!state.settings.searchMode;
-      if (useSearch && window.ImposeHarness && window.ImposeTrace) {
+      /* Explicit web-capability requests route through the tool harness even
+         when the broad Web search toggle is off. The toggle controls ordinary
+         researched answers; it must not disable "play this", image, or future
+         registered capability intents. */
+      var capabilityIntent = !!(window.ImposeHarness && window.ImposeHarness.harness &&
+        window.ImposeHarness.harness.detect(text, agentContext(chat, text)).length);
+      if ((useSearch || capabilityIntent) && window.ImposeHarness && window.ImposeTrace) {
         dnote("chat", "Research via " + providerDisplay(t.provider));
         streamResearched(chat, t.provider, t.model, text, replaceIdx);
       } else {

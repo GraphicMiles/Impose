@@ -19,7 +19,7 @@ var safeHttpUrl = extractFunction("safeHttpUrl", "\n\n  function normalizeImport
 var sanitizeLogDetail = extractFunction("sanitizeLogDetail", "\n\n  function debugRow");
 var detailOf = extractFunction("detailOf", "\n\n  /* Someone else's HTTP code");
 global.detailOf = detailOf;
-var explain = extractFunction("explain", "\n\n  function fetchSentence");
+var explain = extractFunction("explain", "\n\n  /* Technical detail stays");
 var tests = [];
 function test(name, fn) { tests.push([name, fn]); }
 function ok(value, message) { if (!value) throw new Error(message || "expected truthy"); }
