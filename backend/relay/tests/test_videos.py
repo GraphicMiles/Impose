@@ -7,8 +7,8 @@ sys.path.insert(0, str(HERE.parents[2]))
 os.environ.setdefault("CONTROL_KEY", "test123")
 
 from relay.videos import (  # noqa: E402
-    _supported_result, _twitch_target, _youtube_id,
-    parse_bing_videos, parse_youtube_feed,
+    _supported_result, _twitch_target, _youtube_id, _youtube_channel_id,
+    _video_subject, parse_bing_videos, parse_youtube_feed,
 )
 
 
@@ -19,6 +19,8 @@ def test_youtube_url_shapes_are_normalized():
     row = _supported_result("https://youtube.com/watch?v=gTKS8SAwUzE&x=1", "Latest")
     assert row["url"] == "https://www.youtube.com/watch?v=gTKS8SAwUzE"
     assert row["kind"] == "youtube-video"
+    assert _youtube_channel_id("https://youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA/videos") == "UCX6OQ3DkcsbYNE6H8uQQuVA"
+    assert _video_subject("Watch MrBeast's most recent YouTube upload") == "MrBeast"
 
 
 def test_twitch_targets_are_bounded():

@@ -941,9 +941,9 @@
       .replace(/!\[([^\]]*)\]\(\s*[\s\S]*?\)/gi, "$1")
       .replace(/<img\b[^>]*>/gi, "")
       .replace(/\[([^\]]+)\]\(\s*https?:\/\/[^)\s]+\.(?:png|jpe?g|gif|webp|svg)(?:\?[^)]*)?\s*\)/gi, "$1")
-      .replace(/\[([^\]]+)\]\(\s*https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtu\.be|twitch\.tv)\/[^)]*\)/gi, "$1")
+      .replace(/\[([^\]]+)\]\(\s*https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtube-nocookie\.com|youtu\.be|twitch\.tv)\/[^)]*\)/gi, "$1")
       .replace(/(^|\s)https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)(?:\?\S*)?(?=\s|$)/gi, "$1")
-      .replace(/(^|\s)https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtu\.be|twitch\.tv)\/\S*(?=\s|$)/gi, "$1")
+      .replace(/(^|\s)https?:\/\/(?:[^/]+\.)?(?:youtube\.com|youtube-nocookie\.com|youtu\.be|twitch\.tv)\/\S*(?=\s|$)/gi, "$1")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
