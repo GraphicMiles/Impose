@@ -5304,6 +5304,9 @@
     hidePop(true);
     doExportJSON();
   });
+  $("acctAbout").addEventListener("click", function () {
+    window.location.href = window.location.protocol === "file:" ? "./about.html" : "./about";
+  });
 
   var wipeArmed = false;
   var wipeTimer = null;

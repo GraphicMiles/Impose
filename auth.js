@@ -150,13 +150,6 @@
     showToast("English is the only language available right now.");
   });
 
-  all(".check-row a").forEach(function (link) {
-    link.addEventListener("click", function (event) {
-      event.preventDefault();
-      showToast("Legal document link is ready for integration.");
-    });
-  });
-
   $("signInForm").addEventListener("submit", function (event) {
     event.preventDefault();
     clearErrors();
