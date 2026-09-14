@@ -5208,6 +5208,8 @@
 
   function displayName() {
     var n = String((state.settings && state.settings.displayName) || "").trim();
+    var session = authSession();
+    if ((!n || n === "You") && session && session.name) return String(session.name).trim().slice(0, 24) || "You";
     return n || "You";
   }
 
@@ -5225,11 +5227,21 @@
   var THEME_ICON = { dark: "moon", light: "sun", warm: "sunset" };
   var THEME_LABEL = { dark: "Dark", light: "Light", warm: "Warm" };
 
+  function authSession() {
+    try { return JSON.parse(localStorage.getItem("impose.auth.v1") || "null"); }
+    catch (err) { return null; }
+  }
+
   function syncAccountMenu() {
     syncAvatars();
     var next = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length];
     var btn = $("acctTheme");
+    var session = authSession();
     btn.innerHTML = '<i data-lucide="' + THEME_ICON[next] + '"></i><span>Appearance: ' + THEME_LABEL[next] + "</span>";
+    $("acctAuth").innerHTML = session
+      ? '<i data-lucide="log-out"></i><span>Sign out</span>'
+      : '<i data-lucide="log-in"></i><span>Sign in</span>';
+    $("acctSub").textContent = session && session.email ? session.email : "Local profile";
     disarmWipe();
     refreshIcons();
   }
@@ -5270,6 +5282,16 @@
     var next = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length];
     applyTheme(next);
     syncAccountMenu();
+  });
+  $("acctAuth").addEventListener("click", function () {
+    var session = authSession();
+    if (session) {
+      localStorage.removeItem("impose.auth.v1");
+      syncAccountMenu();
+      toast("Signed out. Your local chats are still here.");
+      return;
+    }
+    window.location.href = "./auth.html#sign-in";
   });
   $("acctSettings").addEventListener("click", function () {
     hidePop(true);

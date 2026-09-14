@@ -1,0 +1,234 @@
+(function () {
+  "use strict";
+
+  var AUTH_KEY = "impose.auth.v1";
+  var pendingEmail = sessionStorage.getItem("impose.auth.pendingEmail") || "";
+  var otpPurpose = sessionStorage.getItem("impose.auth.otpPurpose") || "signup";
+  var toastTimer = null;
+
+  function $(id) { return document.getElementById(id); }
+  function all(selector, root) { return Array.prototype.slice.call((root || document).querySelectorAll(selector)); }
+  function refreshIcons() { if (window.lucide) window.lucide.createIcons(); }
+  function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim()); }
+
+  function routeName() {
+    var route = location.hash.replace(/^#\/?/, "").split("?")[0];
+    return ["sign-in", "sign-up", "forgot-password", "otp", "reset-password", "success"].indexOf(route) >= 0 ? route : "sign-in";
+  }
+
+  function route(name, replace) {
+    var next = "#" + name;
+    if (replace) history.replaceState(null, "", next);
+    else if (location.hash !== next) location.hash = next;
+    renderRoute();
+  }
+
+  function renderRoute() {
+    var name = routeName();
+    all(".view").forEach(function (view) { view.hidden = view.dataset.view !== name; });
+    var titles = {
+      "sign-in": "Sign in · Impose",
+      "sign-up": "Create account · Impose",
+      "forgot-password": "Reset password · Impose",
+      "otp": "Verify your email · Impose",
+      "reset-password": "Choose a new password · Impose",
+      "success": "Account ready · Impose"
+    };
+    document.title = titles[name];
+    if (name === "otp") {
+      $("otpEmail").textContent = pendingEmail || "your email";
+      window.setTimeout(function () { var first = document.querySelector(".otp-input"); if (first) first.focus(); }, 40);
+    }
+    clearErrors();
+    refreshIcons();
+  }
+
+  function setError(id, message) {
+    var input = $(id);
+    var error = document.querySelector('[data-error-for="' + id + '"]');
+    if (input) {
+      input.classList.toggle("invalid", Boolean(message));
+      input.setAttribute("aria-invalid", message ? "true" : "false");
+    }
+    if (error) error.textContent = message || "";
+  }
+
+  function clearErrors() {
+    all(".field-error").forEach(function (node) { node.textContent = ""; });
+    all(".invalid").forEach(function (node) { node.classList.remove("invalid"); node.removeAttribute("aria-invalid"); });
+  }
+
+  function busy(form, on) {
+    var button = form.querySelector('[type="submit"]');
+    if (!button) return;
+    button.classList.toggle("busy", on);
+    button.disabled = on;
+    button.setAttribute("aria-busy", on ? "true" : "false");
+  }
+
+  function briefWork(form, callback) {
+    busy(form, true);
+    window.setTimeout(function () { busy(form, false); callback(); }, 520);
+  }
+
+  function savePending(email, purpose) {
+    pendingEmail = String(email || "").trim();
+    otpPurpose = purpose;
+    sessionStorage.setItem("impose.auth.pendingEmail", pendingEmail);
+    sessionStorage.setItem("impose.auth.otpPurpose", purpose);
+  }
+
+  function saveSession(name, email) {
+    var session = { name: name || email.split("@")[0], email: email, signedInAt: Date.now() };
+    localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+  }
+
+  function showToast(message) {
+    var node = $("authToast");
+    node.textContent = message;
+    node.hidden = false;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { node.hidden = true; }, 3200);
+  }
+
+  all("[data-route]").forEach(function (button) {
+    button.addEventListener("click", function () { route(button.dataset.route); });
+  });
+
+  all("[data-reveal]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var input = $(button.dataset.reveal);
+      var reveal = input.type === "password";
+      input.type = reveal ? "text" : "password";
+      button.setAttribute("aria-label", reveal ? "Hide password" : "Show password");
+      button.innerHTML = '<i data-lucide="' + (reveal ? "eye-off" : "eye") + '"></i>';
+      refreshIcons();
+    });
+  });
+
+  all("[data-provider]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      showToast(button.dataset.provider + " connection is ready for backend integration.");
+    });
+  });
+
+  $("signInForm").addEventListener("submit", function (event) {
+    event.preventDefault();
+    clearErrors();
+    var email = $("signInEmail").value.trim();
+    var password = $("signInPassword").value;
+    var okay = true;
+    if (!validEmail(email)) { setError("signInEmail", "Enter a valid email address."); okay = false; }
+    if (password.length < 8) { setError("signInPassword", "Password must be at least 8 characters."); okay = false; }
+    if (!okay) return;
+    briefWork(event.currentTarget, function () {
+      saveSession(email.split("@")[0], email);
+      location.href = "./index.html";
+    });
+  });
+
+  $("signUpPassword").addEventListener("input", function () {
+    var value = this.value;
+    var rules = { length: value.length >= 8, number: /\d/.test(value), special: /[^A-Za-z0-9]/.test(value) };
+    Object.keys(rules).forEach(function (key) {
+      var item = document.querySelector('[data-rule="' + key + '"]');
+      item.classList.toggle("met", rules[key]);
+      item.innerHTML = '<i data-lucide="' + (rules[key] ? "circle-check" : "circle") + '"></i>' + item.textContent;
+    });
+    refreshIcons();
+  });
+
+  $("signUpForm").addEventListener("submit", function (event) {
+    event.preventDefault();
+    clearErrors();
+    var name = $("signUpName").value.trim();
+    var email = $("signUpEmail").value.trim();
+    var password = $("signUpPassword").value;
+    var okay = true;
+    if (name.length < 2) { setError("signUpName", "Enter your full name."); okay = false; }
+    if (!validEmail(email)) { setError("signUpEmail", "Enter a valid email address."); okay = false; }
+    if (password.length < 8 || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) { setError("signUpPassword", "Use 8 characters, a number, and a special character."); okay = false; }
+    if (!$("terms").checked) { setError("terms", "Accept the terms to continue."); okay = false; }
+    if (!okay) return;
+    savePending(email, "signup");
+    sessionStorage.setItem("impose.auth.pendingName", name);
+    briefWork(event.currentTarget, function () { route("otp"); });
+  });
+
+  $("forgotForm").addEventListener("submit", function (event) {
+    event.preventDefault();
+    clearErrors();
+    var email = $("forgotEmail").value.trim();
+    if (!validEmail(email)) { setError("forgotEmail", "Enter the email linked to your account."); return; }
+    savePending(email, "reset");
+    briefWork(event.currentTarget, function () { route("otp"); });
+  });
+
+  var otpInputs = all(".otp-input");
+  otpInputs.forEach(function (input, index) {
+    input.addEventListener("input", function () {
+      input.value = input.value.replace(/\D/g, "").slice(-1);
+      $("otpError").textContent = "";
+      if (input.value && otpInputs[index + 1]) otpInputs[index + 1].focus();
+    });
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Backspace" && !input.value && otpInputs[index - 1]) otpInputs[index - 1].focus();
+      if (event.key === "ArrowLeft" && otpInputs[index - 1]) otpInputs[index - 1].focus();
+      if (event.key === "ArrowRight" && otpInputs[index + 1]) otpInputs[index + 1].focus();
+    });
+    input.addEventListener("paste", function (event) {
+      var digits = (event.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "").slice(0, 6);
+      if (!digits) return;
+      event.preventDefault();
+      digits.split("").forEach(function (digit, digitIndex) { if (otpInputs[digitIndex]) otpInputs[digitIndex].value = digit; });
+      otpInputs[Math.min(digits.length, 6) - 1].focus();
+    });
+  });
+
+  $("otpForm").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var code = otpInputs.map(function (input) { return input.value; }).join("");
+    if (code.length !== 6) { $("otpError").textContent = "Enter the complete six-digit code."; return; }
+    briefWork(event.currentTarget, function () {
+      if (otpPurpose === "reset") route("reset-password");
+      else {
+        saveSession(sessionStorage.getItem("impose.auth.pendingName") || pendingEmail.split("@")[0], pendingEmail);
+        $("successTitle").textContent = "Email verified";
+        $("successCopy").textContent = "Your Impose account is ready to use.";
+        route("success");
+      }
+    });
+  });
+
+  $("resendBtn").addEventListener("click", function () {
+    var button = this;
+    button.disabled = true;
+    button.textContent = "Code sent";
+    showToast("A new code was sent to " + (pendingEmail || "your email") + ".");
+    setTimeout(function () { button.disabled = false; button.textContent = "Resend code"; }, 5000);
+  });
+
+  $("resetForm").addEventListener("submit", function (event) {
+    event.preventDefault();
+    clearErrors();
+    var password = $("resetPassword").value;
+    var confirmation = $("confirmPassword").value;
+    var okay = true;
+    if (password.length < 8) { setError("resetPassword", "Use at least 8 characters."); okay = false; }
+    if (confirmation !== password) { setError("confirmPassword", "Passwords do not match."); okay = false; }
+    if (!okay) return;
+    briefWork(event.currentTarget, function () {
+      $("successTitle").textContent = "Password updated";
+      $("successCopy").textContent = "You can now sign in with your new password.";
+      var successLink = document.querySelector('[data-view="success"] .primary-btn');
+      successLink.href = "#sign-in";
+      successLink.querySelector("span").textContent = "Return to sign in";
+      route("success");
+    });
+  });
+
+  window.addEventListener("hashchange", renderRoute);
+  if (!location.hash) route("sign-in", true);
+  else renderRoute();
+  refreshIcons();
+})();
