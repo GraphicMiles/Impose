@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -8,7 +9,7 @@ os.environ.setdefault("CONTROL_KEY", "test123")
 
 from relay.videos import (  # noqa: E402
     _supported_result, _twitch_target, _youtube_id, _youtube_channel_id,
-    _video_subject, parse_bing_videos, parse_youtube_feed,
+    _video_subject, _verify_twitch_channel, parse_bing_videos, parse_youtube_feed,
 )
 
 
@@ -30,6 +31,23 @@ def test_twitch_targets_are_bounded():
     assert _twitch_target("https://twitch.tv/clip/Fancy_Clip-1") == ("twitch-clip", "Fancy_Clip-1")
     assert _twitch_target("https://twitch.tv/payments") is None
     assert _twitch_target("https://evil.test/twitchdev") is None
+
+
+def test_exact_twitch_channel_is_verified_by_its_page_title():
+    class Response:
+        status_code = 200
+        text = "<title>KaiCenat - Twitch</title>"
+
+    class Client:
+        async def get(self, url, **kwargs):
+            assert url == "https://www.twitch.tv/kaicenat"
+            return Response()
+
+    row = asyncio.run(_verify_twitch_channel(Client(), "Kai Cenat Twitch official channel"))
+    assert row["id"] == "kaicenat"
+
+    Response.text = "<title>Twitch</title>"
+    assert asyncio.run(_verify_twitch_channel(Client(), "Kai Cenat Twitch official channel")) is None
 
 
 def test_bing_parser_keeps_supported_relevant_results_only():
