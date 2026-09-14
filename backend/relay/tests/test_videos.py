@@ -12,6 +12,7 @@ from relay.videos import (  # noqa: E402
     _video_subject, _verify_twitch_channel, parse_bing_videos, parse_media_request,
     parse_youtube_feed, parse_youtube_search, _twitch_live_row, TwitchLiveAdapter,
 )
+from relay.media_providers import YouTubeMediaAdapter  # noqa: E402
 
 
 def test_youtube_url_shapes_are_normalized():
@@ -40,6 +41,35 @@ def test_media_intent_is_generic_and_claim_driven():
     trailer = parse_media_request("latest Marvel trailer for Avengers Doomsday", 3)
     assert trailer.options["creator_hint"] is False
     assert trailer.subject == "Marvel trailer Avengers Doomsday"
+
+    tutorial = parse_media_request("Find me a YouTube tutorial on system architecture", 3)
+    assert tutorial.platforms == frozenset({"youtube"})
+    assert tutorial.subject == "system architecture"
+
+
+def test_youtube_adapter_searches_clean_subject_not_chat_framing():
+    page = '''<script>var ytInitialData = {"contents":[{"videoRenderer":{
+      "videoId":"uxskKNcsFLU",
+      "title":{"runs":[{"text":"System Architecture Explained"}]},
+      "ownerText":{"runs":[{"text":"Engineering Channel"}]},
+      "thumbnail":{"thumbnails":[{"url":"https://i.ytimg.com/vi/uxskKNcsFLU/hqdefault.jpg"}]}
+    }}]};</script>'''
+    seen = []
+
+    class Response:
+        status_code = 200
+        text = page
+
+    class Client:
+        async def get(self, url, **kwargs):
+            seen.append(kwargs["params"]["search_query"])
+            return Response()
+
+    request = parse_media_request("Find me a YouTube tutorial on system architecture", 3)
+    rows = asyncio.run(YouTubeMediaAdapter().discover(request, Client()))
+    assert seen == ["system architecture"]
+    assert rows[0].value["id"] == "uxskKNcsFLU"
+    assert rows[0].claims == frozenset({"playable"})
 
 
 def test_twitch_live_nodes_become_typed_verified_players():

@@ -218,6 +218,12 @@ test("image intent and subject extraction", function () {
   eq(H.resolveMediaFollowup("Can you embed it here?",
     "user: Play me Iceking Ochacho latest song\nassistant: Here is the result"),
     "Play me Iceking Ochacho latest song", "embed follow-up inherits concrete request");
+  ok(H.looksLikeVideoRequest("Try again",
+    "user: Find me a YouTube tutorial on system architecture\nassistant: I couldn’t verify it"),
+    "retry after a media failure remains media intent");
+  eq(H.resolveMediaFollowup("Try again",
+    "user: Find me a YouTube tutorial on system architecture\nassistant: I couldn’t verify it"),
+    "Find me a YouTube tutorial on system architecture", "retry restores media request");
 });
 
 test("image retry removes generic descriptive words", function () {
@@ -393,6 +399,27 @@ test("generic song follow-up reuses the last concrete media request", function (
     eq(rewrites, 0, "model rewrite bypassed");
     eq(out.traceStatus, "Checked playable media", "typed capability status returned");
     eq(out.videos[0].id, "FMggEmTmQ0U", "verified player retained");
+  });
+});
+
+test("try again after media failure retries the typed capability", function () {
+  var received = "";
+  return H.harness.runAgent({
+    query: "Try again",
+    context: "user: Find me a YouTube tutorial on system architecture\nassistant: I couldn’t verify a playable result.",
+    search: function () { throw new Error("generic search must not run"); },
+    rewrite: function () { throw new Error("model rewrite must not run"); },
+    videos: function (q) {
+      received = q;
+      return Promise.resolve({ provider: "youtube-search", results: [{
+        title: "System Architecture Explained", url: "https://www.youtube.com/watch?v=uxskKNcsFLU",
+        kind: "youtube-video", id: "uxskKNcsFLU", verifiedClaims: ["playable"]
+      }] });
+    },
+    emit: function () {}, onDelta: function () {}, complete: function () { throw new Error("model must not answer"); }
+  }).then(function (out) {
+    eq(received, "Find me a YouTube tutorial on system architecture", "failed media query restored");
+    eq(out.videos[0].id, "uxskKNcsFLU", "verified tutorial retained");
   });
 });
 
