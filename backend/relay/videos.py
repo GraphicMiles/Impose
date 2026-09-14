@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from relay.search import UA, _significant
+from relay.search import UA, _significant, engine_search
 
 BING_VIDEOS = "https://www.bing.com/videos/search"
 YOUTUBE_FEED = "https://www.youtube.com/feeds/videos.xml"
@@ -21,6 +21,7 @@ VIDEO_TIMEOUT_SECONDS = 12.0
 _VIDEO_GENERIC = {
     "video", "videos", "watch", "latest", "newest", "recent", "upload",
     "uploads", "live", "stream", "streaming", "official", "channel",
+    "youtube", "twitch",
 }
 _TWITCH_RESERVED = {
     "directory", "downloads", "jobs", "login", "payments", "search",
@@ -48,6 +49,18 @@ def _youtube_id(url):
             m = re.match(r"^/(?:shorts|live|embed)/([A-Za-z0-9_-]{11})(?:/|$)", p.path)
             value = m.group(1) if m else ""
     return value if re.fullmatch(r"[A-Za-z0-9_-]{11}", value or "") else ""
+
+
+def _youtube_channel_id(url):
+    try:
+        p = urlparse(str(url or ""))
+    except Exception:
+        return ""
+    host = (p.hostname or "").lower().removeprefix("www.").removeprefix("m.")
+    if host != "youtube.com":
+        return ""
+    m = re.match(r"^/channel/(UC[A-Za-z0-9_-]{20,})(?:/|$)", p.path)
+    return m.group(1) if m else ""
 
 
 def _twitch_target(url):
@@ -187,6 +200,56 @@ async def _latest_from_feed(client, channel_id):
     return None
 
 
+def _video_subject(query):
+    value = re.sub(r"['’]s\b", "", str(query or ""), flags=re.IGNORECASE)
+    words = re.findall(r"[A-Za-z0-9@_-]+", value)
+    generic = _VIDEO_GENERIC | {"most", "recent", "new", "find", "show", "play", "give", "open"}
+    kept = [w for w in words if w.lower().lstrip("@") not in generic and not w.lower().startswith("http")]
+    return " ".join(kept).strip()
+
+
+async def _find_youtube_channel(query):
+    for url in _direct_urls(query):
+        found = _youtube_channel_id(url.rstrip(".,)"))
+        if found:
+            return found
+    subject = _video_subject(query)
+    if not subject:
+        return ""
+    try:
+        out = await engine_search(subject + " official YouTube channel", limit=6,
+                                  domains=["youtube.com"])
+    except Exception:
+        return ""
+    wanted = re.sub(r"[^a-z0-9]", "", subject.lower())
+    for hit in out.get("results", []):
+        channel_id = _youtube_channel_id(hit.get("url"))
+        label = re.sub(r"[^a-z0-9]", "", str(hit.get("title", "")).lower())
+        if channel_id and (not wanted or wanted in label or label in wanted):
+            return channel_id
+    return ""
+
+
+def _rank_twitch(rows, query):
+    generic = _VIDEO_GENERIC | {"official", "open", "find", "show", "play"}
+    words = [w for w in re.findall(r"[a-z0-9]+", str(query or "").lower())
+             if len(w) > 1 and w not in generic]
+    target = "".join(words)
+    def score(row):
+        if row.get("kind") != "twitch-channel":
+            return 0
+        raw_ident = row.get("id", "")
+        ident = raw_ident.replace("_", "")
+        if target and raw_ident == target:
+            return 120
+        if target and ident == target:
+            return 100
+        if target and (ident.startswith(target) or target.startswith(ident)):
+            return 70
+        return 10
+    return sorted(rows, key=score, reverse=True)
+
+
 async def engine_videos(query, limit=6):
     """Return verified embeddable results, preferring channel RSS for latest."""
     query = str(query or "").strip()
@@ -202,9 +265,23 @@ async def engine_videos(query, limit=6):
         async with httpx.AsyncClient(headers=headers, follow_redirects=True, max_redirects=3) as client:
             r = await client.get(BING_VIDEOS, params={"q": query, "FORM": "HDRSC4"}, timeout=VIDEO_TIMEOUT_SECONDS)
             searched = parse_bing_videos(r.text, query, cap) if r.status_code == 200 else []
+            wants_twitch = bool(re.search(r"\btwitch\b", query, re.I))
+            if wants_twitch:
+                searched = [row for row in searched if row.get("platform") == "twitch"]
+            if not searched:
+                try:
+                    domains = ["twitch.tv"] if wants_twitch else ["youtube.com", "twitch.tv"]
+                    web = await engine_search(query, limit=cap, domains=domains)
+                    for hit in web.get("results", []):
+                        row = _supported_result(hit.get("url"), hit.get("title"), "", hit.get("snippet", ""))
+                        if row:
+                            searched.append(row)
+                except Exception:
+                    pass
+            searched = _rank_twitch(searched, query)
             rows = direct + searched
             if re.search(r"\b(latest|newest|most recent|recent upload)\b", query, re.I):
-                channel_id = next((x.get("channelId") for x in searched if x.get("channelId")), "")
+                channel_id = await _find_youtube_channel(query)
                 latest = await _latest_from_feed(client, channel_id)
                 if latest:
                     rows = [latest]  # authoritative answer for singular “latest” intent
