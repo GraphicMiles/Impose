@@ -5,8 +5,16 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v13";
+var CACHE = "impose-shell-v14";
 var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
+var PUBLIC_ROUTE = {
+  "/about": "./about.html",
+  "/privacy": "./privacy.html",
+  "/terms": "./terms.html",
+  "/data-security": "./data-security.html",
+  "/contact": "./contact.html",
+  "/acceptable-use": "./acceptable-use.html"
+};
 var CORE = [
   "./",
   "./index.html",
@@ -15,6 +23,14 @@ var CORE = [
   "./auth.html",
   "./auth.js",
   "./auth.css",
+  "./about.html",
+  "./privacy.html",
+  "./terms.html",
+  "./data-security.html",
+  "./contact.html",
+  "./acceptable-use.html",
+  "./public.css",
+  "./public.js",
   "./agent/trace.js",
   "./agent/harness.js",
   "./agent/features.js",
@@ -30,6 +46,14 @@ var PRECACHE = [
   "./auth.html",
   "./auth.js",
   "./auth.css",
+  "./about.html",
+  "./privacy.html",
+  "./terms.html",
+  "./data-security.html",
+  "./contact.html",
+  "./acceptable-use.html",
+  "./public.css",
+  "./public.js",
   "./agent/trace.js",
   "./agent/harness.js",
   "./agent/features.js",
@@ -87,7 +111,10 @@ self.addEventListener("fetch", function (e) {
     }).catch(function () {
       return caches.match(e.request).then(function (hit) {
         if (hit) return hit;
-        return caches.match(AUTH_ROUTE.test(url.pathname) ? "./auth.html" : "./index.html");
+        if (AUTH_ROUTE.test(url.pathname)) return caches.match("./auth.html");
+        var publicPath = url.pathname.replace(/\/$/, "") || "/";
+        if (PUBLIC_ROUTE[publicPath]) return caches.match(PUBLIC_ROUTE[publicPath]);
+        return caches.match("./index.html");
       });
     }));
     return;
