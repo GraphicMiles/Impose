@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "providers": [
     {
       "id": "openverse",
@@ -922,6 +922,44 @@
       "authenticity": 0.9,
       "safety": 0.89,
       "version_accuracy": 0.95
+    },
+    {
+      "id": "simple-icons",
+      "mechanism": "catalog_api",
+      "source_classes": [
+        "brand_asset_repository",
+        "official_source_index",
+        "design_resource_repository"
+      ],
+      "artifact_types": [
+        "image",
+        "icon",
+        "logo",
+        "ui_asset"
+      ],
+      "formats": [
+        "svg"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "license_metadata",
+        "publisher_identity"
+      ],
+      "quality": 0.92,
+      "authority": 0.9,
+      "freshness": 0.9,
+      "coverage": 0.93,
+      "availability": 0.96,
+      "license_clarity": 0.9,
+      "download_reliability": 0.98,
+      "trust": 0.94,
+      "specialization": 0.99,
+      "authenticity": 0.93,
+      "safety": 0.96,
+      "version_accuracy": 0.93
     }
   ]
 }
