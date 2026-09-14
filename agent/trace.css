@@ -9,20 +9,6 @@ html[data-theme="dark"] {
   --warn-soft: rgba(251, 191, 36, 0.13);
 }
 
-html[data-theme="light"] {
-  --ok: #047857;
-  --ok-soft: rgba(4, 120, 87, 0.1);
-  --warn: #b45309;
-  --warn-soft: rgba(180, 83, 9, 0.1);
-}
-
-html[data-theme="warm"] {
-  --ok: #4d7c0f;
-  --ok-soft: rgba(77, 124, 15, 0.12);
-  --warn: #b45309;
-  --warn-soft: rgba(180, 83, 9, 0.12);
-}
-
 @keyframes trace-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }

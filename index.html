@@ -21,7 +21,7 @@
 <meta name="twitter:title" content="Impose">
 <meta name="twitter:description" content="Impose chat client. Bring your own key and chat with any provider.">
 <meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="dark">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-apple.png">
 <meta name="theme-color" content="#171717">
@@ -31,15 +31,6 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="stylesheet" href="./styles.css">
 <link rel="stylesheet" href="./agent/trace.css">
-<script>
-try {
-  var saved = JSON.parse(localStorage.getItem("impose.clone.v1") || "{}");
-  var theme = (saved.settings && saved.settings.theme) || "dark";
-  document.documentElement.setAttribute("data-theme", theme);
-} catch (err) {
-  document.documentElement.setAttribute("data-theme", "dark");
-}
-</script>
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "ea82ca6a085a41139df10d19abeda6a6"}'></script><!-- End Cloudflare Web Analytics -->
 </head>
 <body>
@@ -247,7 +238,6 @@ try {
       <span class="acct-sub" id="acctSub">Local profile</span>
     </div>
   </div>
-  <button class="pop-item" id="acctTheme" role="menuitem"><i data-lucide="moon"></i><span>Appearance: Dark</span></button>
   <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
   <button class="pop-item" id="acctSettings" role="menuitem"><i data-lucide="settings"></i><span>Settings</span></button>
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
@@ -312,14 +302,7 @@ try {
     </div>
     <div class="settings-body">
       <div data-pane="general">
-        <section class="settings-section">
-          <h3>Appearance</h3>
-          <div class="seg" id="themeSeg" role="group" aria-label="Theme">
-            <button data-theme-opt="light" aria-pressed="false"><i data-lucide="sun"></i><span>Light</span></button>
-            <button data-theme-opt="dark" aria-pressed="true"><i data-lucide="moon"></i><span>Dark</span></button>
-            <button data-theme-opt="warm" aria-pressed="false"><i data-lucide="sunset"></i><span>Warm</span></button>
-          </div>
-        </section>
+
         <section class="settings-section">
           <h3>Messages</h3>
           <div class="setting-row">

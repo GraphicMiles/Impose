@@ -19,8 +19,15 @@
     catch (e) { return "linear"; }
   }
   function play(params) {
-    if (!motionOK()) return null;
-    try { return window.anime.animate(params); }
+    if (!motionOK() || !params || !params.targets) return null;
+    try {
+      /* anime.js v4 takes targets separately. Keeping the old v3-shaped
+         call here silently animated the options object instead of the UI. */
+      var options = Object.assign({}, params);
+      var targets = options.targets;
+      delete options.targets;
+      return window.anime.animate(targets, options);
+    }
     catch (e) { return null; }
   }
   function noTrans(els) {
@@ -526,6 +533,9 @@
         var parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.chats)) {
           parsed.settings = Object.assign(defaultSettings(), parsed.settings || {});
+          /* Dark is the only supported appearance. Migrate old light or warm
+             preferences so every surface uses one predictable token set. */
+          parsed.settings.theme = "dark";
           parsed.providers = Array.isArray(parsed.providers) ? parsed.providers : [];
           parsed.providers.forEach(function (pr) {
             if (!pr.model && pr.models) pr.model = pr.models[pr.activeSlot || 0] || pr.models[0] || "";
@@ -615,6 +625,7 @@
   var activeId = state.settings.activeChatId || null;
   var lastSendAt = 0;
   var relayDown = false;
+  var relayRecoveryCheck = null;
   var draining = false;
   var titling = {};
   var stream = null; // canned: { timer, thinkTimer, ... } live: { live, controller, text, ... }
@@ -944,15 +955,37 @@
     return "The relay refused this request (" + code + ")." + tail;
   }
 
-  /* Is the relay's GPU gateway answering? /health is open by design, so no
-     key is needed to poll it. */
+  /* /health is public. Retry transient browser, CORS, DNS, and Render wake
+     failures before declaring the relay unavailable. */
+  function relayHealth(cfg, attempts) {
+    attempts = Math.max(1, attempts || 1);
+    return fetch(stripSlash(cfg.url) + "/health", {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+      signal: withTimeout(9000)
+    }).then(function (r) {
+      if (!r.ok) throw new Error("Relay health returned " + r.status);
+      return r.json();
+    }).then(function (d) {
+      if (!d || d.ok !== true) throw new Error("Unexpected relay health response");
+      return d;
+    }).catch(function (err) {
+      if (attempts <= 1) throw err;
+      return new Promise(function (resolve) { setTimeout(resolve, 700); }).then(function () {
+        return relayHealth(cfg, attempts - 1);
+      });
+    });
+  }
+
+  /* Is the relay's optional GPU gateway answering? */
   function relayGatewayUp(cfg, signal) {
-    var opts = { cache: "no-store" };
-    if (signal) opts.signal = signal;
-    else opts.signal = withTimeout(8000);
-    return fetch(stripSlash(cfg.url) + "/health", opts).then(function (r) {
+    if (!signal) {
+      return relayHealth(cfg, 2).then(function (d) { return d.gateway_up === true; }, function () { return false; });
+    }
+    return fetch(stripSlash(cfg.url) + "/health", { cache: "no-store", mode: "cors", signal: signal }).then(function (r) {
       if (!r.ok) return false;
-      return r.json().then(function (d) { return !!(d && d.gateway_up === true); }, function () { return false; });
+      return r.json().then(function (d) { return !!(d && d.ok === true && d.gateway_up === true); }, function () { return false; });
     }, function () { return false; });
   }
 
@@ -2582,7 +2615,11 @@
   function renderMessages() {
     var chat = getChat(activeId);
     messagesEl.innerHTML = "";
-    if (!chat) return;
+    if (!chat) {
+      messagesEl.removeAttribute("data-chat-id");
+      return;
+    }
+    messagesEl.dataset.chatId = chat.id;
     chat.messages.forEach(function (m, i) {
       var row = document.createElement("div");
       row.className = "msg " + m.role;
@@ -2601,6 +2638,10 @@
   }
 
   function showEmpty() {
+    messagesEl.innerHTML = "";
+    messagesEl.removeAttribute("data-chat-id");
+    messagesEl.style.opacity = "";
+    messagesEl.style.transform = "";
     emptyState.hidden = false;
     messagesEl.hidden = true;
     composerDock.hidden = true;
@@ -2652,29 +2693,10 @@
     hideJump(true);
     rememberActiveChat(null, historyMode === false ? null : (historyMode || "push"));
     renderList();
-    if (motionOK() && messagesEl.children.length && !messagesEl.hidden) {
-      try {
-        play({
-          targets: messagesEl,
-          opacity: [1, 0],
-          translateY: [0, 10],
-          duration: 170,
-          ease: EZ("inCubic"),
-          onComplete: function () {
-            messagesEl.innerHTML = "";
-            showEmpty();
-            messagesEl.style.opacity = "";
-            messagesEl.style.transform = "";
-          }
-        });
-      } catch (e) {
-        messagesEl.innerHTML = "";
-        showEmpty();
-      }
-    } else {
-      messagesEl.innerHTML = "";
-      showEmpty();
-    }
+    /* Navigation state must never depend on an animation callback. The old
+       view is cleared synchronously so a failed or unavailable motion engine
+       cannot leave the previous conversation painted over a fresh chat. */
+    showEmpty();
     autogrow();
     dnote("chat", "New chat started");
     syncSend();
@@ -3425,7 +3447,9 @@
       warmedAt = Date.now();
       var cfg = relayCfg();
       if (!cfg.url) return;
-      fetch(stripSlash(cfg.url) + "/health", { method: "GET", mode: "cors", cache: "no-store" }).then(function () {}, function () {});
+      relayHealth(cfg, 2).then(function () {
+        if (relayDown) { relayDown = false; updateBanners(); }
+      }, function () { /* waking is best effort */ });
     } catch (e) { /* waking is best effort */ }
   }
 
@@ -3958,16 +3982,27 @@
   }
 
   function markRelayDown() {
-    if (relayDown) return;
-    relayDown = true;
-    updateBanners();
+    if (!relayDown) {
+      relayDown = true;
+      updateBanners();
+    }
+    /* A failed feature request can be transient or provider-specific. Verify
+       relay liveness in the background and remove a stale warning as soon as
+       the public health endpoint answers. */
+    if (relayRecoveryCheck) return;
+    var cfg = relayCfg();
+    if (!cfg.url) return;
+    relayRecoveryCheck = relayHealth(cfg, 2).then(function () {
+      relayRecoveryCheck = null;
+      relayDown = false;
+      updateBanners();
+    }, function () { relayRecoveryCheck = null; });
   }
 
   function recheckRelay() {
     var cfg = relayCfg();
     if (!cfg.url) { toast("Set the relay address first."); openSettings("providers"); return; }
-    fetch(stripSlash(cfg.url) + "/health", { headers: { Authorization: "Bearer " + cfg.key } }).then(function (r) {
-      if (!r.ok) throw new Error("bad");
+    relayHealth(cfg, 3).then(function () {
       relayDown = false;
       updateBanners();
       toast.success("Relay is reachable again.");
@@ -4469,7 +4504,6 @@
       { icon: "square-pen", title: "New chat", hint: "Start fresh", run: function () { newChat(); } },
       { icon: "search", title: "Search chats", hint: "Find a conversation", run: function () { openSearch(); } },
       { icon: "globe", title: state.settings.searchMode ? "Turn deep search off" : "Turn deep search on", hint: "Research with citations", run: function () { $("searchBtn").click(); } },
-      { icon: "moon", title: "Appearance", hint: "Next theme", run: function () { var n = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length]; applyTheme(n); } },
       { icon: "settings", title: "Settings", hint: "General", run: function () { openSettings("general"); } },
       { icon: "cpu", title: "Providers", hint: "Keys and models", run: function () { openSettings("providers"); } },
       { icon: "download", title: "Export chats", hint: "JSON backup", run: function () { doExportJSON(); } },
@@ -5223,10 +5257,6 @@
     if (document.activeElement !== $("acctName")) $("acctName").value = name;
   }
 
-  var THEME_ORDER = ["dark", "light", "warm"];
-  var THEME_ICON = { dark: "moon", light: "sun", warm: "sunset" };
-  var THEME_LABEL = { dark: "Dark", light: "Light", warm: "Warm" };
-
   function authSession() {
     try { return JSON.parse(localStorage.getItem("impose.auth.v1") || "null"); }
     catch (err) { return null; }
@@ -5234,10 +5264,7 @@
 
   function syncAccountMenu() {
     syncAvatars();
-    var next = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length];
-    var btn = $("acctTheme");
     var session = authSession();
-    btn.innerHTML = '<i data-lucide="' + THEME_ICON[next] + '"></i><span>Appearance: ' + THEME_LABEL[next] + "</span>";
     $("acctAuth").innerHTML = session
       ? '<i data-lucide="log-out"></i><span>Sign out</span>'
       : '<i data-lucide="log-in"></i><span>Sign in</span>';
@@ -5277,11 +5304,6 @@
   $("acctName").addEventListener("keydown", function (e) {
     if (e.key === "Enter") $("acctName").blur();
     if (e.key === "Escape") { $("acctName").blur(); hidePop(); }
-  });
-  $("acctTheme").addEventListener("click", function () {
-    var next = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length];
-    applyTheme(next);
-    syncAccountMenu();
   });
   $("acctAuth").addEventListener("click", function () {
     var session = authSession();
@@ -5587,11 +5609,12 @@
     var removedBrowserPlan = pendingBrowserPlan && pendingBrowserPlan.chatId === id ? pendingBrowserPlan : null;
     state.outbox = state.outbox.filter(function (o) { return !o || o.chatId !== id; });
     if (removedBrowserPlan) savePendingBrowserPlan(null);
-    if (activeId === id) {
-      rememberActiveChat(null, "push");
-      messagesEl.innerHTML = "";
-      showEmpty();
-    }
+    var wasDisplayed = messagesEl.dataset.chatId === id;
+    if (activeId === id) rememberActiveChat(null, "push");
+    /* Also clear a stale rendered view defensively. This covers interrupted
+       navigation and old cached builds where activeId had already been reset
+       before the visible conversation was removed. */
+    if (wasActive || wasDisplayed) showEmpty();
     save();
     updateBanners();
     renderList();
@@ -5749,10 +5772,6 @@
   var settingsModal = $("settingsModal");
 
   function syncSettingsUI() {
-    var segBtns = $("themeSeg").querySelectorAll("button");
-    segBtns.forEach(function (b) {
-      b.setAttribute("aria-pressed", b.dataset.themeOpt === state.settings.theme ? "true" : "false");
-    });
     $("tglEnter").setAttribute("aria-checked", state.settings.enterToSend ? "true" : "false");
     $("tglChips").setAttribute("aria-checked", state.settings.showChips ? "true" : "false");
     $("tglRedact").setAttribute("aria-checked", state.settings.redactPII ? "true" : "false");
@@ -5812,20 +5831,6 @@
   document.querySelector(".settings-tabs").addEventListener("click", function (e) {
     var b = e.target.closest("[data-stab]");
     if (b) switchTab(b.dataset.stab);
-  });
-
-  function applyTheme(theme) {
-    state.settings.theme = theme;
-    document.documentElement.setAttribute("data-theme", theme);
-    save();
-    syncSettingsUI();
-    dnote("app", "Theme: " + theme);
-  }
-
-  $("themeSeg").addEventListener("click", function (e) {
-    var b = e.target.closest("[data-theme-opt]");
-    if (!b) return;
-    applyTheme(b.dataset.themeOpt);
   });
 
   function wireToggle(id, key, onChange) {
@@ -7807,12 +7812,11 @@
     sub.textContent = stripSlash(cfg.url);
     relayCardBusy = true;
     if (!cfg.key) {
-      /* Visitors: the open /health endpoint says enough. */
-      fetch(stripSlash(cfg.url) + "/health", { signal: withTimeout(9000) }).then(function (r) {
-        if (!r.ok) throw new Error("bad");
-        return r.json();
-      }).then(function () {
+      /* Visitors: the open /health endpoint says enough. Retry Render wakes
+         and short network interruptions before painting an error state. */
+      relayHealth(cfg, 3).then(function () {
         relayCardBusy = false;
+        if (relayDown) { relayDown = false; updateBanners(); }
         dot.className = "relay-dot ok";
         title.textContent = "Public search ready";
         sub.textContent = stripSlash(cfg.url);
@@ -7991,7 +7995,8 @@
 
   function init() {
     if (REDUCED) document.documentElement.classList.add("reduce-motion");
-    document.documentElement.setAttribute("data-theme", state.settings.theme);
+    state.settings.theme = "dark";
+    document.documentElement.setAttribute("data-theme", "dark");
     if (window.innerWidth <= 768) document.body.classList.remove("nav-open");
     else document.body.classList.add("nav-open");
     if (state.settings.activeProviderId && !getProvider(state.settings.activeProviderId)) {

@@ -2,16 +2,7 @@
   "use strict";
 
   var AUTH_KEY = "impose.auth.v1";
-  try {
-    var saved = JSON.parse(localStorage.getItem("impose.clone.v1") || "{}");
-    var theme = (saved.settings && saved.settings.theme) || "dark";
-    if (["dark", "light", "warm"].indexOf(theme) === -1) theme = "dark";
-    document.documentElement.setAttribute("data-theme", theme);
-    var metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (metaTheme) metaTheme.content = theme === "light" ? "#ffffff" : (theme === "warm" ? "#faf9f5" : "#212121");
-  } catch (err) {
-    document.documentElement.setAttribute("data-theme", "dark");
-  }
+  document.documentElement.setAttribute("data-theme", "dark");
   var pendingEmail = sessionStorage.getItem("impose.auth.pendingEmail") || "";
   var otpPurpose = sessionStorage.getItem("impose.auth.otpPurpose") || "signup";
   var toastTimer = null;

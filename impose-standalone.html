@@ -21,7 +21,7 @@
 <meta name="twitter:title" content="Impose">
 <meta name="twitter:description" content="Impose chat client. Bring your own key and chat with any provider.">
 <meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="dark">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-apple.png">
 <meta name="theme-color" content="#171717">
@@ -75,69 +75,6 @@ html[data-theme="dark"] {
   --tok-com: rgba(255, 255, 255, 0.38);
 }
 
-html[data-theme="light"] {
-  --bg: #ffffff;
-  --sidebar: #f9f9f9;
-  --composer: #f4f4f4;
-  --pop: #ffffff;
-  --text: #0d0d0d;
-  --text-2: #5d5d5d;
-  --text-3: #8a8a8a;
-  --border: rgba(0, 0, 0, 0.14);
-  --border-soft: rgba(0, 0, 0, 0.08);
-  --hover: rgba(0, 0, 0, 0.05);
-  --press: rgba(0, 0, 0, 0.09);
-  --accent: #0d0d0d;
-  --accent-fg: #ffffff;
-  --user: #f4f4f4;
-  --code: #f7f7f7;
-  --link: #0b57d0;
-  --danger: #d92d20;
-  --ok: #1e7f4f;
-  --warn: #b25e09;
-  --danger-soft: rgba(217, 45, 32, 0.1);
-  --seg-active: #ffffff;
-  --scroll: rgba(0, 0, 0, 0.2);
-  --overlay: rgba(0, 0, 0, 0.45);
-  --send-idle: rgba(0, 0, 0, 0.08);
-  --tok-kw: #8250df;
-  --tok-str: #1a7f37;
-  --tok-num: #953800;
-  --tok-fn: #0550ae;
-  --tok-com: rgba(0, 0, 0, 0.45);
-}
-
-html[data-theme="warm"] {
-  --bg: #faf9f5;
-  --sidebar: #f0eee6;
-  --composer: #ffffff;
-  --pop: #ffffff;
-  --text: #262522;
-  --text-2: #6f6e66;
-  --text-3: #9b9a90;
-  --border: rgba(60, 56, 44, 0.22);
-  --border-soft: rgba(60, 56, 44, 0.13);
-  --hover: rgba(60, 56, 44, 0.06);
-  --press: rgba(60, 56, 44, 0.12);
-  --accent: #c6613f;
-  --accent-fg: #ffffff;
-  --user: #ece9dd;
-  --code: #f0eee6;
-  --link: #a34e2e;
-  --danger: #c0362c;
-  --ok: #2e7d4f;
-  --warn: #a86a12;
-  --danger-soft: rgba(192, 54, 44, 0.12);
-  --seg-active: #ffffff;
-  --scroll: rgba(60, 56, 44, 0.24);
-  --overlay: rgba(43, 40, 32, 0.45);
-  --send-idle: rgba(60, 56, 44, 0.12);
-  --tok-kw: #c37fca;
-  --tok-str: #8fae6b;
-  --tok-num: #c98d55;
-  --tok-fn: #6f9cc7;
-  --tok-com: rgba(60, 55, 44, 0.5);
-}
 
 * { box-sizing: border-box; }
 
@@ -182,10 +119,11 @@ input, textarea {
   color: inherit;
 }
 
-:focus { outline: none; }
-:focus-visible {
-  outline: 2px solid var(--link);
-  outline-offset: 2px;
+:focus, :focus-visible { outline: none; }
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  box-shadow: 0 0 0 2px var(--text-3);
   border-radius: 8px;
 }
 
@@ -476,11 +414,6 @@ body:not(.nav-open) .sidebar-inner {
   letter-spacing: -0.02em;
   text-align: center;
   text-wrap: balance;
-}
-html[data-theme="warm"] .greeting {
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight: 400;
-  letter-spacing: -0.01em;
 }
 
 .empty-slot { width: 100%; max-width: 768px; }
@@ -1739,7 +1672,7 @@ details.snap pre { margin: 8px 0 2px; max-height: 180px; overflow: auto; font-si
 
 @media (hover: hover) { .thread-row:hover { background: var(--hover); } }
 
-.thread-row.chosen { background: var(--hover); outline: 1px solid var(--border); }
+.thread-row.chosen { background: var(--hover); box-shadow: inset 0 0 0 1px var(--border); }
 
 .thread-row strong { font-weight: 600; }
 
@@ -2036,20 +1969,6 @@ html[data-theme="dark"] {
   --ok-soft: rgba(52, 211, 153, 0.13);
   --warn: #fbbf24;
   --warn-soft: rgba(251, 191, 36, 0.13);
-}
-
-html[data-theme="light"] {
-  --ok: #047857;
-  --ok-soft: rgba(4, 120, 87, 0.1);
-  --warn: #b45309;
-  --warn-soft: rgba(180, 83, 9, 0.1);
-}
-
-html[data-theme="warm"] {
-  --ok: #4d7c0f;
-  --ok-soft: rgba(77, 124, 15, 0.12);
-  --warn: #b45309;
-  --warn-soft: rgba(180, 83, 9, 0.12);
 }
 
 @keyframes trace-in {
@@ -2556,15 +2475,6 @@ html.reduce-motion .agent-trace.working .trace-progress span { animation: none; 
 }
 
 </style>
-<script>
-try {
-  var saved = JSON.parse(localStorage.getItem("impose.clone.v1") || "{}");
-  var theme = (saved.settings && saved.settings.theme) || "dark";
-  document.documentElement.setAttribute("data-theme", theme);
-} catch (err) {
-  document.documentElement.setAttribute("data-theme", "dark");
-}
-</script>
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "ea82ca6a085a41139df10d19abeda6a6"}'></script><!-- End Cloudflare Web Analytics -->
 </head>
 <body>
@@ -2772,10 +2682,10 @@ try {
       <span class="acct-sub" id="acctSub">Local profile</span>
     </div>
   </div>
-  <button class="pop-item" id="acctTheme" role="menuitem"><i data-lucide="moon"></i><span>Appearance: Dark</span></button>
   <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
   <button class="pop-item" id="acctSettings" role="menuitem"><i data-lucide="settings"></i><span>Settings</span></button>
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
+  <button class="pop-item" id="acctAbout" role="menuitem"><i data-lucide="file-text"></i><span>About &amp; privacy</span></button>
   <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
   <button class="pop-item danger" id="acctWipe" role="menuitem"><i data-lucide="trash-2"></i><span>Delete all chats</span></button>
   <p class="acct-foot">Impose 1.2 · Keys and chats stay in this browser.</p>
@@ -2836,14 +2746,7 @@ try {
     </div>
     <div class="settings-body">
       <div data-pane="general">
-        <section class="settings-section">
-          <h3>Appearance</h3>
-          <div class="seg" id="themeSeg" role="group" aria-label="Theme">
-            <button data-theme-opt="light" aria-pressed="false"><i data-lucide="sun"></i><span>Light</span></button>
-            <button data-theme-opt="dark" aria-pressed="true"><i data-lucide="moon"></i><span>Dark</span></button>
-            <button data-theme-opt="warm" aria-pressed="false"><i data-lucide="sunset"></i><span>Warm</span></button>
-          </div>
-        </section>
+
         <section class="settings-section">
           <h3>Messages</h3>
           <div class="setting-row">
@@ -4972,8 +4875,15 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     catch (e) { return "linear"; }
   }
   function play(params) {
-    if (!motionOK()) return null;
-    try { return window.anime.animate(params); }
+    if (!motionOK() || !params || !params.targets) return null;
+    try {
+      /* anime.js v4 takes targets separately. Keeping the old v3-shaped
+         call here silently animated the options object instead of the UI. */
+      var options = Object.assign({}, params);
+      var targets = options.targets;
+      delete options.targets;
+      return window.anime.animate(targets, options);
+    }
     catch (e) { return null; }
   }
   function noTrans(els) {
@@ -5479,6 +5389,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         var parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.chats)) {
           parsed.settings = Object.assign(defaultSettings(), parsed.settings || {});
+          /* Dark is the only supported appearance. Migrate old light or warm
+             preferences so every surface uses one predictable token set. */
+          parsed.settings.theme = "dark";
           parsed.providers = Array.isArray(parsed.providers) ? parsed.providers : [];
           parsed.providers.forEach(function (pr) {
             if (!pr.model && pr.models) pr.model = pr.models[pr.activeSlot || 0] || pr.models[0] || "";
@@ -5568,6 +5481,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   var activeId = state.settings.activeChatId || null;
   var lastSendAt = 0;
   var relayDown = false;
+  var relayRecoveryCheck = null;
   var draining = false;
   var titling = {};
   var stream = null; // canned: { timer, thinkTimer, ... } live: { live, controller, text, ... }
@@ -5897,15 +5811,37 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return "The relay refused this request (" + code + ")." + tail;
   }
 
-  /* Is the relay's GPU gateway answering? /health is open by design, so no
-     key is needed to poll it. */
+  /* /health is public. Retry transient browser, CORS, DNS, and Render wake
+     failures before declaring the relay unavailable. */
+  function relayHealth(cfg, attempts) {
+    attempts = Math.max(1, attempts || 1);
+    return fetch(stripSlash(cfg.url) + "/health", {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+      signal: withTimeout(9000)
+    }).then(function (r) {
+      if (!r.ok) throw new Error("Relay health returned " + r.status);
+      return r.json();
+    }).then(function (d) {
+      if (!d || d.ok !== true) throw new Error("Unexpected relay health response");
+      return d;
+    }).catch(function (err) {
+      if (attempts <= 1) throw err;
+      return new Promise(function (resolve) { setTimeout(resolve, 700); }).then(function () {
+        return relayHealth(cfg, attempts - 1);
+      });
+    });
+  }
+
+  /* Is the relay's optional GPU gateway answering? */
   function relayGatewayUp(cfg, signal) {
-    var opts = { cache: "no-store" };
-    if (signal) opts.signal = signal;
-    else opts.signal = withTimeout(8000);
-    return fetch(stripSlash(cfg.url) + "/health", opts).then(function (r) {
+    if (!signal) {
+      return relayHealth(cfg, 2).then(function (d) { return d.gateway_up === true; }, function () { return false; });
+    }
+    return fetch(stripSlash(cfg.url) + "/health", { cache: "no-store", mode: "cors", signal: signal }).then(function (r) {
       if (!r.ok) return false;
-      return r.json().then(function (d) { return !!(d && d.gateway_up === true); }, function () { return false; });
+      return r.json().then(function (d) { return !!(d && d.ok === true && d.gateway_up === true); }, function () { return false; });
     }, function () { return false; });
   }
 
@@ -7535,7 +7471,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   function renderMessages() {
     var chat = getChat(activeId);
     messagesEl.innerHTML = "";
-    if (!chat) return;
+    if (!chat) {
+      messagesEl.removeAttribute("data-chat-id");
+      return;
+    }
+    messagesEl.dataset.chatId = chat.id;
     chat.messages.forEach(function (m, i) {
       var row = document.createElement("div");
       row.className = "msg " + m.role;
@@ -7554,6 +7494,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function showEmpty() {
+    messagesEl.innerHTML = "";
+    messagesEl.removeAttribute("data-chat-id");
+    messagesEl.style.opacity = "";
+    messagesEl.style.transform = "";
     emptyState.hidden = false;
     messagesEl.hidden = true;
     composerDock.hidden = true;
@@ -7605,29 +7549,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     hideJump(true);
     rememberActiveChat(null, historyMode === false ? null : (historyMode || "push"));
     renderList();
-    if (motionOK() && messagesEl.children.length && !messagesEl.hidden) {
-      try {
-        play({
-          targets: messagesEl,
-          opacity: [1, 0],
-          translateY: [0, 10],
-          duration: 170,
-          ease: EZ("inCubic"),
-          onComplete: function () {
-            messagesEl.innerHTML = "";
-            showEmpty();
-            messagesEl.style.opacity = "";
-            messagesEl.style.transform = "";
-          }
-        });
-      } catch (e) {
-        messagesEl.innerHTML = "";
-        showEmpty();
-      }
-    } else {
-      messagesEl.innerHTML = "";
-      showEmpty();
-    }
+    /* Navigation state must never depend on an animation callback. The old
+       view is cleared synchronously so a failed or unavailable motion engine
+       cannot leave the previous conversation painted over a fresh chat. */
+    showEmpty();
     autogrow();
     dnote("chat", "New chat started");
     syncSend();
@@ -8378,7 +8303,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       warmedAt = Date.now();
       var cfg = relayCfg();
       if (!cfg.url) return;
-      fetch(stripSlash(cfg.url) + "/health", { method: "GET", mode: "cors", cache: "no-store" }).then(function () {}, function () {});
+      relayHealth(cfg, 2).then(function () {
+        if (relayDown) { relayDown = false; updateBanners(); }
+      }, function () { /* waking is best effort */ });
     } catch (e) { /* waking is best effort */ }
   }
 
@@ -8911,16 +8838,27 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   }
 
   function markRelayDown() {
-    if (relayDown) return;
-    relayDown = true;
-    updateBanners();
+    if (!relayDown) {
+      relayDown = true;
+      updateBanners();
+    }
+    /* A failed feature request can be transient or provider-specific. Verify
+       relay liveness in the background and remove a stale warning as soon as
+       the public health endpoint answers. */
+    if (relayRecoveryCheck) return;
+    var cfg = relayCfg();
+    if (!cfg.url) return;
+    relayRecoveryCheck = relayHealth(cfg, 2).then(function () {
+      relayRecoveryCheck = null;
+      relayDown = false;
+      updateBanners();
+    }, function () { relayRecoveryCheck = null; });
   }
 
   function recheckRelay() {
     var cfg = relayCfg();
     if (!cfg.url) { toast("Set the relay address first."); openSettings("providers"); return; }
-    fetch(stripSlash(cfg.url) + "/health", { headers: { Authorization: "Bearer " + cfg.key } }).then(function (r) {
-      if (!r.ok) throw new Error("bad");
+    relayHealth(cfg, 3).then(function () {
       relayDown = false;
       updateBanners();
       toast.success("Relay is reachable again.");
@@ -9422,7 +9360,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       { icon: "square-pen", title: "New chat", hint: "Start fresh", run: function () { newChat(); } },
       { icon: "search", title: "Search chats", hint: "Find a conversation", run: function () { openSearch(); } },
       { icon: "globe", title: state.settings.searchMode ? "Turn deep search off" : "Turn deep search on", hint: "Research with citations", run: function () { $("searchBtn").click(); } },
-      { icon: "moon", title: "Appearance", hint: "Next theme", run: function () { var n = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length]; applyTheme(n); } },
       { icon: "settings", title: "Settings", hint: "General", run: function () { openSettings("general"); } },
       { icon: "cpu", title: "Providers", hint: "Keys and models", run: function () { openSettings("providers"); } },
       { icon: "download", title: "Export chats", hint: "JSON backup", run: function () { doExportJSON(); } },
@@ -10176,10 +10113,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (document.activeElement !== $("acctName")) $("acctName").value = name;
   }
 
-  var THEME_ORDER = ["dark", "light", "warm"];
-  var THEME_ICON = { dark: "moon", light: "sun", warm: "sunset" };
-  var THEME_LABEL = { dark: "Dark", light: "Light", warm: "Warm" };
-
   function authSession() {
     try { return JSON.parse(localStorage.getItem("impose.auth.v1") || "null"); }
     catch (err) { return null; }
@@ -10187,10 +10120,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   function syncAccountMenu() {
     syncAvatars();
-    var next = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length];
-    var btn = $("acctTheme");
     var session = authSession();
-    btn.innerHTML = '<i data-lucide="' + THEME_ICON[next] + '"></i><span>Appearance: ' + THEME_LABEL[next] + "</span>";
     $("acctAuth").innerHTML = session
       ? '<i data-lucide="log-out"></i><span>Sign out</span>'
       : '<i data-lucide="log-in"></i><span>Sign in</span>';
@@ -10231,11 +10161,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (e.key === "Enter") $("acctName").blur();
     if (e.key === "Escape") { $("acctName").blur(); hidePop(); }
   });
-  $("acctTheme").addEventListener("click", function () {
-    var next = THEME_ORDER[(THEME_ORDER.indexOf(state.settings.theme) + 1) % THEME_ORDER.length];
-    applyTheme(next);
-    syncAccountMenu();
-  });
   $("acctAuth").addEventListener("click", function () {
     var session = authSession();
     if (session) {
@@ -10256,6 +10181,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   $("acctExport").addEventListener("click", function () {
     hidePop(true);
     doExportJSON();
+  });
+  $("acctAbout").addEventListener("click", function () {
+    window.location.href = window.location.protocol === "file:" ? "./about.html" : "./about";
   });
 
   var wipeArmed = false;
@@ -10537,11 +10465,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var removedBrowserPlan = pendingBrowserPlan && pendingBrowserPlan.chatId === id ? pendingBrowserPlan : null;
     state.outbox = state.outbox.filter(function (o) { return !o || o.chatId !== id; });
     if (removedBrowserPlan) savePendingBrowserPlan(null);
-    if (activeId === id) {
-      rememberActiveChat(null, "push");
-      messagesEl.innerHTML = "";
-      showEmpty();
-    }
+    var wasDisplayed = messagesEl.dataset.chatId === id;
+    if (activeId === id) rememberActiveChat(null, "push");
+    /* Also clear a stale rendered view defensively. This covers interrupted
+       navigation and old cached builds where activeId had already been reset
+       before the visible conversation was removed. */
+    if (wasActive || wasDisplayed) showEmpty();
     save();
     updateBanners();
     renderList();
@@ -10699,10 +10628,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   var settingsModal = $("settingsModal");
 
   function syncSettingsUI() {
-    var segBtns = $("themeSeg").querySelectorAll("button");
-    segBtns.forEach(function (b) {
-      b.setAttribute("aria-pressed", b.dataset.themeOpt === state.settings.theme ? "true" : "false");
-    });
     $("tglEnter").setAttribute("aria-checked", state.settings.enterToSend ? "true" : "false");
     $("tglChips").setAttribute("aria-checked", state.settings.showChips ? "true" : "false");
     $("tglRedact").setAttribute("aria-checked", state.settings.redactPII ? "true" : "false");
@@ -10762,20 +10687,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   document.querySelector(".settings-tabs").addEventListener("click", function (e) {
     var b = e.target.closest("[data-stab]");
     if (b) switchTab(b.dataset.stab);
-  });
-
-  function applyTheme(theme) {
-    state.settings.theme = theme;
-    document.documentElement.setAttribute("data-theme", theme);
-    save();
-    syncSettingsUI();
-    dnote("app", "Theme: " + theme);
-  }
-
-  $("themeSeg").addEventListener("click", function (e) {
-    var b = e.target.closest("[data-theme-opt]");
-    if (!b) return;
-    applyTheme(b.dataset.themeOpt);
   });
 
   function wireToggle(id, key, onChange) {
@@ -12757,12 +12668,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     sub.textContent = stripSlash(cfg.url);
     relayCardBusy = true;
     if (!cfg.key) {
-      /* Visitors: the open /health endpoint says enough. */
-      fetch(stripSlash(cfg.url) + "/health", { signal: withTimeout(9000) }).then(function (r) {
-        if (!r.ok) throw new Error("bad");
-        return r.json();
-      }).then(function () {
+      /* Visitors: the open /health endpoint says enough. Retry Render wakes
+         and short network interruptions before painting an error state. */
+      relayHealth(cfg, 3).then(function () {
         relayCardBusy = false;
+        if (relayDown) { relayDown = false; updateBanners(); }
         dot.className = "relay-dot ok";
         title.textContent = "Public search ready";
         sub.textContent = stripSlash(cfg.url);
@@ -12941,7 +12851,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   function init() {
     if (REDUCED) document.documentElement.classList.add("reduce-motion");
-    document.documentElement.setAttribute("data-theme", state.settings.theme);
+    state.settings.theme = "dark";
+    document.documentElement.setAttribute("data-theme", "dark");
     if (window.innerWidth <= 768) document.body.classList.remove("nav-open");
     else document.body.classList.add("nav-open");
     if (state.settings.activeProviderId && !getProvider(state.settings.activeProviderId)) {
