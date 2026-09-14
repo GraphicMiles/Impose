@@ -45,7 +45,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from relay.search import SearchFailed, engine_search
 from relay.images import ImagesFailed, engine_images
 
@@ -480,11 +480,19 @@ def _need_wake() -> None:
 
 @app.get("/health")
 def health():
-    """Report relay liveness without waiting on the optional LLM gateway."""
+    """Report liveness without waiting on the optional LLM gateway.
+
+    Health contains no private data and is readable from every origin. This
+    lets the portable/local app distinguish a live relay from a browser CORS
+    failure while protected relay routes keep the configured origin policy.
+    """
     snap = _gateway_snapshot()
-    return {"ok": True, "service": "impose-relay",
-            "gateway_up": snap.get("up") is True,
-            "uptime_seconds": round(time.time() - STARTED_AT, 1)}
+    return JSONResponse(
+        {"ok": True, "service": "impose-relay",
+         "gateway_up": snap.get("up") is True,
+         "uptime_seconds": round(time.time() - STARTED_AT, 1)},
+        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
+    )
 
 
 @app.get("/v1/models")

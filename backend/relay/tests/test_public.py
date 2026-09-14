@@ -83,6 +83,14 @@ def test_health_does_not_wait_for_optional_gateway(monkeypatch):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["service"] == "impose-relay"
+    assert r.headers["access-control-allow-origin"] == "*"
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_health_is_cors_readable_from_local_and_portable_clients():
+    r = client.get("/health", headers={"Origin": "http://127.0.0.1:4173"})
+    assert r.status_code == 200
+    assert r.headers["access-control-allow-origin"] == "*"
 
 
 def test_admin_status_explains_missing_gateway_and_disabled_wake(monkeypatch):
