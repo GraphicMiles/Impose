@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Impose</title>
 <meta name="description" content="Impose chat client. Bring your own key and chat with any provider.">
 <link rel="canonical" href="https://impose-web.onrender.com/">
@@ -216,8 +216,8 @@ try {
   <button class="pop-item" id="toolAttach" type="button" role="menuitem">
     <i data-lucide="image-plus"></i><span>Add photos</span>
   </button>
-  <button class="pop-item" id="toolWeb" type="button" role="menuitemcheckbox" aria-checked="false">
-    <i data-lucide="globe"></i><span>Web search</span><i data-lucide="check" class="tool-check"></i>
+  <button class="pop-item tool-toggle" id="toolWeb" type="button" role="menuitemcheckbox" aria-checked="false">
+    <i data-lucide="globe"></i><span class="tool-copy"><strong>Web search</strong><em id="toolWebState">Off</em></span><i data-lucide="check" class="tool-check"></i>
   </button>
   <div class="pop-sep" role="separator"></div>
   <button class="pop-item soon" id="toolImgGen" type="button" role="menuitem" aria-disabled="true">
