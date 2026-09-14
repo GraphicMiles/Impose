@@ -148,8 +148,10 @@
     id: "images.search", name: "Image discovery", version: "1.0", executionMode: "research-harness",
     description: "Discovers externally hosted images and returns validated gallery records.",
     capabilities: ["images", "discover_images", "retrieve_images"], primaryCapability: "discover_images",
-    inputs: { query: "string, 1 to 500 chars", limit: "int, 1 to 12" },
-    outputs: { images: "validated image records", provider: "string", query: "string" },
+    inputs: { query: "semantic subject, 1 to 500 chars", retrievalQuery: "concise source query that disambiguates the visual concept", alternativeQueries: "up to 5 semantic alternatives for progressive recovery",
+      sourceRequirements: "structured artifact/source requirements: artifactType, formats, characteristics, sourceClasses, requiredCapabilities, priorities, minimumTrust, diversity, requiredTerms, excludedTerms, minimumWidth, minimumHeight",
+      limit: "int, 1 to 12" },
+    outputs: { images: "validated image records", provider: "string", query: "string", sourcePlan: "ranked providers, reasons, stages, quality and fallback decisions" },
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
     requiresApproval: false, cost: { latency: "medium", monetary: "none" }, reliability: 0.78,
     environments: ["browser"], composable: true, mutability: "read-only",
@@ -157,13 +159,17 @@
     verify: function (out) { var rows = out && out.images || []; return {
       ok: rows.length > 0 && rows.every(function (row) { return /^https?:\/\//i.test(String(row.image || "")); }),
       evidence: rows.length + " validated image records", reason: "no validated image output" }; },
-    inputSchema: { query: "string, 1 to 500 chars", limit: "int, 1 to 12" },
+    inputSchema: { query: "string", retrievalQuery: "string", alternativeQueries: "array of strings", sourceRequirements: "object", limit: "int, 1 to 12" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
       if (!query) return Promise.reject(new Error("Image search needs a query."));
       if (query.length > 500) return Promise.reject(new Error("Image query is too long."));
       var limit = args && args.limit ? Math.max(1, Math.min(12, parseInt(args.limit, 10) || 6)) : 6;
-      return ctx.images(query, limit).then(function (out) {
+      var sourceRequirements = args && args.sourceRequirements && typeof args.sourceRequirements === "object"
+        ? Object.assign({}, args.sourceRequirements) : {};
+      if (args && args.retrievalQuery) sourceRequirements.retrievalQuery = String(args.retrievalQuery).slice(0, 500);
+      if (args && Array.isArray(args.alternativeQueries)) sourceRequirements.alternativeQueries = args.alternativeQueries.slice(0, 5).map(function (q) { return String(q).slice(0, 160); });
+      return ctx.images(query, limit, sourceRequirements).then(function (out) {
         var seen = {}, clean = [];
         var rows = (out && out.results) || [];
         for (var i = 0; i < rows.length && clean.length < limit; i++) {
@@ -177,11 +183,15 @@
             thumb: /^https?:\/\//i.test(String(r.thumb || "")) ? String(r.thumb) : img,
             page: /^https?:\/\//i.test(String(r.page || "")) ? String(r.page) : "",
             source: String(r.source || "").slice(0, 80),
-            w: r.w || null,
-            h: r.h || null
+            w: r.w || null, h: r.h || null,
+            format: String(r.format || "").slice(0, 16), license: r.license ? String(r.license).slice(0, 120) : null,
+            qualityScore: r.qualityScore == null ? null : Number(r.qualityScore),
+            verifiedClaims: Array.isArray(r.verifiedClaims) ? r.verifiedClaims.slice(0, 8) : [],
+            byteSize: r.byteSize || null
           });
         }
-        return { images: clean, provider: (out && out.provider) || "", query: query };
+        return { images: clean, provider: (out && out.provider) || "", query: query,
+          retrievalQuery: out && out.retrievalQuery || query, sourcePlan: out && out.sourcePlan || null };
       });
     }
   };
@@ -190,8 +200,9 @@
     id: "files.discover", name: "Remote file discovery", version: "1.0", executionMode: "research-harness",
     description: "Discovers actual downloadable files across source platforms and returns typed artifact records with canonical source, preview, and download URLs.",
     capabilities: ["discover_files", "retrieve_file_artifacts", "files"], primaryCapability: "discover_files",
-    inputs: { query: "string, 1 to 500 chars", extensions: "optional file extensions", platforms: "optional source platforms", limit: "int, 1 to 12" },
-    outputs: { files: "typed remote file records", provider: "string", query: "string" },
+    inputs: { query: "semantic artifact subject", extensions: "optional file extensions", platforms: "optional source constraints",
+      sourceRequirements: "artifactType, sourceClasses, requiredCapabilities, priorities, minimumTrust, diversity", limit: "int, 1 to 12" },
+    outputs: { files: "typed remote file records", provider: "string", query: "string", sourcePlan: "provider ranking and quality evidence" },
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
     requiresApproval: false, cost: { latency: "medium", monetary: "none" }, reliability: 0.82,
     environments: ["browser"], composable: true, mutability: "read-only",
@@ -200,14 +211,15 @@
       ok: rows.length > 0 && rows.every(function (row) {
         return /^https:\/\//i.test(String(row.sourceUrl || "")) && /^https:\/\//i.test(String(row.downloadUrl || ""));
       }), evidence: rows.length + " typed file records", reason: "no downloadable file output" }; },
-    inputSchema: { query: "string, 1 to 500 chars", extensions: "optional string array", platforms: "optional string array", limit: "int, 1 to 12" },
+    inputSchema: { query: "string", extensions: "optional string array", platforms: "optional string array", sourceRequirements: "object", limit: "int, 1 to 12" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
       if (!query) return Promise.reject(new Error("File discovery needs a query."));
       var limit = args && args.limit ? Math.max(1, Math.min(12, parseInt(args.limit, 10) || 8)) : 8;
       return ctx.files(query, limit, {
         extensions: Array.isArray(args && args.extensions) ? args.extensions.slice(0, 8) : [],
-        platforms: Array.isArray(args && args.platforms) ? args.platforms.slice(0, 8) : []
+        platforms: Array.isArray(args && args.platforms) ? args.platforms.slice(0, 8) : [],
+        sourceRequirements: args && args.sourceRequirements && typeof args.sourceRequirements === "object" ? args.sourceRequirements : {}
       }).then(function (out) {
         var clean = [], seen = {};
         ((out && out.results) || []).forEach(function (row) {
@@ -216,7 +228,8 @@
           if (!/^https:\/\//i.test(String(row.sourceUrl || "")) || !/^https:\/\//i.test(String(row.previewUrl || ""))) return;
           seen[download] = true; clean.push(row);
         });
-        return { files: clean, provider: out && out.provider || "", query: out && out.query || query };
+        return { files: clean, provider: out && out.provider || "", query: out && out.query || query,
+          sourcePlan: out && out.sourcePlan || null };
       });
     }
   };
@@ -277,8 +290,10 @@
     description: "Retrieves current public web resources with source metadata.",
     capabilities: ["search", "retrieve_information", "discover_web_resources", "search_current_information"],
     primaryCapability: "search_current_information",
-    inputs: { query: "string, 1 to 500 chars", limit: "int, 1 to 20" },
-    outputs: { results: "ranked source records", provider: "string", query: "string" },
+    inputs: { query: "semantic research subject, 1 to 500 chars", retrievalQuery: "concise query",
+      sourceRequirements: "artifactType, sourceClasses, requiredCapabilities, priorities, minimumTrust, diversity",
+      limit: "int, 1 to 20" },
+    outputs: { results: "ranked source records", provider: "string", query: "string", sourcePlan: "provider ranking and fallback evidence" },
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
     requiresApproval: false, cost: { latency: "medium", monetary: "none" }, reliability: 0.8,
     environments: ["browser"], composable: true, mutability: "read-only",
@@ -286,29 +301,35 @@
     verify: function (out) { var rows = out && out.results || []; return {
       ok: rows.length > 0 && rows.every(function (row) { return /^https?:\/\//i.test(String(row.url || "")); }),
       evidence: rows.length + " sourced web records", reason: "no sourced web results" }; },
-    inputSchema: { query: "string, 1 to 500 chars", limit: "int, 1 to 20" },
+    inputSchema: { query: "string", retrievalQuery: "string", sourceRequirements: "object", limit: "int, 1 to 20" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
       if (!query) return Promise.reject(new Error("Search needs a query."));
       if (query.length > 500) return Promise.reject(new Error("Search query is too long."));
       var limit = args && args.limit ? Math.max(1, Math.min(20, parseInt(args.limit, 10) || 8)) : 8;
-      ctx.emit({ t: "query", q: query });
-      return ctx.search(query, limit).then(function (out) {
+      var sourceRequirements = args && args.sourceRequirements && typeof args.sourceRequirements === "object"
+        ? Object.assign({}, args.sourceRequirements) : {};
+      if (args && args.retrievalQuery) sourceRequirements.retrievalQuery = String(args.retrievalQuery).slice(0, 500);
+      ctx.emit({ t: "query", q: sourceRequirements.retrievalQuery || query });
+      return ctx.search(query, limit, sourceRequirements).then(function (out) {
         var results = (out && out.results) || [];
         if (results.length > 0) {
-          return { results: results, provider: out.provider || "", query: query, retried: false };
+          return { results: results, provider: out.provider || "", query: query, retried: false,
+            sourcePlan: out.sourcePlan || null, retrievalQuery: out.retrievalQuery || query };
         }
         var simpler = simplifyQuery(query);
         if (!simpler || simpler === query) {
-          return { results: [], provider: out.provider || "", query: query, retried: false };
+          return { results: [], provider: out.provider || "", query: query, retried: false,
+            sourcePlan: out.sourcePlan || null, retrievalQuery: out.retrievalQuery || query };
         }
         ctx.emit({ t: "query", q: simpler });
-        return ctx.search(simpler, limit).then(function (out2) {
+        var revisedRequirements = Object.assign({}, sourceRequirements, { retrievalQuery: simpler });
+        return ctx.search(simpler, limit, revisedRequirements).then(function (out2) {
           return {
             results: (out2 && out2.results) || [],
             provider: (out2 && out2.provider) || "",
-            query: simpler,
-            retried: true
+            query: simpler, retried: true,
+            sourcePlan: out2 && out2.sourcePlan || null, retrievalQuery: out2 && out2.retrievalQuery || simpler
           };
         });
       });
@@ -492,47 +513,70 @@
         var galleryFailed = false;
         function pause(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
         var galleryJob = wantImages ? (function () {
-          /* The web planner may append descriptive words such as “iconic hit”
-             that make an image relevance gate needlessly reject good photos.
-             Build the image query from the user’s request instead. */
-          var subject = imageSubject(modelQuestion);
-          deps.emit({ t: "status", text: "Finding images" });
+          var typed = {};
+          if (semanticIntent) intentRequirements.some(function (requirement) {
+            if (["discover_images", "retrieve_images", "images"].indexOf(String(requirement.capability || "")) === -1) return false;
+            typed = requirement.inputs || {}; return true;
+          });
+          /* Production gets a semantic subject and source requirements from
+             goal decomposition. Legacy callers retain the old local subject
+             adapter, but it never selects a source provider. */
+          var subject = semanticIntent ? String(typed.query || planned).trim() : imageSubject(modelQuestion);
+          var sourceRequirements = typed.sourceRequirements && typeof typed.sourceRequirements === "object"
+            ? Object.assign({}, typed.sourceRequirements) : {};
+          ["artifactType", "formats", "format", "characteristics", "sourceClasses", "requiredCapabilities",
+            "priorities", "minimumTrust", "diversity", "requiredTerms", "excludedTerms", "minimumWidth", "minimumHeight"]
+            .forEach(function (key) { if (Object.prototype.hasOwnProperty.call(typed, key)) sourceRequirements[key] = typed[key]; });
+          var retrievalQuery = String(typed.retrievalQuery || sourceRequirements.retrievalQuery || subject).trim();
+          sourceRequirements.retrievalQuery = retrievalQuery;
+          deps.emit({ t: "status", text: "Selecting image sources" });
           var raw = subject || planned;
-          var variants = uniqueVariants(raw, broadenSubject(raw), simplifyQuery(raw));
+          var variants = semanticIntent ? [raw] : uniqueVariants(raw, broadenSubject(raw), simplifyQuery(raw));
           function attempt(i) {
             if (deps.signal && deps.signal.aborted) return Promise.reject(abortErr());
             if (i >= variants.length) return Promise.reject(new Error("every image attempt failed"));
+            var args = { query: variants[i], retrievalQuery: retrievalQuery,
+              alternativeQueries: typed.alternativeQueries || sourceRequirements.alternativeQueries || [],
+              sourceRequirements: sourceRequirements, limit: 6 };
             if (i > 0) {
               deps.emit({ t: "imagestry", q: variants[i], n: i + 1 });
-              return pause(400).then(function () { return imagesFn.run({ query: variants[i], limit: 6 }, { images: deps.images }); })
+              return pause(400).then(function () { return imagesFn.run(args, { images: deps.images }); })
                 .then(good, function () { return attempt(i + 1); });
             }
-            return imagesFn.run({ query: variants[i], limit: 6 }, { images: deps.images }).then(good, function () { return attempt(i + 1); });
-            function good(g) { return g.images.length ? g : attempt(i + 1); }
+            return imagesFn.run(args, { images: deps.images }).then(good, function () { return attempt(i + 1); });
+            function good(g) {
+              if (g && g.sourcePlan) deps.emit({ t: "sourceplan", plan: g.sourcePlan, capability: "discover_images" });
+              return g.images.length ? g : attempt(i + 1);
+            }
           }
           function criticRound(g) {
             if (!g.images.length) return g;
             var titles = g.images.slice(0, 6).map(function (x) { return "- " + x.title; }).join("\n");
-            return askCritic("Request: photos of \"" + (subject || planned) + "\". The image search returned:\n" + titles +
-              "\nDo these images match the subject? Answer exactly GO if they do. If they do not, answer exactly QUERY: followed by one better image search query.")
+            return askCritic("Visual goal: \"" + (subject || planned) + "\". The selected source returned these candidates:\n" + titles +
+              "\nDo they depict the requested visual concept and satisfy the artifact requirements? Answer exactly GO if they do. " +
+              "If not, answer exactly QUERY: followed by one semantically clearer retrieval query.")
               .then(function (ans) {
                 var q2 = parseQueryAns(ans);
-                if (!q2 || q2.toLowerCase() === String(g.query).toLowerCase()) return g;
+                if (!q2 || q2.toLowerCase() === String(g.retrievalQuery || g.query).toLowerCase()) return g;
                 deps.emit({ t: "imagestry", q: q2, better: true });
-                return imagesFn.run({ query: q2, limit: 6 }, { images: deps.images })
-                  .then(function (g2) { return g2.images.length ? g2 : g; }, function () { return g; });
+                var revised = Object.assign({}, sourceRequirements, { retrievalQuery: q2 });
+                return imagesFn.run({ query: raw, retrievalQuery: q2, sourceRequirements: revised, limit: 6 }, { images: deps.images })
+                  .then(function (g2) {
+                    if (g2 && g2.sourcePlan) deps.emit({ t: "sourceplan", plan: g2.sourcePlan, capability: "discover_images" });
+                    if (!g2.images.length) throw new Error("replacement source results were empty");
+                    return g2;
+                  });
               });
           }
-          return attempt(0).then(criticRound, function () {
-            /* No gallery after every attempt. The verdict (and the honest
-               failure row, if it stays a failure) lands after the reading
-               phase gets its chance to donate page photos. */
-            galleryFailed = true;
-          }).then(function (g) {
+          return attempt(0).then(criticRound).then(function (g) {
             if (g && g.images && g.images.length) {
               gallery = g;
               deps.emit({ t: "images", n: g.images.length, provider: g.provider, images: g.images });
             }
+          }, function () {
+            /* A critic-rejected gallery never comes back merely because a
+               replacement provider failed. Wrong artifacts fail closed. */
+            galleryFailed = true;
           });
         })() : null;
         var videoResults = null;
@@ -582,9 +626,15 @@
             typed = requirement.inputs || {}; return true;
           });
           deps.emit({ t: "status", text: "Finding downloadable files" });
+          var fileSourceRequirements = typed.sourceRequirements && typeof typed.sourceRequirements === "object"
+            ? Object.assign({}, typed.sourceRequirements) : {};
+          ["artifactType", "sourceClasses", "requiredCapabilities", "priorities", "minimumTrust", "diversity"]
+            .forEach(function (key) { if (Object.prototype.hasOwnProperty.call(typed, key)) fileSourceRequirements[key] = typed[key]; });
           return filesFn.run({ query: planned, limit: typed.limit || 8,
-            extensions: typed.extensions || typed.fileTypes || [], platforms: typed.platforms || [] }, { files: deps.files });
+            extensions: typed.extensions || typed.fileTypes || [], platforms: typed.platforms || [],
+            sourceRequirements: fileSourceRequirements }, { files: deps.files });
         }).then(function (result) {
+          if (result.sourcePlan) deps.emit({ t: "sourceplan", plan: result.sourcePlan, capability: "discover_files" });
           if (result.files && result.files.length) {
             fileResults = result.files; fileProvider = result.provider || "";
             deps.emit({ t: "files", n: fileResults.length, provider: fileProvider, files: fileResults });
@@ -670,8 +720,21 @@
                 : (videoResults ? "Here’s the verified media I found." : "Here are the verified images I found.")) };
           });
         }
-        return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
+        var researchInputs = {};
+        if (semanticIntent) intentRequirements.some(function (requirement) {
+          if (["retrieve_information", "discover_web_resources", "search_current_information", "search"].indexOf(String(requirement.capability || "")) === -1) return false;
+          researchInputs = requirement.inputs || {}; return true;
+        });
+        var researchSourceRequirements = researchInputs.sourceRequirements && typeof researchInputs.sourceRequirements === "object"
+          ? Object.assign({}, researchInputs.sourceRequirements) : {};
+        ["artifactType", "sourceClasses", "requiredCapabilities", "priorities", "minimumTrust", "diversity"]
+          .forEach(function (key) { if (Object.prototype.hasOwnProperty.call(researchInputs, key)) researchSourceRequirements[key] = researchInputs[key]; });
+        return tool.run({ query: planned, limit: researchInputs.limit || 8,
+          retrievalQuery: researchInputs.retrievalQuery,
+          sourceRequirements: researchSourceRequirements },
+          { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
+          if (out && out.sourcePlan) deps.emit({ t: "sourceplan", plan: out.sourcePlan, capability: "search_current_information" });
           var results = (out.results || []).filter(function (r) {
             if (!deps.excluded || !deps.excluded.length) return true;
             return deps.excluded.indexOf(domainOf(r.url)) === -1;

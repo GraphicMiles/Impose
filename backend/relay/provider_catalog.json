@@ -1,0 +1,927 @@
+{
+  "version": 2,
+  "providers": [
+    {
+      "id": "openverse",
+      "mechanism": "api",
+      "source_classes": [
+        "creative_repository",
+        "open_media_catalog"
+      ],
+      "artifact_types": [
+        "image",
+        "audio"
+      ],
+      "formats": [
+        "jpeg",
+        "jpg",
+        "png",
+        "webp"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "license_metadata"
+      ],
+      "quality": 0.82,
+      "authority": 0.78,
+      "freshness": 0.72,
+      "coverage": 0.76,
+      "availability": 0.82,
+      "license_clarity": 0.96,
+      "download_reliability": 0.86,
+      "trust": 0.86,
+      "specialization": 0.82
+    },
+    {
+      "id": "wikimedia",
+      "mechanism": "api",
+      "source_classes": [
+        "public_media_repository",
+        "primary_archive",
+        "specialist_repository"
+      ],
+      "artifact_types": [
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "formats": [
+        "jpeg",
+        "jpg",
+        "png",
+        "webp",
+        "svg",
+        "pdf",
+        "ogg",
+        "webm"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "license_metadata"
+      ],
+      "quality": 0.84,
+      "authority": 0.92,
+      "freshness": 0.72,
+      "coverage": 0.79,
+      "availability": 0.91,
+      "license_clarity": 0.94,
+      "download_reliability": 0.94,
+      "trust": 0.94,
+      "specialization": 0.88
+    },
+    {
+      "id": "bing-images",
+      "mechanism": "search_engine",
+      "source_classes": [
+        "general_image_search",
+        "web_index"
+      ],
+      "artifact_types": [
+        "image"
+      ],
+      "formats": [
+        "jpeg",
+        "jpg",
+        "png",
+        "webp",
+        "gif",
+        "svg"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution"
+      ],
+      "quality": 0.68,
+      "authority": 0.55,
+      "freshness": 0.83,
+      "coverage": 0.96,
+      "availability": 0.64,
+      "license_clarity": 0.28,
+      "download_reliability": 0.67,
+      "trust": 0.61,
+      "specialization": 0.48
+    },
+    {
+      "id": "ddg-images",
+      "mechanism": "search_engine",
+      "source_classes": [
+        "general_image_search",
+        "web_index"
+      ],
+      "artifact_types": [
+        "image"
+      ],
+      "formats": [
+        "jpeg",
+        "jpg",
+        "png",
+        "webp",
+        "gif",
+        "svg"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution"
+      ],
+      "quality": 0.65,
+      "authority": 0.54,
+      "freshness": 0.8,
+      "coverage": 0.9,
+      "availability": 0.52,
+      "license_clarity": 0.25,
+      "download_reliability": 0.64,
+      "trust": 0.59,
+      "specialization": 0.46
+    },
+    {
+      "id": "searxng",
+      "mechanism": "metasearch",
+      "source_classes": [
+        "web_index",
+        "metasearch"
+      ],
+      "artifact_types": [
+        "information",
+        "web_resource"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "source_attribution"
+      ],
+      "quality": 0.72,
+      "authority": 0.58,
+      "freshness": 0.83,
+      "coverage": 0.9,
+      "availability": 0.58,
+      "license_clarity": 0.5,
+      "download_reliability": 0.5,
+      "trust": 0.68,
+      "specialization": 0.42
+    },
+    {
+      "id": "bing-html",
+      "mechanism": "search_engine",
+      "source_classes": [
+        "web_index",
+        "general_search"
+      ],
+      "artifact_types": [
+        "information",
+        "web_resource",
+        "file"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "source_attribution"
+      ],
+      "quality": 0.68,
+      "authority": 0.56,
+      "freshness": 0.82,
+      "coverage": 0.94,
+      "availability": 0.69,
+      "license_clarity": 0.4,
+      "download_reliability": 0.52,
+      "trust": 0.64,
+      "specialization": 0.38
+    },
+    {
+      "id": "ddg-lite",
+      "mechanism": "search_engine",
+      "source_classes": [
+        "web_index",
+        "general_search"
+      ],
+      "artifact_types": [
+        "information",
+        "web_resource",
+        "file"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "source_attribution"
+      ],
+      "quality": 0.67,
+      "authority": 0.56,
+      "freshness": 0.78,
+      "coverage": 0.88,
+      "availability": 0.77,
+      "license_clarity": 0.4,
+      "download_reliability": 0.52,
+      "trust": 0.66,
+      "specialization": 0.38
+    },
+    {
+      "id": "github-public",
+      "mechanism": "platform_adapter",
+      "source_classes": [
+        "source_repository",
+        "developer_repository",
+        "community_repository"
+      ],
+      "artifact_types": [
+        "source_code",
+        "file",
+        "software",
+        "dataset"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "version_history",
+        "publisher_identity"
+      ],
+      "quality": 0.84,
+      "authority": 0.72,
+      "freshness": 0.88,
+      "coverage": 0.92,
+      "availability": 0.91,
+      "license_clarity": 0.73,
+      "download_reliability": 0.95,
+      "trust": 0.78,
+      "specialization": 0.94,
+      "authenticity": 0.86,
+      "safety": 0.76,
+      "version_accuracy": 0.88
+    },
+    {
+      "id": "gitlab-public",
+      "mechanism": "platform_adapter",
+      "source_classes": [
+        "source_repository",
+        "developer_repository"
+      ],
+      "artifact_types": [
+        "source_code",
+        "file",
+        "software",
+        "dataset"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "version_history",
+        "publisher_identity"
+      ],
+      "quality": 0.81,
+      "authority": 0.71,
+      "freshness": 0.86,
+      "coverage": 0.72,
+      "availability": 0.9,
+      "license_clarity": 0.72,
+      "download_reliability": 0.94,
+      "trust": 0.78,
+      "specialization": 0.92
+    },
+    {
+      "id": "huggingface-public",
+      "mechanism": "platform_adapter",
+      "source_classes": [
+        "model_repository",
+        "dataset_repository",
+        "developer_repository"
+      ],
+      "artifact_types": [
+        "model",
+        "dataset",
+        "source_code",
+        "file"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "version_history",
+        "publisher_identity",
+        "metadata"
+      ],
+      "quality": 0.87,
+      "authority": 0.79,
+      "freshness": 0.9,
+      "coverage": 0.91,
+      "availability": 0.92,
+      "license_clarity": 0.79,
+      "download_reliability": 0.95,
+      "trust": 0.83,
+      "specialization": 0.96
+    },
+    {
+      "id": "official-source-discovery",
+      "mechanism": "source_resolver",
+      "source_classes": [
+        "official_source",
+        "primary_source",
+        "publisher_source"
+      ],
+      "artifact_types": [
+        "information",
+        "document",
+        "software",
+        "product",
+        "web_resource"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "source_attribution",
+        "publisher_identity",
+        "metadata"
+      ],
+      "quality": 0.9,
+      "authority": 0.97,
+      "freshness": 0.9,
+      "coverage": 0.62,
+      "availability": 0.86,
+      "license_clarity": 0.88,
+      "download_reliability": 0.82,
+      "trust": 0.96,
+      "specialization": 0.86
+    },
+    {
+      "id": "standards-source-discovery",
+      "mechanism": "source_resolver",
+      "source_classes": [
+        "standards_body",
+        "official_source",
+        "primary_source"
+      ],
+      "artifact_types": [
+        "standard",
+        "document",
+        "information"
+      ],
+      "formats": [
+        "pdf",
+        "html"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "publisher_identity"
+      ],
+      "quality": 0.91,
+      "authority": 0.98,
+      "freshness": 0.78,
+      "coverage": 0.68,
+      "availability": 0.88,
+      "license_clarity": 0.95,
+      "download_reliability": 0.9,
+      "trust": 0.97,
+      "specialization": 0.96
+    },
+    {
+      "id": "arxiv",
+      "mechanism": "api",
+      "source_classes": [
+        "academic_repository",
+        "primary_research",
+        "preprint_repository"
+      ],
+      "artifact_types": [
+        "research_paper",
+        "document",
+        "information"
+      ],
+      "formats": [
+        "pdf",
+        "tex"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "metadata"
+      ],
+      "quality": 0.87,
+      "authority": 0.9,
+      "freshness": 0.94,
+      "coverage": 0.86,
+      "availability": 0.95,
+      "license_clarity": 0.93,
+      "download_reliability": 0.96,
+      "trust": 0.91,
+      "specialization": 0.97
+    },
+    {
+      "id": "pubmed",
+      "mechanism": "api",
+      "source_classes": [
+        "academic_database",
+        "primary_research",
+        "government_source"
+      ],
+      "artifact_types": [
+        "research_paper",
+        "information"
+      ],
+      "formats": [
+        "html",
+        "xml"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "metadata"
+      ],
+      "quality": 0.92,
+      "authority": 0.98,
+      "freshness": 0.91,
+      "coverage": 0.84,
+      "availability": 0.97,
+      "license_clarity": 0.96,
+      "download_reliability": 0.74,
+      "trust": 0.98,
+      "specialization": 0.98
+    },
+    {
+      "id": "crossref",
+      "mechanism": "api",
+      "source_classes": [
+        "citation_database",
+        "academic_metadata"
+      ],
+      "artifact_types": [
+        "research_paper",
+        "information"
+      ],
+      "formats": [
+        "json"
+      ],
+      "capabilities": [
+        "search",
+        "source_attribution",
+        "metadata"
+      ],
+      "quality": 0.84,
+      "authority": 0.94,
+      "freshness": 0.91,
+      "coverage": 0.91,
+      "availability": 0.97,
+      "license_clarity": 0.86,
+      "download_reliability": 0.65,
+      "trust": 0.94,
+      "specialization": 0.94
+    },
+    {
+      "id": "zenodo",
+      "mechanism": "api",
+      "source_classes": [
+        "research_repository",
+        "dataset_repository",
+        "primary_research"
+      ],
+      "artifact_types": [
+        "dataset",
+        "research_paper",
+        "document",
+        "software",
+        "model"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "metadata",
+        "version_history"
+      ],
+      "quality": 0.88,
+      "authority": 0.92,
+      "freshness": 0.9,
+      "coverage": 0.83,
+      "availability": 0.94,
+      "license_clarity": 0.94,
+      "download_reliability": 0.95,
+      "trust": 0.93,
+      "specialization": 0.95
+    },
+    {
+      "id": "internet-archive",
+      "mechanism": "api",
+      "source_classes": [
+        "digital_archive",
+        "book_repository",
+        "media_archive",
+        "software_archive"
+      ],
+      "artifact_types": [
+        "book",
+        "audio",
+        "video",
+        "software",
+        "document",
+        "web_resource"
+      ],
+      "formats": [
+        "pdf",
+        "epub",
+        "mp3",
+        "ogg",
+        "mp4",
+        "zip"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "metadata",
+        "version_history"
+      ],
+      "quality": 0.79,
+      "authority": 0.86,
+      "freshness": 0.66,
+      "coverage": 0.96,
+      "availability": 0.88,
+      "license_clarity": 0.76,
+      "download_reliability": 0.84,
+      "trust": 0.83,
+      "specialization": 0.9
+    },
+    {
+      "id": "project-gutenberg",
+      "mechanism": "catalog",
+      "source_classes": [
+        "book_repository",
+        "public_domain_library"
+      ],
+      "artifact_types": [
+        "book",
+        "document"
+      ],
+      "formats": [
+        "epub",
+        "html",
+        "txt"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "license_metadata"
+      ],
+      "quality": 0.86,
+      "authority": 0.91,
+      "freshness": 0.66,
+      "coverage": 0.72,
+      "availability": 0.96,
+      "license_clarity": 0.99,
+      "download_reliability": 0.97,
+      "trust": 0.94,
+      "specialization": 0.98
+    },
+    {
+      "id": "npmjs",
+      "mechanism": "registry_api",
+      "source_classes": [
+        "package_registry",
+        "developer_repository"
+      ],
+      "artifact_types": [
+        "software_package",
+        "source_code"
+      ],
+      "formats": [
+        "tgz",
+        "json"
+      ],
+      "capabilities": [
+        "search",
+        "download",
+        "metadata",
+        "version_history",
+        "publisher_identity"
+      ],
+      "quality": 0.86,
+      "authority": 0.86,
+      "freshness": 0.96,
+      "coverage": 0.95,
+      "availability": 0.97,
+      "license_clarity": 0.82,
+      "download_reliability": 0.97,
+      "trust": 0.87,
+      "specialization": 0.98
+    },
+    {
+      "id": "pypi",
+      "mechanism": "registry_api",
+      "source_classes": [
+        "package_registry",
+        "developer_repository"
+      ],
+      "artifact_types": [
+        "software_package",
+        "source_code"
+      ],
+      "formats": [
+        "whl",
+        "tar.gz",
+        "json"
+      ],
+      "capabilities": [
+        "search",
+        "download",
+        "metadata",
+        "version_history",
+        "publisher_identity"
+      ],
+      "quality": 0.87,
+      "authority": 0.88,
+      "freshness": 0.96,
+      "coverage": 0.94,
+      "availability": 0.97,
+      "license_clarity": 0.84,
+      "download_reliability": 0.97,
+      "trust": 0.89,
+      "specialization": 0.98
+    },
+    {
+      "id": "crates-io",
+      "mechanism": "registry_api",
+      "source_classes": [
+        "package_registry",
+        "developer_repository"
+      ],
+      "artifact_types": [
+        "software_package",
+        "source_code"
+      ],
+      "formats": [
+        "crate",
+        "json"
+      ],
+      "capabilities": [
+        "search",
+        "download",
+        "metadata",
+        "version_history",
+        "publisher_identity"
+      ],
+      "quality": 0.87,
+      "authority": 0.88,
+      "freshness": 0.95,
+      "coverage": 0.86,
+      "availability": 0.96,
+      "license_clarity": 0.85,
+      "download_reliability": 0.97,
+      "trust": 0.89,
+      "specialization": 0.98
+    },
+    {
+      "id": "f-droid",
+      "mechanism": "repository_api",
+      "source_classes": [
+        "official_alternative_distribution",
+        "open_source_app_repository"
+      ],
+      "artifact_types": [
+        "software",
+        "android_app",
+        "source_code"
+      ],
+      "formats": [
+        "apk"
+      ],
+      "capabilities": [
+        "search",
+        "download",
+        "metadata",
+        "version_history",
+        "publisher_identity",
+        "signature_metadata"
+      ],
+      "quality": 0.87,
+      "authority": 0.9,
+      "freshness": 0.92,
+      "coverage": 0.68,
+      "availability": 0.93,
+      "license_clarity": 0.95,
+      "download_reliability": 0.94,
+      "trust": 0.92,
+      "specialization": 0.96,
+      "authenticity": 0.94,
+      "safety": 0.94,
+      "version_accuracy": 0.92
+    },
+    {
+      "id": "google-play",
+      "mechanism": "marketplace",
+      "source_classes": [
+        "official_marketplace",
+        "publisher_distribution"
+      ],
+      "artifact_types": [
+        "android_app",
+        "software"
+      ],
+      "formats": [
+        "aab",
+        "apk"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "metadata",
+        "version_history",
+        "publisher_identity"
+      ],
+      "quality": 0.91,
+      "authority": 0.96,
+      "freshness": 0.97,
+      "coverage": 0.97,
+      "availability": 0.95,
+      "license_clarity": 0.77,
+      "download_reliability": 0.7,
+      "trust": 0.96,
+      "specialization": 0.94,
+      "authenticity": 0.97,
+      "safety": 0.95,
+      "version_accuracy": 0.97
+    },
+    {
+      "id": "iconify",
+      "mechanism": "api",
+      "source_classes": [
+        "icon_library",
+        "design_resource_repository"
+      ],
+      "artifact_types": [
+        "image",
+        "icon",
+        "ui_asset"
+      ],
+      "formats": [
+        "svg",
+        "json"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "license_metadata"
+      ],
+      "quality": 0.87,
+      "authority": 0.8,
+      "freshness": 0.83,
+      "coverage": 0.96,
+      "availability": 0.96,
+      "license_clarity": 0.88,
+      "download_reliability": 0.97,
+      "trust": 0.86,
+      "specialization": 0.98
+    },
+    {
+      "id": "svg-repo",
+      "mechanism": "web_adapter",
+      "source_classes": [
+        "icon_library",
+        "vector_repository",
+        "design_resource_repository"
+      ],
+      "artifact_types": [
+        "image",
+        "icon",
+        "ui_asset"
+      ],
+      "formats": [
+        "svg"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "download",
+        "source_attribution",
+        "license_metadata"
+      ],
+      "quality": 0.84,
+      "authority": 0.76,
+      "freshness": 0.81,
+      "coverage": 0.9,
+      "availability": 0.72,
+      "license_clarity": 0.84,
+      "download_reliability": 0.91,
+      "trust": 0.81,
+      "specialization": 0.96
+    },
+    {
+      "id": "manufacturer-source-discovery",
+      "mechanism": "source_resolver",
+      "source_classes": [
+        "manufacturer",
+        "official_product_source",
+        "primary_source"
+      ],
+      "artifact_types": [
+        "product",
+        "information",
+        "document"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "publisher_identity",
+        "metadata"
+      ],
+      "quality": 0.9,
+      "authority": 0.97,
+      "freshness": 0.94,
+      "coverage": 0.75,
+      "availability": 0.88,
+      "license_clarity": 0.82,
+      "download_reliability": 0.66,
+      "trust": 0.96,
+      "specialization": 0.91
+    },
+    {
+      "id": "retailer-source-discovery",
+      "mechanism": "source_resolver",
+      "source_classes": [
+        "retailer",
+        "marketplace",
+        "pricing_source"
+      ],
+      "artifact_types": [
+        "product",
+        "commerce",
+        "information"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "pricing",
+        "availability"
+      ],
+      "quality": 0.77,
+      "authority": 0.73,
+      "freshness": 0.98,
+      "coverage": 0.92,
+      "availability": 0.86,
+      "license_clarity": 0.58,
+      "download_reliability": 0.62,
+      "trust": 0.72,
+      "specialization": 0.82
+    },
+    {
+      "id": "apkmirror",
+      "mechanism": "web_adapter",
+      "source_classes": [
+        "reputable_distribution",
+        "software_archive"
+      ],
+      "artifact_types": [
+        "android_app",
+        "software"
+      ],
+      "formats": [
+        "apk",
+        "apkm"
+      ],
+      "capabilities": [
+        "search",
+        "download",
+        "metadata",
+        "version_history",
+        "publisher_identity",
+        "signature_metadata"
+      ],
+      "quality": 0.84,
+      "authority": 0.78,
+      "freshness": 0.94,
+      "coverage": 0.89,
+      "availability": 0.9,
+      "license_clarity": 0.7,
+      "download_reliability": 0.87,
+      "trust": 0.84,
+      "specialization": 0.96,
+      "authenticity": 0.9,
+      "safety": 0.89,
+      "version_accuracy": 0.95
+    }
+  ]
+}

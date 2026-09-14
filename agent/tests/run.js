@@ -618,9 +618,10 @@ test("runAgent critic swaps a wrong gallery once", function () {
   return H.harness.runAgent({
     query: "Show me 4 images of mark rober",
     search: s.fn,
-    images: function (q) {
-      imgQueries.push(q);
-      if (q === "mark rober") {
+    images: function (q, limit, requirements) {
+      var retrieval = requirements && requirements.retrievalQuery || q;
+      imgQueries.push(retrieval);
+      if (retrieval === "mark rober") {
         return Promise.resolve({ provider: "p", results: [
           { title: "Totally Unrelated Stock", image: "https://x.io/bad.jpg", thumb: "", page: "" }] });
       }
@@ -639,7 +640,7 @@ test("runAgent critic swaps a wrong gallery once", function () {
     eq(imgQueries[1], "mark rober youtube host", "critic query used");
     eq(out.images.length, 1, "swapped gallery returned");
     ok(out.images[0].image === "https://x.io/good.jpg", "better gallery wins");
-    ok(critPrompts.some(function (p) { return p.indexOf("match the subject") !== -1; }), "critic asked about match");
+    ok(critPrompts.some(function (p) { return p.indexOf("depict the requested visual concept") !== -1; }), "critic asked about semantic fit");
   });
 });
 
@@ -877,6 +878,46 @@ test("semantic file discovery returns typed artifacts without generic research",
   }).then(function (out) {
     eq(searched, 0); eq(completed, 0); eq(out.files.length, 1); eq(out.traceStatus, "Found downloadable files");
     ok(events.some(function (event) { return event.t === "files"; }));
+  });
+});
+
+
+test("semantic image requirements reach source intelligence without phrase routing", function () {
+  var captured = null;
+  return H.harness.runAgent({ query: "I need the background-free visual", intent: {
+    constraints: {}, subgoals: [{ requirements: [{ capability: "discover_images", inputs: {
+      query: "service professional butler", retrievalQuery: "butler service professional",
+      sourceRequirements: { artifactType: "image", formats: ["png"], characteristics: ["transparent_background"],
+        sourceClasses: ["creative_repository"], excludedTerms: ["university", "surname"] }
+    } }] }]
+  }, images: function (query, limit, requirements) {
+    captured = { query: query, requirements: requirements };
+    return Promise.resolve({ provider: "fixture", sourcePlan: { candidates: [], selectedProviders: ["fixture"] }, results: [
+      { title: "Butler service professional", image: "https://assets.example/butler.png", page: "https://assets.example/source" }
+    ] });
+  }, critique: function () { return Promise.resolve("GO"); }, search: function () { throw new Error("generic search should not run"); },
+    emit: function () {}, complete: function () { throw new Error("answer model should not run"); }
+  }).then(function (out) {
+    eq(captured.query, "service professional butler");
+    eq(captured.requirements.retrievalQuery, "butler service professional");
+    eq(captured.requirements.formats[0], "png");
+    eq(captured.requirements.excludedTerms[0], "university");
+    eq(out.images[0].image, "https://assets.example/butler.png");
+  });
+});
+
+test("critic rejected gallery is not restored when replacement fails", function () {
+  var calls = 0;
+  return H.harness.runAgent({ query: "photos of a butler", images: function () {
+    calls++;
+    if (calls === 1) return Promise.resolve({ provider: "weak", results: [
+      { title: "Butler University logo", image: "https://weak.example/logo.png" }] });
+    return Promise.reject(new Error("replacement provider unavailable"));
+  }, search: function () { return Promise.resolve({ provider: "", results: [] }); },
+    critique: function () { return Promise.resolve("QUERY: human service professional butler"); },
+    emit: function () {}, complete: function () { throw new Error("model must not legitimize rejected images"); }
+  }).then(function (out) {
+    eq(calls, 2); ok(out.imageFailed, "rejected gallery fails closed"); eq(out.images, null);
   });
 });
 

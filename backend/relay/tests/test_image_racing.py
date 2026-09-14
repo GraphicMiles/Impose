@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 HERE = Path(__file__).resolve()
 sys.path.insert(0, str(HERE.parents[2]))
 os.environ.setdefault("CONTROL_KEY", "test123")
@@ -16,19 +18,23 @@ def _provider(job):
     return lambda client, query, limit: job
 
 
-def test_first_image_provider_wins_and_slower_work_is_cancelled(monkeypatch):
-    cancelled = []
+@pytest.fixture(autouse=True)
+def _no_live_specialist_network(monkeypatch):
+    async def unavailable():
+        raise AttemptFail("unavailable")
+    monkeypatch.setattr(images, "partial_iconify", _provider(unavailable))
+    monkeypatch.setattr(images, "partial_svg_repo", _provider(unavailable))
 
+
+def test_source_rank_beats_fastest_response(monkeypatch):
     async def fast_result():
         await asyncio.sleep(0.01)
         return [{"title": "Lagos", "image": "https://example.test/lagos.jpg"}]
 
     async def slow_result():
-        try:
-            await asyncio.sleep(1)
-            return [{"title": "late", "image": "https://example.test/late.jpg"}]
-        finally:
-            cancelled.append(True)
+        await asyncio.sleep(0.03)
+        return [{"title": "Lagos archive", "image": "https://example.test/late.jpg",
+                 "page": "https://commons.example/lagos", "license": "CC BY", "w": 1200, "h": 800}]
 
     monkeypatch.setattr(images, "partial_open", _provider(fast_result))
     monkeypatch.setattr(images, "partial_wiki", _provider(slow_result))
@@ -37,9 +43,29 @@ def test_first_image_provider_wins_and_slower_work_is_cancelled(monkeypatch):
 
     result = asyncio.run(images.engine_images("Lagos skyline", limit=4))
 
-    assert result["provider"] == "openverse"
+    assert result["provider"] == "wikimedia"
     assert result["count"] == 1
-    assert len(cancelled) == 3
+    assert result["sourcePlan"]["selectedProviders"] == ["wikimedia"]
+    assert result["sourcePlan"]["candidates"][0]["score"] >= result["sourcePlan"]["candidates"][1]["score"]
+
+
+def test_poor_specialist_results_escalate_to_compatible_provider(monkeypatch):
+    async def wrong_format():
+        return [{"title": "subject", "image": "https://example.test/subject.jpg"}]
+    async def compatible():
+        return [{"title": "subject", "image": "https://example.test/subject.png",
+                 "page": "https://source.test/subject", "w": 900, "h": 900}]
+    async def failed():
+        raise AttemptFail("unavailable")
+    monkeypatch.setattr(images, "partial_open", _provider(wrong_format))
+    monkeypatch.setattr(images, "partial_wiki", _provider(wrong_format))
+    monkeypatch.setattr(images, "partial_bing", _provider(compatible))
+    monkeypatch.setattr(images, "partial_ddg", _provider(failed))
+    result = asyncio.run(images.engine_images("subject", limit=4, requirements={
+        "artifactType": "image", "formats": ["png"], "retrievalQuery": "subject"}))
+    assert result["provider"] == "bing-images"
+    assert all(row["format"] == "png" for row in result["results"])
+    assert result["sourcePlan"]["fallbackDecisions"][0]["decision"] == "broaden"
 
 
 def test_image_provider_failures_keep_actionable_diagnostics(monkeypatch):
