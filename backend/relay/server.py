@@ -676,10 +676,26 @@ async def videos_proxy(request: Request):
             raise HTTPException(status_code=400, detail="body must be JSON")
         query = str(data.get("query", ""))
         limit = data.get("limit", 6)
+        raw_constraints = data.get("constraints", {})
+        if raw_constraints is not None and not isinstance(raw_constraints, dict):
+            raise HTTPException(status_code=400, detail="constraints must be an object")
+        raw_constraints = raw_constraints or {}
+        constraints = {
+            key: raw_constraints[key] for key in ("live", "latest", "creator", "subject", "platforms")
+            if key in raw_constraints
+        }
     else:
         q = request.query_params
         query = str(q.get("query", "") or q.get("q", ""))
         limit = q.get("limit", 6)
+        constraints = {}
+    for flag in ("live", "latest", "creator"):
+        if flag in constraints and not isinstance(constraints[flag], bool):
+            raise HTTPException(status_code=400, detail=flag + " must be boolean")
+    if "subject" in constraints and (not isinstance(constraints["subject"], str) or len(constraints["subject"]) > 500):
+        raise HTTPException(status_code=400, detail="subject must be a string up to 500 chars")
+    if "platforms" in constraints and (not isinstance(constraints["platforms"], list) or len(constraints["platforms"]) > 2):
+        raise HTTPException(status_code=400, detail="platforms must be a short array")
     query = query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -689,12 +705,12 @@ async def videos_proxy(request: Request):
         limit = max(1, min(10, int(limit)))
     except Exception:
         raise HTTPException(status_code=400, detail="limit must be 1..10")
-    ckey = query.lower() + "|" + str(limit)
+    ckey = query.lower() + "|" + str(limit) + "|" + json.dumps(constraints, sort_keys=True)
     cached = _cache_get("videos", ckey)
     if cached is not None:
         return cached
     try:
-        out = await engine_videos(query, limit=limit)
+        out = await engine_videos(query, limit=limit, constraints=constraints)
     except VideosFailed as e:
         raise HTTPException(status_code=502, detail=str(e))
     _cache_put("videos", ckey, out, 120.0)

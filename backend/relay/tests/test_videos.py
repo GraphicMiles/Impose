@@ -48,6 +48,19 @@ def test_media_intent_is_generic_and_claim_driven():
     assert tutorial.subject == "system architecture"
 
 
+def test_structured_intent_constraints_override_phrase_parsing():
+    request = parse_media_request(
+        "Bring that creator’s freshest release into this conversation",
+        3,
+        {"subject": "VERYDARKBLACKMAN", "latest": True, "creator": True,
+         "platforms": ["youtube"]},
+    )
+    assert request.subject == "VERYDARKBLACKMAN"
+    assert request.platforms == frozenset({"youtube"})
+    assert request.required_claims == frozenset({"playable", "latest"})
+    assert request.options["creator_hint"] is True
+
+
 def test_youtube_adapter_searches_clean_subject_not_chat_framing():
     page = '''<script>var ytInitialData = {"contents":[{"videoRenderer":{
       "videoId":"uxskKNcsFLU",

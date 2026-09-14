@@ -5,7 +5,7 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v25";
+var CACHE = "impose-shell-v26";
 var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
 var PUBLIC_ROUTE = {
   "/about": "./about.html",
@@ -32,6 +32,7 @@ var CORE = [
   "./public.css",
   "./public.js",
   "./agent/trace.js",
+  "./agent/orchestrator.js",
   "./agent/harness.js",
   "./agent/features.js",
   "./agent/browser-agent.js"
@@ -55,6 +56,7 @@ var PRECACHE = [
   "./public.css",
   "./public.js",
   "./agent/trace.js",
+  "./agent/orchestrator.js",
   "./agent/harness.js",
   "./agent/features.js",
   "./agent/browser-agent.js",

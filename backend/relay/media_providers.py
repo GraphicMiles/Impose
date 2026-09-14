@@ -240,9 +240,9 @@ register_media_adapter(YouTubeMediaAdapter())
 register_media_adapter(WebMediaAdapter())
 
 
-async def engine_videos(query, limit=6):
+async def engine_videos(query, limit=6, constraints=None):
     """Discover and verify playable media through registered adapters."""
-    request = parse_media_request(query, limit)
+    request = parse_media_request(query, limit, constraints)
     headers = dict(UA)
     headers["Accept-Language"] = "en-US,en;q=0.8"
     try:
