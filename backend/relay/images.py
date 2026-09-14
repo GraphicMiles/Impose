@@ -31,6 +31,23 @@ IMAGE_GENERIC_TOKENS = {
 }
 
 
+def _provider_image_query(query):
+    """Remove request decoration before asking upstream image engines.
+
+    Bing can return an entirely unrelated result page for a good named subject
+    plus adjectives such as “iconic” or “classic”. Keep the original query for
+    logs, but send the smallest meaningful subject to providers.
+    """
+    value = str(query or "")
+    for token in IMAGE_GENERIC_TOKENS:
+        value = re.sub(r"\b" + re.escape(token) + r"\b", " ", value,
+                       flags=re.IGNORECASE)
+    value = " ".join(value.split()).strip()
+    value = re.sub(r"^(?:(?:show|find|get|search|pull|fetch|give|send|me|some|of|for|to|about)\s+)+",
+                   "", value, flags=re.IGNORECASE)
+    return value.strip()
+
+
 def _http_ok(url):
     return bool(url) and urlparse(url).scheme in ("http", "https")
 
@@ -285,16 +302,17 @@ async def engine_images(query, limit=8):
     """Race independent engines and return the first relevant result set."""
     started_at = time.time()
     attempts = []
+    provider_query = _provider_image_query(query) or query
     async with httpx.AsyncClient(
         headers=UA,
         follow_redirects=True,
         max_redirects=3,
     ) as client:
         providers = [
-            ("openverse", partial_open(client, query, limit)),
-            ("wikimedia", partial_wiki(client, query, limit)),
-            ("bing-images", partial_bing(client, query, limit)),
-            ("ddg-images", partial_ddg(client, query, limit)),
+            ("openverse", partial_open(client, provider_query, limit)),
+            ("wikimedia", partial_wiki(client, provider_query, limit)),
+            ("bing-images", partial_bing(client, provider_query, limit)),
+            ("ddg-images", partial_ddg(client, provider_query, limit)),
         ]
         try:
             found = await asyncio.wait_for(
