@@ -133,6 +133,16 @@ test("rejects streamed provider error", async function () {
   ok(failed, "provider error propagated");
 });
 
+test("semantic intent mounts and persists the pipeline trace across blocked outcomes", async function () {
+  var mount = src.indexOf("var intentUi = beginIntentTraceUi();");
+  var interpret = src.indexOf("harness.interpretIntent({", mount);
+  ok(mount > -1 && interpret > mount, "trace mounts before semantic interpretation starts");
+  ok(src.indexOf("var blockedTrace = finishIntentTraceUi", interpret) > -1,
+    "blocked result settles the live intent trace");
+  ok(src.indexOf("blockedTrace);", interpret) > -1,
+    "blocked trace snapshot is attached to the persisted response");
+});
+
 (async function () {
   var passed = 0;
   for (var i = 0; i < tests.length; i++) {

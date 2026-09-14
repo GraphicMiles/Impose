@@ -2724,7 +2724,7 @@
     if (!hasSources && !msg.trace) return;
     var rows = hasSources ? msg.sources.map(function (s, i) {
       return { primary: s.title || s.url, secondary: hostOf(s.url), href: s.url, si: i + 1 };
-    }) : [];
+    }) : (msg.trace && Array.isArray(msg.trace.rows) ? msg.trace.rows.slice(0, 5) : []);
     var snap = msg.trace
       ? { status: msg.trace.status, secs: msg.trace.secs, query: msg.trace.query, rows: rows }
       : {
@@ -2944,10 +2944,12 @@
     drainNext();
   }
 
-  function streamAssistant(chat, reply) {
+  function streamAssistant(chat, reply, traceSnapshot) {
     var index = chat.messages.length;
-    chat.messages.push({ role: "assistant", content: "", ts: Date.now(),
-      run: { state: "running", providerId: null, model: "Demo", startedAt: Date.now() } });
+    var assistantMessage = { role: "assistant", content: "", ts: Date.now(),
+      run: { state: "running", providerId: null, model: "Demo", startedAt: Date.now() } };
+    if (traceSnapshot) assistantMessage.trace = traceSnapshot;
+    chat.messages.push(assistantMessage);
     save();
 
     var row = document.createElement("div");
@@ -2955,6 +2957,8 @@
     row.dataset.i = index;
     row.innerHTML = '<div class="msg-body"><span class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></div>';
     messagesEl.appendChild(row);
+    if (traceSnapshot && window.ImposeTrace) window.ImposeTrace.mountSettled(row, traceSnapshot);
+    refreshIcons();
     if (isNearBottom()) scrollBottom();
 
     setStreamingUI(true);
@@ -4039,6 +4043,42 @@
     renderMessages();
   }
 
+  function beginIntentTraceUi() {
+    if (!window.ImposeTrace) return null;
+    var row = document.createElement("div");
+    row.className = "msg assistant intent-pending";
+    row.innerHTML = '<div class="msg-body"></div>';
+    messagesEl.appendChild(row);
+    var trace = window.ImposeTrace.mountTrace(row, { active: "Understanding your goal" });
+    trace.addRow({ kind: "step", primary: "Interpreting request and conversation context",
+      secondary: "intent · constraints · expected outcome" });
+    var startedAt = Date.now();
+    var timer = setInterval(function () {
+      if (!row.isConnected) { clearInterval(timer); return; }
+      trace.setElapsed();
+    }, 100);
+    refreshIcons();
+    if (isNearBottom()) scrollBottom();
+    return { row: row, trace: trace, timer: timer, startedAt: startedAt };
+  }
+
+  function finishIntentTraceUi(ui, decision, status) {
+    if (!ui) return null;
+    clearInterval(ui.timer);
+    var summary = decision ? intentSummary(decision) : null;
+    var rows = [];
+    if (summary && summary.goal) rows.push({ primary: summary.goal,
+      secondary: "interpreted goal · " + Math.round((summary.confidence || 0) * 100) + "% confidence" });
+    if (summary && summary.requirements.length) rows.push({ primary: summary.requirements.join(" → "),
+      secondary: "required capabilities" });
+    if (summary && summary.selectedTools.length) rows.push({ primary: summary.selectedTools.join(" → "),
+      secondary: "selected providers" });
+    var snapshot = { status: status || "Goal understood",
+      secs: Math.max(1, Math.round((Date.now() - ui.startedAt) / 1000)), query: null, rows: rows };
+    if (ui.row && ui.row.isConnected) ui.row.remove();
+    return snapshot;
+  }
+
   function intentSummary(decision) {
     var plan = decision && decision.plan || {};
     var intent = decision && decision.intent || {};
@@ -4093,6 +4133,7 @@
     intentRouting = true;
     intentController = new AbortController();
     setStreamingUI(true);
+    var intentUi = beginIntentTraceUi();
     var context = agentContext(chat, text);
     var permissions = ext && ext.connected ? ["browser_control"] : [];
     harness.interpretIntent({
@@ -4118,29 +4159,34 @@
       var plan = decision.plan || {};
       var summary = intentSummary(decision);
       if (plan.status === "needs_clarification") {
-        streamAssistant(chat, plan.clarification || "What should I use as the missing scope for this task?");
+        var clarificationTrace = finishIntentTraceUi(intentUi, decision, "Needs clarification");
+        streamAssistant(chat, plan.clarification || "What should I use as the missing scope for this task?", clarificationTrace);
         return;
       }
       if (plan.status === "blocked") {
-        streamAssistant(chat, plan.clarification || ("I can’t complete this yet because these capabilities are unavailable: " + summary.unresolved.join(", ") + "."));
+        var blockedTrace = finishIntentTraceUi(intentUi, decision, "Planning blocked");
+        streamAssistant(chat, plan.clarification || ("I can’t complete this yet because these capabilities are unavailable: " + summary.unresolved.join(", ") + "."), blockedTrace);
         return;
       }
       if (summary.selectedTools.indexOf("browser.agent") !== -1) {
-        startBrowserPlan(chat, target, decision.intent.goal || text);
+        startBrowserPlan(chat, target, decision.intent.goal || text, intentUi, decision);
         return;
       }
       var needsHarness = summary.selectedTools.some(function (id) {
         return id === "web.search" || id === "web.read" || id === "images.search" || id === "videos.search";
       });
       if (needsHarness && window.ImposeTrace) {
+        finishIntentTraceUi(intentUi, decision, "Goal understood");
         streamResearched(chat, target.provider, target.model, text, replaceIdx, decision);
         return;
       }
+      finishIntentTraceUi(intentUi, decision, "Goal understood");
       var hist = replaceIdx == null ? historyFor(chat.messages, target.provider.kind, target.model)
         : historyFor(chat.messages.slice(0, replaceIdx), target.provider.kind, target.model);
       withResumeHint(hist, chat, replaceIdx);
       streamLive(chat, target.provider, target.model, hist, replaceIdx, false, decision);
     }).catch(function (error) {
+      finishIntentTraceUi(intentUi, null, error && error.name === "AbortError" ? "Stopped" : "Intent understanding failed");
       finishIntentRouting();
       if (error && error.name === "AbortError") {
         dnote("intent", "Goal understanding stopped by the user");
@@ -6556,9 +6602,11 @@
     }
   }
 
-  function appendBrowserMessage(chat, content) {
+  function appendBrowserMessage(chat, content, traceSnapshot) {
     if (!chat) return;
-    chat.messages.push({ role: "assistant", content: String(content || "") });
+    var message = { role: "assistant", content: String(content || "") };
+    if (traceSnapshot) message.trace = traceSnapshot;
+    chat.messages.push(message);
     chat.updated = Date.now();
     save();
     renderList();
@@ -6714,20 +6762,25 @@
     save();
   }
 
-  function startBrowserPlan(chat, target, goal) {
+  function startBrowserPlan(chat, target, goal, intentUi, intentDecision) {
+    function browserIntentTrace(status) {
+      var snapshot = finishIntentTraceUi(intentUi, intentDecision || null, status);
+      intentUi = null;
+      return snapshot;
+    }
     if (!goal) {
-      appendBrowserMessage(chat, "Tell me the browser goal after the command, for example: `/agent find the official project page and summarize it`.");
+      appendBrowserMessage(chat, "Tell me the browser goal after the command, for example: `/agent find the official project page and summarize it`.", browserIntentTrace("Planning blocked"));
       return;
     }
-    if (browserRecoveryBlocked(chat)) return;
+    if (browserRecoveryBlocked(chat)) { browserIntentTrace("Planning blocked"); return; }
     if (browserPendingActions) {
-      appendBrowserMessage(chat, "A stopped browser action is still waiting for its final extension response. Inspect the page and wait for it to settle before starting another plan.");
+      appendBrowserMessage(chat, "A stopped browser action is still waiting for its final extension response. Inspect the page and wait for it to settle before starting another plan.", browserIntentTrace("Planning blocked"));
       return;
     }
     var existing = loadPendingBrowserPlan();
     pendingBrowserPlan = existing;
     if (existing && existing.chatId === chat.id && !savePendingBrowserPlan(null)) {
-      appendBrowserMessage(chat, "The previous browser plan could not be replaced safely. Reload Impose; no browser actions were run.");
+      appendBrowserMessage(chat, "The previous browser plan could not be replaced safely. Reload Impose; no browser actions were run.", browserIntentTrace("Planning blocked"));
       return;
     }
     updateBrowserIntentTask(chat, "executing", "creating a bounded browser plan");
@@ -6749,13 +6802,13 @@
       };
       if (!savePendingBrowserPlan(record)) throw new Error("The browser plan could not be saved safely for approval.");
       updateBrowserIntentTask(chat, "needs_approval", "bounded browser plan is waiting for explicit approval");
-      appendBrowserMessage(chat, describeBrowserPlan(goal, plan));
+      appendBrowserMessage(chat, describeBrowserPlan(goal, plan), browserIntentTrace("Browser plan ready"));
       announceOperation("Browser plan ready for approval.");
       toast("Browser plan ready. Review it before approving.");
     }).catch(function (error) {
       if (operation.stopNoted) return;
       updateBrowserIntentTask(chat, "failed", error && error.message || error, false);
-      appendBrowserMessage(chat, browserFailureText(error, false));
+      appendBrowserMessage(chat, browserFailureText(error, false), browserIntentTrace("Browser planning failed"));
       toast.error("Browser planning failed.");
     }).then(function () {
       finishBrowserOperation(operation);
