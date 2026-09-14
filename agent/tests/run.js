@@ -202,6 +202,9 @@ test("image intent and subject extraction", function () {
   eq(H.imageSubject("photos of cats"), "cats", "photos of stripped");
   ok(H.looksLikeVideoRequest("show MrBeast's most recent upload"), "recent upload is video intent");
   ok(H.looksLikeVideoRequest("latest Marvel trailer for Avengers Doomsday"), "trailer is media intent");
+  ok(H.looksLikeVideoRequest("Play me Iceking Ochacho latest song"), "song command is media intent");
+  ok(H.looksLikeVideoRequest("Play the song now"), "generic song command is media intent");
+  ok(H.looksLikeVideoRequest("Can you embed it here?", "user: play the latest video"), "embed follow-up uses context");
   ok(H.looksLikeMediaAction("find a live stream and play it", ""), "direct command is media-only");
   ok(!H.looksLikeMediaAction("explain this trailer", ""), "mixed research request is not media-only");
   ok(H.looksLikeVideoRequest("find a twitchlive stream"), "compound Twitch live wording is media intent");
@@ -209,6 +212,12 @@ test("image intent and subject extraction", function () {
   ok(H.looksLikeVideoRequest("play it", "Earlier: find a Twitch live stream"), "media follow-up uses context");
   ok(!H.looksLikeVideoRequest("play it", "Earlier: explain chess"), "non-media follow-up stays ordinary");
   ok(!H.looksLikeVideoRequest("upload this PDF"), "ordinary file upload is not video intent");
+  eq(H.resolveMediaFollowup("Play the song now",
+    "user: Play me Iceking Ochacho latest song\nassistant: Here is the channel"),
+    "Play me Iceking Ochacho latest song", "generic song follow-up inherits concrete request");
+  eq(H.resolveMediaFollowup("Can you embed it here?",
+    "user: Play me Iceking Ochacho latest song\nassistant: Here is the result"),
+    "Play me Iceking Ochacho latest song", "embed follow-up inherits concrete request");
 });
 
 test("image retry removes generic descriptive words", function () {
@@ -360,6 +369,30 @@ test("direct media commands bypass generic search and the answer model", functio
     eq(rewrites, 0, "explicit capability query is not model-rewritten");
     eq(completions, 0, "answer model bypassed");
     eq(out.videos[0].id, "dynamiclive", "typed live artifact returned");
+  });
+});
+
+test("generic song follow-up reuses the last concrete media request", function () {
+  var received = "", rewrites = 0;
+  return H.harness.runAgent({
+    query: "Play the song now",
+    context: "user: Play me Iceking Ochacho latest song\nassistant: Here is the artist channel.",
+    search: function () { throw new Error("generic search must not run"); },
+    rewrite: function () { rewrites += 1; return Promise.resolve("wrong"); },
+    videos: function (q) {
+      received = q;
+      return Promise.resolve({ provider: "youtube-feed", results: [{
+        title: "Latest upload", url: "https://www.youtube.com/watch?v=FMggEmTmQ0U",
+        kind: "youtube-video", id: "FMggEmTmQ0U", latest: true,
+        verifiedClaims: ["playable", "latest"]
+      }] });
+    },
+    emit: function () {}, onDelta: function () {}, complete: function () { throw new Error("model must not answer"); }
+  }).then(function (out) {
+    eq(received, "Play me Iceking Ochacho latest song", "prior concrete query restored");
+    eq(rewrites, 0, "model rewrite bypassed");
+    eq(out.traceStatus, "Checked playable media", "typed capability status returned");
+    eq(out.videos[0].id, "FMggEmTmQ0U", "verified player retained");
   });
 });
 
