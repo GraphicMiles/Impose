@@ -3623,12 +3623,21 @@
       body: JSON.stringify({ query: query, limit: limit || 6, requirements: requirements || {} })
     };
     if (signal) opts.signal = signal;
-    return fetch(stripSlash(cfg.url) + "/v1/images", opts).then(function (res) {
-      if (res.status === 401) throw new Error("That relay key was rejected.");
-      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
-        throw new Error("The image search came back unreadable.");
+    function send(attempt) {
+      return fetch(stripSlash(cfg.url) + "/v1/images", opts).catch(function (err) {
+        if (attempt < 1 && !(signal && signal.aborted)) {
+          dwarn("images", "Image relay connection dropped; retrying once.");
+          return new Promise(function (resolve) { setTimeout(resolve, 350); }).then(function () { return send(attempt + 1); });
+        }
+        throw err;
+      }).then(function (res) {
+        if (res.status === 401) throw new Error("That relay key was rejected.");
+        return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+          throw new Error("The image search came back unreadable.");
+        });
       });
-    }).then(function (env) {
+    }
+    return send(0).then(function (env) {
       if (env.status !== 200) {
         var detail = (env.data && env.data.detail) || ("Image search failed (" + env.status + ").");
         dwarn("images", sanitizeLogDetail(detail).slice(0, 240));

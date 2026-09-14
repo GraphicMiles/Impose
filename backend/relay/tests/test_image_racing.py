@@ -24,6 +24,28 @@ def _no_live_specialist_network(monkeypatch):
         raise AttemptFail("unavailable")
     monkeypatch.setattr(images, "partial_iconify", _provider(unavailable))
     monkeypatch.setattr(images, "partial_svg_repo", _provider(unavailable))
+    monkeypatch.setattr(images, "partial_simple_icons", _provider(unavailable))
+
+
+def test_brand_catalog_matches_semantic_name_and_returns_attributed_svg(monkeypatch):
+    class Response:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+        content = b""
+        def json(self): return [{"title": "Google", "hex": "4285F4", "source": "https://about.google/brand-resource-center/"},
+                                {"title": "Google Cloud", "hex": "4285F4", "source": "https://cloud.google.com"}]
+    class Artifact:
+        status_code = 200
+        headers = {"content-type": "image/svg+xml"}
+        content = b"<svg xmlns='http://www.w3.org/2000/svg'></svg>"
+    class Client:
+        async def get(self, url, **kwargs): return Artifact() if "simpleicons.org/google" in url else Response()
+    monkeypatch.setitem(images._simple_icons_cache, "rows", [])
+    rows = asyncio.run(images._simple_icons(Client(), ["official Google logo icon"], 4))
+    assert rows[0]["title"] == "Google brand icon"
+    assert rows[0]["format"] == "svg"
+    assert rows[0]["page"].startswith("https://about.google/")
+    assert rows[0]["image"] == "https://cdn.simpleicons.org/google"
 
 
 def test_source_rank_beats_fastest_response(monkeypatch):

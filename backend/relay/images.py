@@ -25,6 +25,9 @@ from relay.source_intelligence import ROUTER, SourceRequirements
 OPENVERSE = "https://api.openverse.org/v1/images/"
 WIKIMEDIA = "https://commons.wikimedia.org/w/api.php"
 IMAGE_SEARCH_TIMEOUT_SECONDS = 13.0
+_SIMPLE_ICONS_URL = "https://cdn.jsdelivr.net/npm/simple-icons@latest/_data/simple-icons.json"
+_simple_icons_cache = {"at": 0.0, "rows": []}
+_simple_icons_lock = asyncio.Lock()
 IMAGE_GENERIC_TOKENS = {
     "iconic", "classic", "famous", "representative", "related",
     "images", "image", "photos", "photo", "pictures", "picture",
@@ -159,6 +162,61 @@ def parse_wikimedia(data):
             "format": (info.get("mime") or "").split("/")[-1].lower(),
             "license": (info.get("extmetadata") or {}).get("LicenseShortName", {}).get("value"),
         })
+    return out
+
+
+def _simple_icon_slug(title):
+    # Simple Icons' default slug convention; catalog entries may override it.
+    value = html_mod.unescape(str(title or "")).lower().replace("+", "plus").replace("&", "and")
+    return "".join(ch for ch in value if ch.isascii() and ch.isalnum())
+
+
+async def _simple_icons(client, queries, limit):
+    now = time.time()
+    async with _simple_icons_lock:
+        if not _simple_icons_cache["rows"] or now - _simple_icons_cache["at"] > 21600:
+            try: response = await client.get(_SIMPLE_ICONS_URL, timeout=12.0)
+            except (httpx.TimeoutException, httpx.RequestError): raise AttemptFail("catalog unavailable")
+            if response.status_code != 200: raise AttemptFail("catalog http " + str(response.status_code))
+            try: rows = response.json()
+            except Exception: raise AttemptFail("catalog unreadable")
+            if not isinstance(rows, list): raise AttemptFail("catalog malformed")
+            _simple_icons_cache.update({"at": now, "rows": rows[:5000]})
+        rows = list(_simple_icons_cache["rows"])
+    generic = {"logo", "logos", "icon", "icons", "official", "brand", "branding", "image", "images"}
+    query = " ".join(str(value) for value in queries if str(value).strip()).lower()
+    brand_tokens = lambda value: set(re.findall(r"[a-z0-9]{2,}", str(value).lower())) - generic
+    query_tokens = brand_tokens(query)
+    ranked = []
+    for row in rows:
+        title = str(row.get("title") or "")
+        aliases = row.get("aliases") or {}
+        names = [title] + list(aliases.get("aka") or [])
+        token_sets = [brand_tokens(name) for name in names]
+        token_sets = [tokens for tokens in token_sets if tokens]
+        if not token_sets: continue
+        overlap = max(len(query_tokens & tokens) / len(tokens) for tokens in token_sets)
+        exact = any(tokens <= query_tokens for tokens in token_sets)
+        if not exact and overlap < 1: continue
+        ranked.append((1.0 if exact else overlap, title, row))
+    ranked.sort(key=lambda item: (-item[0], len(item[1])))
+    out = []
+    for _, title, row in ranked[:limit]:
+        slug = str(row.get("slug") or _simple_icon_slug(title))
+        if not slug: continue
+        source = str(row.get("source") or "")
+        license_data = row.get("license") or {}
+        image_url = "https://cdn.simpleicons.org/" + quote(slug, safe="")
+        try: artifact = await client.get(image_url, timeout=8.0)
+        except (httpx.TimeoutException, httpx.RequestError): continue
+        if artifact.status_code != 200 or "svg" not in artifact.headers.get("content-type", "").lower() or b"<svg" not in artifact.content[:500]: continue
+        out.append({"title": title + " brand icon", "image": image_url,
+                    "thumb": image_url,
+                    "page": source if source.startswith("https://") else "https://simpleicons.org/?q=" + quote(title),
+                    "source": "simple-icons", "format": "svg", "convertibleTo": ["png"],
+                    "license": license_data.get("type"), "brandColor": row.get("hex"),
+                    "verifiedClaims": ["artifact_fetch", "source_attribution"]})
+    if not out: raise AttemptFail("no matching brand icon")
     return out
 
 
@@ -444,7 +502,7 @@ async def engine_images(query, limit=8, requirements=None):
         **planning_requirements, "artifactType": planning_requirements.get("artifactType") or "image",
         "requiredCapabilities": planning_requirements.get("requiredCapabilities") or ["search", "preview", "source_attribution"],
     })
-    source_plan = ROUTER.plan(planning_request, ["openverse", "wikimedia", "bing-images", "ddg-images", "svg-repo", "iconify"])
+    source_plan = ROUTER.plan(planning_request, ["openverse", "wikimedia", "bing-images", "ddg-images", "svg-repo", "iconify", "simple-icons"])
     source_plan["retrievalInputFormats"] = source_plan["requirements"].get("formats", [])
     source_plan["requirements"]["formats"] = sorted(source_request.formats)
     provider_query = _source_query(query, raw_requirements)
@@ -460,6 +518,7 @@ async def engine_images(query, limit=8, requirements=None):
             "ddg-images": partial_ddg(client, provider_query, limit),
             "svg-repo": partial_svg_repo(client, provider_query, limit),
             "iconify": partial_iconify(client, provider_queries, limit),
+            "simple-icons": partial_simple_icons(client, provider_queries, limit),
         }
         for stage in source_plan["stages"]:
             jobs = [(name, provider_jobs[name]) for name in stage["providers"] if name in provider_jobs]
@@ -509,6 +568,12 @@ async def engine_images(query, limit=8, requirements=None):
 def partial_bing(client, query, limit):
     async def job():
         return await _bing_images(client, query, limit)
+    return job
+
+
+def partial_simple_icons(client, queries, limit):
+    async def job():
+        return await _simple_icons(client, queries, limit)
     return job
 
 
