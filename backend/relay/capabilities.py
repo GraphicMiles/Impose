@@ -78,13 +78,15 @@ class CapabilityPipeline:
 
         out: list[Candidate] = []
         seen: set[str] = set()
+        # The bound is checked before appending: a caller asking for zero
+        # results must get zero, not the first candidate.
         for item in candidates:
+            if len(out) >= max(0, int(request.limit or 0)):
+                break
             value = item.value
             key = str(value.get("url") or value.get("id") or "")
             if not key or key in seen:
                 continue
             seen.add(key)
             out.append(item)
-            if len(out) >= request.limit:
-                break
         return out

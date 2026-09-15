@@ -71,7 +71,14 @@ def _is_external_source(url):
 
 def parse_searxng(data):
     out = []
-    for r in (data or {}).get("results", []) or []:
+    # A misconfigured instance can answer with a scalar or non-object rows.
+    # Skipping them keeps one odd reply from costing the whole provider.
+    rows = (data or {}).get("results", []) if isinstance(data, dict) else []
+    if not isinstance(rows, (list, tuple)):
+        rows = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
         url = r.get("url", "")
         if not _is_external_source(url):
             continue

@@ -87,3 +87,15 @@ def test_catalog_is_data_extensible_without_router_branch(tmp_path: Path):
     req = SourceRequirements.from_mapping("discover", {"artifactType": "dataset", "formats": ["csv"],
         "requiredCapabilities": ["search", "download"]})
     assert r.rank(req)[0]["provider"] == "new-source"
+
+
+def test_discovery_requires_an_absolute_http_url():
+    """Audit regression: a protocol-relative or scheme-less string parsed to a
+    hostname and registered a provider nobody requested."""
+    from relay.source_intelligence import ProviderCatalog, PerformanceLedger
+    catalog = ProviderCatalog(ledger=PerformanceLedger())
+    for junk in ["//x", "x.com/path", "ftp://host/f", "javascript:alert(1)", "", "   "]:
+        assert catalog.discover(junk) is None, junk
+    before = sum(profile.discovered for profile in catalog.providers())
+    assert catalog.discover("https://new-host.example/a") is not None
+    assert sum(profile.discovered for profile in catalog.providers()) == before + 1
