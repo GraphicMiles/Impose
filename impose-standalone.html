@@ -9549,7 +9549,21 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       body: JSON.stringify({ query: query, limit: limit || 8, requirements: requirements || {} })
     };
     if (signal) opts.signal = signal;
-    return fetch(url, opts).then(function (res) {
+    /* The first search of a run is the only relay call whose failure is
+       fatal: images, videos, files, reads, and the critic re-search all
+       fail soft. Mobile networks drop connections the relay answers fine
+       seconds later, so a single dropped request ended the whole reply.
+       Match the image transport: retry the network drop once. */
+    function send(attempt) {
+      return fetch(url, opts).catch(function (err) {
+        if (attempt < 1 && err && err.name !== "AbortError" && !(signal && signal.aborted)) {
+          dwarn("net", "Search relay connection dropped; retrying once.");
+          return new Promise(function (resolve) { setTimeout(resolve, 350); }).then(function () { return send(attempt + 1); });
+        }
+        throw err;
+      });
+    }
+    return send(0).then(function (res) {
       if (res.status === 401) throw new Error("That relay key was rejected. Check it on the relay dashboard.");
       return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
         throw new Error("The search came back unreadable.");
