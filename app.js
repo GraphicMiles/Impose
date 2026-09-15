@@ -1046,7 +1046,7 @@
       method: "GET",
       mode: "cors",
       cache: "no-store",
-      signal: withTimeout(9000)
+      signal: withTimeout(15000)
     }).then(function (r) {
       if (!r.ok) throw new Error("Relay health returned " + r.status);
       return r.json();
@@ -2610,18 +2610,23 @@
     var cards = "";
     for (var i = 0; i < files.length && i < 12; i++) {
       var f = files[i] || {};
-      var source = safeArtifactUrl(f.sourceUrl), preview = safeArtifactUrl(f.previewUrl), download = safeArtifactUrl(f.downloadUrl);
-      if (!source || !preview || !download) continue;
+      var source = safeArtifactUrl(f.sourceUrl), action = safeArtifactUrl(f.actionUrl), download = safeArtifactUrl(f.downloadUrl);
+      var preview = safeArtifactUrl(f.previewUrl) || source;
+      if (!source || (!download && !action)) continue;
       var name = escapeHtml(String(f.name || f.title || "download").slice(0, 180));
       var kind = String(f.kind || "binary").replace(/[^a-z]/g, "") || "binary";
-      var meta = escapeHtml(String(f.platform || "Web") + " · " + String(f.mime || "File") + " · " + fileSizeLabel(f.size));
+      var meta = escapeHtml(String(f.platform || "Web") + " · " + (download ? String(f.mime || "File") + " · " + fileSizeLabel(f.size) : "Opens on provider"));
+      var controls = download
+        ? '<button type="button" class="btn small file-preview" data-url="' + escapeHtml(preview) + '" data-kind="' + kind +
+          '" data-name="' + name + '" data-source="' + escapeHtml(source) + '"><i data-lucide="eye"></i><span>Preview</span></button>' +
+          '<button type="button" class="btn small primary file-download" data-url="' + escapeHtml(download) + '" data-name="' + name +
+          '"><i data-lucide="download"></i><span>Download</span></button>'
+        : '<a class="btn small primary" href="' + escapeHtml(action) + '" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i><span>' +
+          escapeHtml(String(f.actionLabel || "Open artifact")) + '</span></a>';
       cards += '<article class="file-card"><div class="file-glyph file-' + kind + '"><i data-lucide="file"></i><span>' +
         escapeHtml(String(f.extension || kind).toUpperCase().slice(0, 8)) + '</span></div><div class="file-info"><strong title="' + name + '">' + name +
         '</strong><span>' + meta + '</span><a href="' + escapeHtml(source) + '" target="_blank" rel="noopener noreferrer">View source<i data-lucide="external-link"></i></a></div>' +
-        '<div class="file-actions"><button type="button" class="btn small file-preview" data-url="' + escapeHtml(preview) + '" data-kind="' + kind +
-        '" data-name="' + name + '" data-source="' + escapeHtml(source) + '"><i data-lucide="eye"></i><span>Preview</span></button>' +
-        '<button type="button" class="btn small primary file-download" data-url="' + escapeHtml(download) + '" data-name="' + name +
-        '"><i data-lucide="download"></i><span>Download</span></button></div></article>';
+        '<div class="file-actions">' + controls + '</div></article>';
     }
     return cards ? '<div class="file-list">' + cards + "</div>" : "";
   }
@@ -3841,7 +3846,7 @@
       }
       else if (ev.t === "files") {
         s.fileResults = ev.files || null;
-        trace.addRow({ primary: ev.n + " downloadable file" + (ev.n === 1 ? "" : "s"), secondary: ev.provider || "" });
+        trace.addRow({ primary: ev.n + " usable file" + (ev.n === 1 ? " or template" : "s or templates"), secondary: ev.provider || "" });
       }
       else if (ev.t === "filesfail") trace.addRow({ primary: "File discovery found no safe artifact", secondary: "try a filename or extension" });
       else if (ev.t === "sourceplan" && ev.plan) {
@@ -3957,7 +3962,7 @@
         s.text = String(out.answer || "I couldn’t verify a playable result for this request. Try a specific channel or video name.");
         if (m) m.videoFailed = true;
       } else if (out && out.fileFailed) {
-        s.text = String(out.answer || "I couldn’t find a downloadable file that I could safely verify.");
+        s.text = String(out.answer || "I couldn’t find a file or template that I could safely verify.");
         if (m) m.fileFailed = true;
       } else if (out && out.researchFailed) {
         /* Empty or off-topic search evidence fails closed. Do not turn model

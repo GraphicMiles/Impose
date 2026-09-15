@@ -876,8 +876,25 @@ test("semantic file discovery returns typed artifacts without generic research",
   }, search: function () { searched++; return Promise.resolve({ results: [] }); },
     complete: function () { completed++; return Promise.resolve(); }, emit: function (event) { events.push(event); }
   }).then(function (out) {
-    eq(searched, 0); eq(completed, 0); eq(out.files.length, 1); eq(out.traceStatus, "Found downloadable files");
+    eq(searched, 0); eq(completed, 0); eq(out.files.length, 1); eq(out.traceStatus, "Found usable files and templates");
     ok(events.some(function (event) { return event.t === "files"; }));
+  });
+});
+
+test("provider-hosted template action is a verified artifact outcome", function () {
+  return H.harness.runAgent({ query: "Find a CV template", intent: {
+    constraints: {}, subgoals: [{ requirements: [{ capability: "discover_files", inputs: {
+      query: "CV resume template", sourceRequirements: { artifactType: "template", sourceClasses: ["template_repository"] }
+    } }] }]
+  }, files: function () { return Promise.resolve({ provider: "fixture", results: [{
+    name: "Professional CV templates", sourceUrl: "https://create.microsoft.com/en-us/templates/resumes",
+    previewUrl: "https://create.microsoft.com/en-us/templates/resumes", downloadUrl: "",
+    actionUrl: "https://create.microsoft.com/en-us/templates/resumes", accessMode: "open", actionLabel: "Open template"
+  }] }); }, search: function () { throw new Error("generic search should not replace typed discovery"); },
+    complete: function () { throw new Error("answer model should not run"); }, emit: function () {}
+  }).then(function (out) {
+    eq(out.files.length, 1); eq(out.files[0].accessMode, "open");
+    eq(out.answer, "Here are the usable files and templates I found.");
   });
 });
 

@@ -245,6 +245,32 @@ def _tier_auth(request: Request, owner_bucket: str, pub_bucket: str,
         raise HTTPException(status_code=429, detail="public search limit reached; wait a minute")
 
 
+def _bounded_mapping(value, *, keys=24, chars=12000):
+    """Accept common semantic-planner JSON shapes without exposing an
+    unbounded provider input surface."""
+    if isinstance(value, str):
+        try: value = json.loads(value)
+        except Exception: return {}
+    if not isinstance(value, dict): return {}
+    out = {str(key)[:80]: item for key, item in list(value.items())[:keys]}
+    try: return out if len(json.dumps(out)) <= chars else {}
+    except Exception: return {}
+
+
+def _bounded_strings(value, *, limit=8, width=80):
+    if isinstance(value, str): value = value.split(",")
+    if not isinstance(value, (list, tuple, set)): return []
+    return [str(item).strip()[:width] for item in list(value)[:limit] if str(item).strip()]
+
+
+def _semantic_bool(value):
+    if isinstance(value, bool): return value
+    if isinstance(value, (int, float)): return bool(value)
+    if isinstance(value, str) and value.strip().lower() in {"true", "yes", "1"}: return True
+    if isinstance(value, str) and value.strip().lower() in {"false", "no", "0", ""}: return False
+    return None
+
+
 def _gateway_headers() -> dict:
     headers = {"Content-Type": "application/json"}
     if GATEWAY_KEY:
@@ -593,7 +619,7 @@ async def source_catalog(request: Request):
         "id": provider.id, "mechanism": provider.mechanism,
         "sourceClasses": sorted(provider.source_classes), "artifactTypes": sorted(provider.artifact_types),
         "formats": sorted(provider.formats), "capabilities": sorted(provider.capabilities),
-        "metrics": dict(provider.metrics), "discovered": provider.discovered,
+        "domains": sorted(provider.domains), "metrics": dict(provider.metrics), "discovered": provider.discovered,
         "performance": performance.get(provider.id)
     } for provider in CATALOG.providers() if not provider.discovered]}
 
@@ -634,14 +660,8 @@ async def search_proxy(request: Request):
         limit = max(1, min(20, int(limit)))
     except Exception:
         raise HTTPException(status_code=400, detail="limit must be 1..20")
-    if domains is not None and not isinstance(domains, list):
-        raise HTTPException(status_code=400, detail="domains must be a list")
-    domains = [str(d).strip().lower() for d in (domains or []) if str(d).strip()]
-    if not isinstance(requirements, dict):
-        raise HTTPException(status_code=400, detail="requirements must be an object")
-    requirements = {str(k)[:80]: v for k, v in list(requirements.items())[:24]}
-    if len(json.dumps(requirements)) > 6000:
-        raise HTTPException(status_code=400, detail="requirements are too large")
+    domains = [domain.lower() for domain in _bounded_strings(domains, limit=12, width=253)]
+    requirements = _bounded_mapping(requirements)
     ckey = "|".join([
         query.lower(), str(limit), ",".join(sorted(domains)),
         str(freshness or "").lower(), str(language or "en").lower(),
@@ -781,12 +801,7 @@ async def images_proxy(request: Request):
         limit = max(1, min(20, int(limit)))
     except Exception:
         raise HTTPException(status_code=400, detail="limit must be 1..20")
-    if not isinstance(requirements, dict):
-        raise HTTPException(status_code=400, detail="requirements must be an object")
-    # Bound structured semantic inputs before they enter provider planning.
-    requirements = {str(k)[:80]: v for k, v in list(requirements.items())[:24]}
-    if len(json.dumps(requirements)) > 6000:
-        raise HTTPException(status_code=400, detail="requirements are too large")
+    requirements = _bounded_mapping(requirements)
     ckey = query.lower() + "|" + str(limit) + "|" + json.dumps(requirements, sort_keys=True)
     cached = _cache_get("images", ckey)
     if cached is not None:
@@ -823,10 +838,7 @@ async def videos_proxy(request: Request):
             raise HTTPException(status_code=400, detail="body must be JSON")
         query = str(data.get("query", ""))
         limit = data.get("limit", 6)
-        raw_constraints = data.get("constraints", {})
-        if raw_constraints is not None and not isinstance(raw_constraints, dict):
-            raise HTTPException(status_code=400, detail="constraints must be an object")
-        raw_constraints = raw_constraints or {}
+        raw_constraints = _bounded_mapping(data.get("constraints", {}), keys=12, chars=3000)
         constraints = {
             key: raw_constraints[key] for key in ("live", "latest", "creator", "subject", "platforms")
             if key in raw_constraints
@@ -836,13 +848,14 @@ async def videos_proxy(request: Request):
         query = str(q.get("query", "") or q.get("q", ""))
         limit = q.get("limit", 6)
         constraints = {}
-    for flag in ("live", "latest", "creator"):
-        if flag in constraints and not isinstance(constraints[flag], bool):
-            raise HTTPException(status_code=400, detail=flag + " must be boolean")
-    if "subject" in constraints and (not isinstance(constraints["subject"], str) or len(constraints["subject"]) > 500):
-        raise HTTPException(status_code=400, detail="subject must be a string up to 500 chars")
-    if "platforms" in constraints and (not isinstance(constraints["platforms"], list) or len(constraints["platforms"]) > 2):
-        raise HTTPException(status_code=400, detail="platforms must be a short array")
+    for flag in ("live", "latest"):
+        if flag in constraints:
+            normalized = _semantic_bool(constraints[flag])
+            if normalized is None: constraints.pop(flag, None)
+            else: constraints[flag] = normalized
+    for field in ("subject", "creator"):
+        if field in constraints: constraints[field] = str(constraints[field])[:500]
+    if "platforms" in constraints: constraints["platforms"] = _bounded_strings(constraints["platforms"], limit=2)
     query = query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -881,14 +894,9 @@ async def files_proxy(request: Request):
     query = str(data.get("query", "")).strip()
     if not query or len(query) > 500:
         raise HTTPException(status_code=400, detail="query is required and must be at most 500 chars")
-    extensions, platforms = data.get("extensions") or [], data.get("platforms") or []
-    requirements = data.get("requirements") or {}
-    if not isinstance(requirements, dict) or len(json.dumps(requirements)) > 6000:
-        raise HTTPException(status_code=400, detail="requirements must be a bounded object")
-    if not isinstance(extensions, list) or len(extensions) > 8:
-        raise HTTPException(status_code=400, detail="extensions must be a short array")
-    if not isinstance(platforms, list) or len(platforms) > 8:
-        raise HTTPException(status_code=400, detail="platforms must be a short array")
+    extensions = _bounded_strings(data.get("extensions"))
+    platforms = _bounded_strings(data.get("platforms"))
+    requirements = _bounded_mapping(data.get("requirements"))
     try:
         limit = max(1, min(12, int(data.get("limit", 8))))
     except Exception:

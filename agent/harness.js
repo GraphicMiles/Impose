@@ -198,7 +198,7 @@
 
   var filesTool = {
     id: "files.discover", name: "Remote file discovery", version: "1.0", executionMode: "research-harness",
-    description: "Discovers actual downloadable files across source platforms and returns typed artifact records with canonical source, preview, and download URLs.",
+    description: "Discovers safely accessible files and provider-hosted templates, returning honest download or open-on-provider actions.",
     capabilities: ["discover_files", "retrieve_file_artifacts", "files"], primaryCapability: "discover_files",
     inputs: { query: "semantic artifact subject", extensions: "optional file extensions", platforms: "optional source constraints",
       sourceRequirements: "artifactType, sourceClasses, requiredCapabilities, priorities, minimumTrust, diversity", limit: "int, 1 to 12" },
@@ -206,11 +206,12 @@
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
     requiresApproval: false, cost: { latency: "medium", monetary: "none" }, reliability: 0.82,
     environments: ["browser"], composable: true, mutability: "read-only",
-    failureModes: ["provider unavailable", "no relevant downloadable files", "unsupported source page"],
+    failureModes: ["provider unavailable", "no relevant accessible artifacts", "unsupported source page"],
     verify: function (out) { var rows = out && out.files || []; return {
       ok: rows.length > 0 && rows.every(function (row) {
-        return /^https:\/\//i.test(String(row.sourceUrl || "")) && /^https:\/\//i.test(String(row.downloadUrl || ""));
-      }), evidence: rows.length + " typed file records", reason: "no downloadable file output" }; },
+        var access = row.downloadUrl || row.actionUrl;
+        return /^https:\/\//i.test(String(row.sourceUrl || "")) && /^https:\/\//i.test(String(access || ""));
+      }), evidence: rows.length + " typed artifact records", reason: "no safely accessible artifact output" }; },
     inputSchema: { query: "string", extensions: "optional string array", platforms: "optional string array", sourceRequirements: "object", limit: "int, 1 to 12" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
@@ -223,10 +224,10 @@
       }).then(function (out) {
         var clean = [], seen = {};
         ((out && out.results) || []).forEach(function (row) {
-          var download = String(row.downloadUrl || "");
-          if (!/^https:\/\//i.test(download) || seen[download] || clean.length >= limit) return;
-          if (!/^https:\/\//i.test(String(row.sourceUrl || "")) || !/^https:\/\//i.test(String(row.previewUrl || ""))) return;
-          seen[download] = true; clean.push(row);
+          var access = String(row.downloadUrl || row.actionUrl || "");
+          if (!/^https:\/\//i.test(access) || seen[access] || clean.length >= limit) return;
+          if (!/^https:\/\//i.test(String(row.sourceUrl || "")) || !/^https:\/\//i.test(String(row.previewUrl || row.actionUrl || ""))) return;
+          seen[access] = true; clean.push(row);
         });
         return { files: clean, provider: out && out.provider || "", query: out && out.query || query,
           sourcePlan: out && out.sourcePlan || null };
@@ -507,7 +508,7 @@
       return plan().then(function (planned) {
         if (deps.signal && deps.signal.aborted) throw abortErr();
         deps.emit({ t: "status", text: !wantsResearch
-          ? (wantFiles ? "Finding downloadable files" : (wantVideos ? "Finding playable media" : "Finding images"))
+          ? (wantFiles ? "Finding usable files and templates" : (wantVideos ? "Finding playable media" : "Finding images"))
           : "Searching the web" });
         var gallery = null;
         var galleryFailed = false;
@@ -625,7 +626,7 @@
             if (["discover_files", "retrieve_file_artifacts", "files"].indexOf(String(requirement.capability || "")) === -1) return false;
             typed = requirement.inputs || {}; return true;
           });
-          deps.emit({ t: "status", text: "Finding downloadable files" });
+          deps.emit({ t: "status", text: "Finding usable files and templates" });
           var fileSourceRequirements = typed.sourceRequirements && typeof typed.sourceRequirements === "object"
             ? Object.assign({}, typed.sourceRequirements) : {};
           ["artifactType", "sourceClasses", "requiredCapabilities", "priorities", "minimumTrust", "diversity"]
@@ -694,7 +695,7 @@
            not an implicit tax on every task. */
         if (!wantsResearch && (wantVideos || wantImages || wantFiles)) {
           return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve(), fileJob || Promise.resolve()]).then(function () {
-            var status = wantFiles ? "Found downloadable files" : (wantVideos ? "Checked playable media" : "Found verified images");
+            var status = wantFiles ? "Found usable files and templates" : (wantVideos ? "Checked playable media" : "Found verified images");
             deps.emit({ t: "settle", text: status });
             if (wantVideos && (!videoResults || !videoResults.length) && !gallery && !fileResults) {
               deps.emit({ t: "videosfail" });
@@ -710,12 +711,12 @@
               deps.emit({ t: "filesfail" });
               return { sources: [], provider: fileProvider, images: null, videos: null, files: null,
                 fileFailed: true, traceStatus: status,
-                answer: "I couldn’t find a downloadable file that I could safely verify. Try a filename, extension, or source platform." };
+                answer: "I couldn’t find a file or template that I could safely verify. Try a filename, format, or source platform." };
             }
             return { sources: [], provider: fileProvider || videoProvider,
               images: gallery ? gallery.images : null, videos: videoResults, files: fileResults,
               traceStatus: status,
-              answer: fileResults ? "Here are the downloadable files I found."
+              answer: fileResults ? "Here are the usable files and templates I found."
                 : (videoResults && gallery ? "Here are the verified media artifacts I found."
                 : (videoResults ? "Here’s the verified media I found." : "Here are the verified images I found.")) };
           });
@@ -798,10 +799,10 @@
             results = rows;
             if (rows.length === 0) {
               return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve(), fileJob || Promise.resolve()]).then(function () {
-                deps.emit({ t: "settle", text: fileResults ? "Found downloadable files" : "Searched the web" });
+                deps.emit({ t: "settle", text: fileResults ? "Found usable files and templates" : "Searched the web" });
                 if (fileResults && fileResults.length) {
                   return { sources: [], provider: fileProvider, images: gallery ? gallery.images : null,
-                    videos: videoResults, files: fileResults, answer: "Here are the downloadable files I found." };
+                    videos: videoResults, files: fileResults, answer: "Here are the usable files and templates I found." };
                 }
                 /* Prompt rules are not a security boundary. If every image
                    source failed, never ask a model to improvise an image

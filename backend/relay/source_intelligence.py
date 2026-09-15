@@ -68,6 +68,7 @@ class ProviderProfile:
     artifact_types: frozenset[str]
     formats: frozenset[str]
     capabilities: frozenset[str]
+    domains: frozenset[str]
     metrics: Mapping[str, float]
     discovered: bool = False
 
@@ -119,6 +120,7 @@ class ProviderCatalog:
                 id=str(raw["id"])[:120], mechanism=str(raw.get("mechanism") or "adapter")[:80],
                 source_classes=_strings(raw.get("source_classes")), artifact_types=_strings(raw.get("artifact_types")),
                 formats=_strings(raw.get("formats")), capabilities=_strings(raw.get("capabilities")),
+                domains=_strings(raw.get("domains")),
                 metrics={key: _bounded(raw.get(key), 0.5) for key in _METRICS}, discovered=bool(raw.get("discovered")))
             providers[provider.id] = provider
         with self._lock:
@@ -143,7 +145,8 @@ class ProviderCatalog:
                 neutral = {key: 0.35 for key in _METRICS}
                 neutral.update({"availability": 0.45, "trust": 0.25, "specialization": 0.4})
                 self._providers[pid] = ProviderProfile(pid, "discovered_web_source", _strings(source_classes),
-                    _strings(artifact_types), frozenset(), frozenset({"search", "source_attribution"}), neutral, True)
+                    _strings(artifact_types), frozenset(), frozenset({"search", "source_attribution"}),
+                    frozenset({host}), neutral, True)
             return self._providers[pid]
 
 
