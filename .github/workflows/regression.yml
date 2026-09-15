@@ -1,0 +1,38 @@
+name: regression gate
+
+# Every scenario class the 2026-09-15 audit found is cheap to lose again: a
+# stale single-file build, a red agent suite, or a relay contract break. This
+# workflow is the mechanical check that replaces "remember to run them".
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  suites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install relay dependencies
+        run: python -m pip install -r backend/requirements.txt -r backend/relay/requirements.txt
+      - name: Static build is current
+        run: python3 build_inline.py --check
+      - name: Agent and extension suites
+        run: |
+          node agent/tests/run.js
+          node agent/tests/features.js
+          node agent/tests/browser-agent.js
+          node agent/tests/lifecycle.js
+          node agent/tests/orchestrator.js
+          node agent/tests/audit-regressions.js
+          node extension/tests/lifecycle.js
+      - name: Relay contract suites
+        run: PYTHONPATH=backend python3 -m pytest backend -q
+      - name: Audit scenario matrix (2788 scenarios)
+        run: |
+          node audit/run.js
+          PYTHONPATH=backend python3 audit/relay.py

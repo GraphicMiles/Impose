@@ -4,8 +4,10 @@ Reads index.html, replaces the stylesheet links with style tags and the
 script tags with inline scripts. Output works from disk with no server.
 """
 import pathlib
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
+CHECK = "--check" in sys.argv[1:]
 
 html = (ROOT / "index.html").read_text(encoding="utf-8")
 css = (ROOT / "styles.css").read_text(encoding="utf-8")
@@ -78,5 +80,14 @@ html = html.replace(
 )
 
 out = ROOT / "impose-standalone.html"
+if CHECK:
+    current = out.read_text(encoding="utf-8") if out.exists() else ""
+    if current != html:
+        raise SystemExit(
+            "impose-standalone.html is stale against its sources.\n"
+            "Run: python3 build_inline.py   then commit the rebuilt file."
+        )
+    print("impose-standalone.html is current (%d bytes)" % len(current))
+    raise SystemExit(0)
 out.write_text(html, encoding="utf-8")
 print("Wrote %s (%d bytes)" % (out.name, out.stat().st_size))

@@ -1,0 +1,17 @@
+{
+ "total": 1480,
+ "pass": 1480,
+ "fail": 0,
+ "blocked": 0,
+ "byCategory": {
+  "agent.intent.malformed": 220,
+  "agent.capability.grounding": 320,
+  "agent.planner.determinism": 140,
+  "agent.authorization.approval-state": 220,
+  "agent.authorization.extension-trust-boundary": 120,
+  "agent.recovery.executor-false-success": 120,
+  "security.pii-redaction": 340
+ },
+ "bySeverity": {},
+ "rootCauses": []
+}
