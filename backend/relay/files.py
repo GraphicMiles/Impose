@@ -59,10 +59,17 @@ def _record(source_url: str, download_url: str, title: str = "", *, size=None,
         return None
     filename = _name(urlparse(download_url).path, _name(urlparse(source_url).path))
     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    return {"name": filename, "title": str(title or filename)[:180], "sourceUrl": source_url,
-            "previewUrl": preview_url, "downloadUrl": download_url, "platform": platform,
-            "mime": mime, "extension": PurePosixPath(filename).suffix.lower().lstrip("."),
-            "kind": _kind(filename, mime), "size": size if isinstance(size, int) and size >= 0 else None}
+    row = {"name": filename, "title": str(title or filename)[:180], "sourceUrl": source_url,
+           "previewUrl": preview_url, "downloadUrl": download_url, "platform": platform,
+           "mime": mime, "extension": PurePosixPath(filename).suffix.lower().lstrip("."),
+           "kind": _kind(filename, mime), "size": size if isinstance(size, int) and size >= 0 else None}
+    hosts = {(urlparse(value).hostname or "").lower().removeprefix("www.") for value in (source_url, download_url)}
+    for profile in CATALOG.providers():
+        if profile.domains and any(any(host == domain or host.endswith("." + domain) for domain in profile.domains) for host in hosts):
+            row["providerId"] = profile.id
+            row["verifiedClaims"] = ["source_attribution", "provider_domain"]
+            break
+    return row
 
 
 def _action_record(source_url: str, title: str, provider_id: str) -> dict | None:
