@@ -34,6 +34,12 @@ def test_normalizer_rejects_unsafe_or_non_file_candidates(url):
     assert files.normalize_candidate(url) is None
 
 
+def test_direct_template_cdn_file_inherits_catalog_attribution():
+    row = files.normalize_candidate("https://cdn.create.microsoft.com/templates/resume.docx", "Resume")
+    assert row["providerId"] == "microsoft-create"
+    assert "provider_domain" in row["verifiedClaims"]
+
+
 def test_template_catalog_page_is_typed_as_action_not_fake_download():
     row = files._catalog_page_candidate("https://create.microsoft.com/en-us/templates/resumes", "Free resume templates")
     assert row["providerId"] == "microsoft-create"
