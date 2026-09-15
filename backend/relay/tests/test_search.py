@@ -16,7 +16,7 @@ os.environ.setdefault("CONTROL_KEY", "test123")
 
 from relay.search import (  # noqa: E402
     _bing_target, _filter_relevant, _relevant, AttemptFail, engine_search, parse_bing,
-    parse_ddg, parse_searxng, SearchFailed, select_searxng,
+    parse_ddg, parse_searxng, parse_yahoo, SearchFailed, select_searxng,
 )
 import relay.search as search_mod  # noqa: E402
 
@@ -37,6 +37,9 @@ check("bing titles present", all(x["title"] for x in b))
 
 s = parse_searxng(json.loads((FIX / "searxng.json").read_text()))
 check("searxng parses", len(s) == 2 and s[0]["source"] == "google", len(s))
+
+y = parse_yahoo('''<div class="algo"><h3><a href="https://r.search.yahoo.com/x/RU=https%3A%2F%2Fexample.org%2Fnigeria-inflation/RK=2">Example</a></h3><div class="compText">Nigeria inflation report</div></div>''')
+assert y == [{"title": "Example", "url": "https://example.org/nigeria-inflation", "snippet": "Nigeria inflation report", "source": "yahoo", "publishedAt": None}]
 
 d = parse_ddg((FIX / "ddg.html").read_text())
 check("ddg parses and unwraps uddg",
@@ -144,29 +147,29 @@ async def _scrape_down(client, query, limit):
     raise AttemptFail("unreachable")
 
 
-_real = (search_mod._searxng, search_mod._bing, search_mod._ddg,
+_real = (search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo,
          search_mod.SEARXNG_URLS)
 search_mod.SEARXNG_URLS = ["https://one.example", "https://two.example"]
-search_mod._searxng, search_mod._bing, search_mod._ddg = (
-    _sx_gated, _bing_good, _scrape_down)
+search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo = (
+    _sx_gated, _bing_good, _scrape_down, _scrape_down)
 out = asyncio.run(engine_search("kortyeo", limit=5))
 check("failover skips gated tier", out["provider"] == "bing-html",
       out["provider"])
 check("failover keeps attempts",
       any(not a["ok"] for a in out["attempts"]))
-search_mod._searxng, search_mod._bing, search_mod._ddg = (
-    _sx_empty, _scrape_empty, _scrape_empty)
+search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo = (
+    _sx_empty, _scrape_empty, _scrape_empty, _scrape_empty)
 out = asyncio.run(engine_search("kortyeo", limit=5))
 check("answered misses return empty, not error",
       out["results"] == [] and out["provider"] == "")
-search_mod._searxng, search_mod._bing, search_mod._ddg = (
-    _sx_down, _scrape_down, _scrape_down)
+search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo = (
+    _sx_down, _scrape_down, _scrape_down, _scrape_down)
 try:
     asyncio.run(engine_search("kortyeo", limit=5))
     check("true outage still raises", False)
 except SearchFailed:
     check("true outage still raises", True)
-(search_mod._searxng, search_mod._bing, search_mod._ddg,
+(search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo,
  search_mod.SEARXNG_URLS) = _real
 
 if os.environ.get("RUN_LIVE", "1") == "1":

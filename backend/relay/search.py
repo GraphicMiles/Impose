@@ -204,6 +204,29 @@ def _ddg_target(href):
     return target if _is_external_source(target) else None
 
 
+def _decode_yahoo_url(url):
+    if "r.search.yahoo.com" not in str(url): return url
+    match = re.search(r"/RU=([^/]+)", str(url))
+    return urllib.parse.unquote(match.group(1)) if match else ""
+
+
+def parse_yahoo(html):
+    soup, out = BeautifulSoup(html or "", "html.parser"), []
+    for row in soup.select("div.algo"):
+        anchor = row.select_one("h3 a[href]") or row.select_one("a[href]")
+        if not anchor: continue
+        url = _decode_yahoo_url(anchor.get("href") or "")
+        if not _is_external_source(url): continue
+        snippet_node = row.select_one(".compText") or row.select_one("p")
+        title = _clean(anchor.get_text(" ", strip=True), 200)
+        # Yahoo may prepend a breadcrumb label inside the heading.
+        if title and " http" in title: title = title.rsplit(" http", 1)[0]
+        out.append({"title": title or url, "url": url,
+                    "snippet": _clean(snippet_node.get_text(" ", strip=True) if snippet_node else ""),
+                    "source": "yahoo", "publishedAt": None})
+    return out
+
+
 def parse_ddg(html):
     """Parse both DuckDuckGo's full HTML and its lighter, more reliable UI."""
     soup = BeautifulSoup(html or "", "html.parser")
@@ -307,6 +330,19 @@ async def _bing(client, query, limit):
     return results[:limit]
 
 
+async def _yahoo(client, query, limit):
+    try:
+        response = await client.get("https://search.yahoo.com/search", params={"p": query}, timeout=10.0)
+    except httpx.TimeoutException:
+        raise AttemptFail("timed out")
+    except Exception:
+        raise AttemptFail("unreachable")
+    if response.status_code != 200: raise AttemptFail("http " + str(response.status_code))
+    results = _filter_relevant(parse_yahoo(response.text), query)
+    if not results: raise AttemptFail("off topic results", answered=True)
+    return results[:limit]
+
+
 async def _ddg(client, query, limit):
     try:
         # The lite endpoint is server-rendered, quick, and substantially less
@@ -363,7 +399,7 @@ async def engine_search(query, limit=8, domains=None, freshness=None,
         **raw_requirements, "artifactType": raw_requirements.get("artifactType") or "information",
         "requiredCapabilities": raw_requirements.get("requiredCapabilities") or ["search", "source_attribution"],
     })
-    source_plan = ROUTER.plan(request, ["searxng", "bing-html", "ddg-lite"])
+    source_plan = ROUTER.plan(request, ["searxng", "bing-html", "ddg-lite", "yahoo-html"])
     collected, selected_providers, fallback = [], [], []
     async with httpx.AsyncClient(headers=UA, follow_redirects=True, max_redirects=3) as client:
         jobs = {
@@ -372,6 +408,7 @@ async def engine_search(query, limit=8, domains=None, freshness=None,
                          for base in SEARXNG_URLS],
             "bing-html": [("bing-html", partial(_bing, client, retrieval_query, limit))],
             "ddg-lite": [("ddg-lite", partial(_ddg, client, retrieval_query, limit))],
+            "yahoo-html": [("yahoo-html", partial(_yahoo, client, retrieval_query, limit))],
         }
         for stage in source_plan["stages"]:
             tier = []

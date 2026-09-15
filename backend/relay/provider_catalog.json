@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "providers": [
     {
       "id": "openverse",
@@ -1161,6 +1161,44 @@
       "authenticity": 0.95,
       "safety": 0.96,
       "version_accuracy": 0.9
+    },
+    {
+      "id": "yahoo-html",
+      "mechanism": "search_engine",
+      "source_classes": [
+        "general_search",
+        "web_index"
+      ],
+      "artifact_types": [
+        "information",
+        "file",
+        "document",
+        "image",
+        "software",
+        "dataset",
+        "product",
+        "template"
+      ],
+      "formats": [],
+      "capabilities": [
+        "search",
+        "source_attribution"
+      ],
+      "domains": [
+        "search.yahoo.com"
+      ],
+      "quality": 0.72,
+      "authority": 0.67,
+      "freshness": 0.82,
+      "coverage": 0.88,
+      "availability": 0.82,
+      "license_clarity": 0.45,
+      "download_reliability": 0.5,
+      "trust": 0.68,
+      "specialization": 0.4,
+      "authenticity": 0.65,
+      "safety": 0.72,
+      "version_accuracy": 0.68
     }
   ]
 }
