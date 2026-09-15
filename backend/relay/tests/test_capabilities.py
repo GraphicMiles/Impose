@@ -47,3 +47,16 @@ def test_pipeline_rejects_duplicate_adapter_names():
         assert False, "duplicate should fail"
     except ValueError:
         pass
+
+
+def test_pipeline_honours_a_zero_limit_without_leaking_the_first_candidate():
+    """Audit regression: the shared pipeline returned one row for limit=0
+    because the bound was tested after appending."""
+    pipeline = CapabilityPipeline()
+    pipeline.register(Adapter("only", {"readable"}, 5))
+    request = CapabilityRequest(capability="demo.read", query="x", limit=0,
+                                required_claims=frozenset({"readable"}))
+    assert asyncio.run(pipeline.run(request, None)) == []
+    request = CapabilityRequest(capability="demo.read", query="x", limit=1,
+                                required_claims=frozenset({"readable"}))
+    assert len(asyncio.run(pipeline.run(request, None))) == 1

@@ -134,9 +134,14 @@ class ProviderCatalog:
     def discover(self, url: str, *, artifact_types=(), source_classes=()) -> ProviderProfile | None:
         """Register an encountered domain conservatively. Discovery provides
         coverage, never inherited trust; observations must raise its score."""
-        try: host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+        try:
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower().removeprefix("www.")
         except Exception: return None
-        if not host: return None
+        # Discovery consumes URLs that came out of an engine. A protocol-relative
+        # or scheme-less string still parses to a hostname, which would register a
+        # provider nobody asked for, so require an absolute http(s) URL.
+        if not host or parsed.scheme.lower() not in ("http", "https"): return None
         pid = "discovered:" + host
         with self._lock:
             if pid not in self._providers:

@@ -183,3 +183,15 @@ if os.environ.get("RUN_LIVE", "1") == "1":
     except Exception as e:
         print("LIVE FAIL (informational):", str(e)[:300])
 print("ALL SEARCH TESTS PASS")
+
+
+def test_searxng_parser_skips_non_object_rows_instead_of_raising():
+    """Audit regression: an engine reply whose rows are scalars or whose
+    results field is a string used to raise inside the parser."""
+    from relay.search import parse_searxng
+    assert parse_searxng({"results": "not a list"}) == []
+    assert parse_searxng({"results": [None, "text", 7]}) == []
+    assert parse_searxng("not a mapping") == []
+    assert parse_searxng(None) == []
+    rows = parse_searxng({"results": [{"url": "https://example.com/a", "title": "A"}]})
+    assert rows and rows[0]["url"] == "https://example.com/a"
