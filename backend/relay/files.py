@@ -20,6 +20,7 @@ from relay.source_intelligence import CATALOG, ROUTER, SourceRequirements
 _FILE_EXT = re.compile(r"\.([a-z0-9][a-z0-9.+_-]{0,15})$", re.I)
 _SAFE_EXT = re.compile(r"^[a-z0-9][a-z0-9.+_-]{0,15}$", re.I)
 _NON_FORMAT_VALUES = {"file", "document", "template", "resume", "cv", "image", "audio", "video", "software", "dataset"}
+_SEARCH_REDIRECT_HOSTS = {"duckduckgo.com", "www.duckduckgo.com", "bing.com", "www.bing.com", "google.com", "www.google.com"}
 
 
 def _https(url: str) -> str:
@@ -107,6 +108,7 @@ def normalize_candidate(url: str, title: str = "") -> dict | None:
         return None
     p = urlparse(clean)
     host, parts = (p.hostname or "").lower(), [unquote(x) for x in p.path.split("/") if x]
+    if host in _SEARCH_REDIRECT_HOSTS: return None
     if host in {"github.com", "www.github.com"} and len(parts) >= 5 and parts[2] == "blob":
         owner, repo, branch = parts[0], parts[1], parts[3]
         rel = "/".join(parts[4:])
@@ -186,7 +188,7 @@ async def _github_repository_search(query: str, extensions: list[str], limit: in
     except Exception:
         return []
     out, seen = [], set()
-    generic_docs = {"readme.md", "changelog.md", "contributing.md", "license.md", "license"}
+    generic_docs = {"readme.md", "changelog.md", "contributing.md", "license.md", "license", "cname", "makefile"}
     for response in pages:
         if isinstance(response, Exception) or response.status_code != 200: continue
         links = re.findall(r'href="(/[^\"?#]+/blob/[^\"?#]+)"', response.text)

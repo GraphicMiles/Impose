@@ -2613,13 +2613,14 @@
       var source = safeArtifactUrl(f.sourceUrl), action = safeArtifactUrl(f.actionUrl), download = safeArtifactUrl(f.downloadUrl);
       var preview = safeArtifactUrl(f.previewUrl) || source;
       if (!source || (!download && !action)) continue;
-      var name = escapeHtml(String(f.name || f.title || "download").slice(0, 180));
+      var fileName = escapeHtml(String(f.name || "download").slice(0, 180));
+      var name = escapeHtml(String(f.title || f.name || "Artifact").slice(0, 180));
       var kind = String(f.kind || "binary").replace(/[^a-z]/g, "") || "binary";
       var meta = escapeHtml(String(f.platform || "Web") + " · " + (download ? String(f.mime || "File") + " · " + fileSizeLabel(f.size) : "Opens on provider"));
       var controls = download
         ? '<button type="button" class="btn small file-preview" data-url="' + escapeHtml(preview) + '" data-kind="' + kind +
-          '" data-name="' + name + '" data-source="' + escapeHtml(source) + '"><i data-lucide="eye"></i><span>Preview</span></button>' +
-          '<button type="button" class="btn small primary file-download" data-url="' + escapeHtml(download) + '" data-name="' + name +
+          '" data-name="' + fileName + '" data-source="' + escapeHtml(source) + '"><i data-lucide="eye"></i><span>Preview</span></button>' +
+          '<button type="button" class="btn small primary file-download" data-url="' + escapeHtml(download) + '" data-name="' + fileName +
           '"><i data-lucide="download"></i><span>Download</span></button>'
         : '<a class="btn small primary" href="' + escapeHtml(action) + '" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i><span>' +
           escapeHtml(String(f.actionLabel || "Open artifact")) + '</span></a>';
