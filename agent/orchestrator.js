@@ -167,6 +167,15 @@
     };
   }
 
+  /* The intent step decomposes a goal; it does not judge one. Some conversational
+     models answer a policy question inside the decomposition, which silently turns a
+     capability the platform can serve into a composed refusal before any provider was
+     consulted. A refusal written into `goal` with nothing to retrieve is therefore a
+     malformed decomposition: reject it here so the existing bounded repair runs, and so
+     the caller falls back to asking the answer model, whose provider owns the policy. */
+  var POLICY_VERDICT = /^\s*(?:(?:the\s+)?(?:assistant|model|i)\s+(?:must\s+|will\s+|cannot\s+|can\u2019?t\s+|wo\[n\]t\s+|can\u2019t\s+)?|politely\s+|it\s+is\s+(?:correct\s+to\s+))?(?:refus|declin|won\s*t\s+provide|will\s+not\s+(?:provide|assist|help)|cannot\s+(?:provide|help\s+with))\w*/i;
+  function isPolicyVerdict(goal) { return POLICY_VERDICT.test(String(goal || "")); }
+
   function normalizeIntent(raw, request) {
     raw = raw && typeof raw === "object" ? raw : {};
     var subgoals = list(raw.subgoals).map(function (subgoal, index) {
@@ -181,7 +190,7 @@
     var risk = text(raw.risk || "low", 20).toLowerCase();
     if (RISK.indexOf(risk) === -1) risk = "medium";
     var confidence = Math.max(0, Math.min(1, Number(raw.confidence == null ? 0 : raw.confidence)));
-    return {
+    var intent = {
       version: 1, request: text(request, 10000), goal: text(raw.goal, 1200),
       confidence: confidence, risk: risk, constraints: clone(raw.constraints || {}),
       desiredOutput: clone(raw.desiredOutput || raw.output || { type: "chat" }),
@@ -189,6 +198,13 @@
       clarification: text(raw.clarification, 1000), assumptions: unique(raw.assumptions),
       successCriteria: unique(raw.successCriteria), rationale: text(raw.rationale, 1200)
     };
+    /* A verdict with nothing to retrieve and no question to ask is the silent
+       refusal this step must never produce. Asking for clarification is a
+       legitimate outcome and is left alone. */
+    if (!intent.clarification && !requirementsOf(intent).length && isPolicyVerdict(intent.goal)) {
+      throw new Error("The intent interpreter returned a policy verdict instead of a decomposed goal.");
+    }
+    return intent;
   }
 
   function requirementsOf(intent) {
@@ -207,6 +223,8 @@
       "A conversational reply needs no requirements. Preserve and modify an active task when the new turn constrains or continues it. " +
       "Populate requirement.inputs from the provider input schema with semantic task and source requirements: describe the required artifact or evidence, " +
       "its constraints, source characteristics, verification needs, a disambiguated retrieval query, and a few meaning-preserving alternative queries for progressive recovery where supported. Do not choose a website merely from request wording; source providers are ranked separately. " +
+      "Report the requested outcome even when you expect it to be declined. Never substitute your own verdict about legality, safety, licensing, or permission for the goal, and never write refuse, decline, or cannot as the goal. " +
+      "Such a concern belongs in risk, confidence, assumptions, or a clarification; answering is the answer model's job and its provider's policy, not this step's. " +
       "For ambiguity: low confidence or ambiguous high-risk work must ask one focused clarification. External or mutating work must be marked high risk when appropriate. " +
       "Return JSON only with: goal, confidence (0..1), risk (low|medium|high), constraints, desiredOutput:{type,presentation,autoplay}, continuationOf, clarification, assumptions, successCriteria, rationale, " +
       "subgoals:[{id,goal,requirements:[{id,capability,description,required,inputs,successCriterion}]}].\n\n" +
