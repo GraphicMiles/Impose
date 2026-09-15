@@ -11,3 +11,5 @@ __pycache__/
 *.pyc
 *.gguf
 alerts.jsonl
+# Generated scenario ledgers from `node audit/run.js`; never committed.
+audit/out/
