@@ -1947,6 +1947,9 @@ html.reduce-motion .img-tile img { transition: opacity 150ms ease; }
 }
 .imgbox-cap span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imgbox-cap a { color: var(--link); flex: none; }
+.imgbox-cap .imgbox-links { display: flex; align-items: center; gap: 12px; overflow: visible; }
+.imgbox-download { border: 0; background: none; color: var(--link); padding: 0; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font: inherit; }
+.imgbox-download svg { width: 14px; height: 14px; }
 .imgbox-x {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
@@ -2022,7 +2025,7 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 /* Keep the active composer inside the actually visible mobile viewport. */
 .composer-dock { z-index: 12; background: var(--bg); }
 
-/* Failures are calm, readable inline states—not alarming technical cards. */
+/* Failures are calm, readable inline states, not alarming technical cards. */
 .msg-error { align-items: flex-start; padding: 11px 12px; border: 0; border-radius: 12px; background: var(--border-soft); color: var(--text-2); }
 .msg-error .lucide, .msg-error i[data-lucide] { color: var(--text-3); }
 .banner.danger { color: var(--text-2); border: 0; background: var(--border-soft); }
@@ -3907,6 +3910,15 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     };
   }
 
+  /* The intent step decomposes a goal; it does not judge one. Some conversational
+     models answer a policy question inside the decomposition, which silently turns a
+     capability the platform can serve into a composed refusal before any provider was
+     consulted. A refusal written into `goal` with nothing to retrieve is therefore a
+     malformed decomposition: reject it here so the existing bounded repair runs, and so
+     the caller falls back to asking the answer model, whose provider owns the policy. */
+  var POLICY_VERDICT = /^\s*(?:(?:the\s+)?(?:assistant|model|i)\s+(?:must\s+|will\s+|cannot\s+|can\u2019?t\s+|wo\[n\]t\s+|can\u2019t\s+)?|politely\s+|it\s+is\s+(?:correct\s+to\s+))?(?:refus|declin|won\s*t\s+provide|will\s+not\s+(?:provide|assist|help)|cannot\s+(?:provide|help\s+with))\w*/i;
+  function isPolicyVerdict(goal) { return POLICY_VERDICT.test(String(goal || "")); }
+
   function normalizeIntent(raw, request) {
     raw = raw && typeof raw === "object" ? raw : {};
     var subgoals = list(raw.subgoals).map(function (subgoal, index) {
@@ -3921,7 +3933,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var risk = text(raw.risk || "low", 20).toLowerCase();
     if (RISK.indexOf(risk) === -1) risk = "medium";
     var confidence = Math.max(0, Math.min(1, Number(raw.confidence == null ? 0 : raw.confidence)));
-    return {
+    var intent = {
       version: 1, request: text(request, 10000), goal: text(raw.goal, 1200),
       confidence: confidence, risk: risk, constraints: clone(raw.constraints || {}),
       desiredOutput: clone(raw.desiredOutput || raw.output || { type: "chat" }),
@@ -3929,6 +3941,13 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       clarification: text(raw.clarification, 1000), assumptions: unique(raw.assumptions),
       successCriteria: unique(raw.successCriteria), rationale: text(raw.rationale, 1200)
     };
+    /* A verdict with nothing to retrieve and no question to ask is the silent
+       refusal this step must never produce. Asking for clarification is a
+       legitimate outcome and is left alone. */
+    if (!intent.clarification && !requirementsOf(intent).length && isPolicyVerdict(intent.goal)) {
+      throw new Error("The intent interpreter returned a policy verdict instead of a decomposed goal.");
+    }
+    return intent;
   }
 
   function requirementsOf(intent) {
@@ -3945,6 +3964,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return "Infer the user’s desired outcome and the conditions required to achieve it. This is goal decomposition, not intent classification. " +
       "Do not match words in the request to tool names. In every requirement.capability, select only an id from a provider's capabilities array based on what must actually be true for success; never place the provider's top-level id in that field. " +
       "A conversational reply needs no requirements. Preserve and modify an active task when the new turn constrains or continues it. " +
+      "Populate requirement.inputs from the provider input schema with semantic task and source requirements: describe the required artifact or evidence, " +
+      "its constraints, source characteristics, verification needs, a disambiguated retrieval query, and a few meaning-preserving alternative queries for progressive recovery where supported. Do not choose a website merely from request wording; source providers are ranked separately. " +
+      "Report the requested outcome even when you expect it to be declined. Never substitute your own verdict about legality, safety, licensing, or permission for the goal, and never write refuse, decline, or cannot as the goal. " +
+      "Such a concern belongs in risk, confidence, assumptions, or a clarification; answering is the answer model's job and its provider's policy, not this step's. " +
       "For ambiguity: low confidence or ambiguous high-risk work must ask one focused clarification. External or mutating work must be marked high risk when appropriate. " +
       "Return JSON only with: goal, confidence (0..1), risk (low|medium|high), constraints, desiredOutput:{type,presentation,autoplay}, continuationOf, clarification, assumptions, successCriteria, rationale, " +
       "subgoals:[{id,goal,requirements:[{id,capability,description,required,inputs,successCriterion}]}].\n\n" +
@@ -4313,8 +4336,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     id: "images.search", name: "Image discovery", version: "1.0", executionMode: "research-harness",
     description: "Discovers externally hosted images and returns validated gallery records.",
     capabilities: ["images", "discover_images", "retrieve_images"], primaryCapability: "discover_images",
-    inputs: { query: "string, 1 to 500 chars", limit: "int, 1 to 12" },
-    outputs: { images: "validated image records", provider: "string", query: "string" },
+    inputs: { query: "semantic subject, 1 to 500 chars", retrievalQuery: "concise source query that disambiguates the visual concept", alternativeQueries: "up to 5 semantic alternatives for progressive recovery",
+      sourceRequirements: "structured artifact/source requirements: artifactType, formats, characteristics, sourceClasses, requiredCapabilities, priorities, minimumTrust, diversity, requiredTerms, excludedTerms, minimumWidth, minimumHeight",
+      limit: "int, 1 to 12" },
+    outputs: { images: "validated image records", provider: "string", query: "string", sourcePlan: "ranked providers, reasons, stages, quality and fallback decisions" },
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
     requiresApproval: false, cost: { latency: "medium", monetary: "none" }, reliability: 0.78,
     environments: ["browser"], composable: true, mutability: "read-only",
@@ -4322,13 +4347,17 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     verify: function (out) { var rows = out && out.images || []; return {
       ok: rows.length > 0 && rows.every(function (row) { return /^https?:\/\//i.test(String(row.image || "")); }),
       evidence: rows.length + " validated image records", reason: "no validated image output" }; },
-    inputSchema: { query: "string, 1 to 500 chars", limit: "int, 1 to 12" },
+    inputSchema: { query: "string", retrievalQuery: "string", alternativeQueries: "array of strings", sourceRequirements: "object", limit: "int, 1 to 12" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
       if (!query) return Promise.reject(new Error("Image search needs a query."));
       if (query.length > 500) return Promise.reject(new Error("Image query is too long."));
       var limit = args && args.limit ? Math.max(1, Math.min(12, parseInt(args.limit, 10) || 6)) : 6;
-      return ctx.images(query, limit).then(function (out) {
+      var sourceRequirements = args && args.sourceRequirements && typeof args.sourceRequirements === "object"
+        ? Object.assign({}, args.sourceRequirements) : {};
+      if (args && args.retrievalQuery) sourceRequirements.retrievalQuery = String(args.retrievalQuery).slice(0, 500);
+      if (args && Array.isArray(args.alternativeQueries)) sourceRequirements.alternativeQueries = args.alternativeQueries.slice(0, 5).map(function (q) { return String(q).slice(0, 160); });
+      return ctx.images(query, limit, sourceRequirements).then(function (out) {
         var seen = {}, clean = [];
         var rows = (out && out.results) || [];
         for (var i = 0; i < rows.length && clean.length < limit; i++) {
@@ -4342,46 +4371,54 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             thumb: /^https?:\/\//i.test(String(r.thumb || "")) ? String(r.thumb) : img,
             page: /^https?:\/\//i.test(String(r.page || "")) ? String(r.page) : "",
             source: String(r.source || "").slice(0, 80),
-            w: r.w || null,
-            h: r.h || null
+            w: r.w || null, h: r.h || null,
+            format: String(r.format || "").slice(0, 16), license: r.license ? String(r.license).slice(0, 120) : null,
+            qualityScore: r.qualityScore == null ? null : Number(r.qualityScore),
+            verifiedClaims: Array.isArray(r.verifiedClaims) ? r.verifiedClaims.slice(0, 8) : [],
+            byteSize: r.byteSize || null
           });
         }
-        return { images: clean, provider: (out && out.provider) || "", query: query };
+        return { images: clean, provider: (out && out.provider) || "", query: query,
+          retrievalQuery: out && out.retrievalQuery || query, sourcePlan: out && out.sourcePlan || null };
       });
     }
   };
 
   var filesTool = {
     id: "files.discover", name: "Remote file discovery", version: "1.0", executionMode: "research-harness",
-    description: "Discovers actual downloadable files across source platforms and returns typed artifact records with canonical source, preview, and download URLs.",
+    description: "Discovers safely accessible files and provider-hosted templates, returning honest download or open-on-provider actions.",
     capabilities: ["discover_files", "retrieve_file_artifacts", "files"], primaryCapability: "discover_files",
-    inputs: { query: "string, 1 to 500 chars", extensions: "optional file extensions", platforms: "optional source platforms", limit: "int, 1 to 12" },
-    outputs: { files: "typed remote file records", provider: "string", query: "string" },
+    inputs: { query: "semantic artifact subject", extensions: "optional file extensions", platforms: "optional source constraints",
+      sourceRequirements: "artifactType, sourceClasses, requiredCapabilities, priorities, minimumTrust, diversity", limit: "int, 1 to 12" },
+    outputs: { files: "typed remote file records", provider: "string", query: "string", sourcePlan: "provider ranking and quality evidence" },
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
     requiresApproval: false, cost: { latency: "medium", monetary: "none" }, reliability: 0.82,
     environments: ["browser"], composable: true, mutability: "read-only",
-    failureModes: ["provider unavailable", "no relevant downloadable files", "unsupported source page"],
+    failureModes: ["provider unavailable", "no relevant accessible artifacts", "unsupported source page"],
     verify: function (out) { var rows = out && out.files || []; return {
       ok: rows.length > 0 && rows.every(function (row) {
-        return /^https:\/\//i.test(String(row.sourceUrl || "")) && /^https:\/\//i.test(String(row.downloadUrl || ""));
-      }), evidence: rows.length + " typed file records", reason: "no downloadable file output" }; },
-    inputSchema: { query: "string, 1 to 500 chars", extensions: "optional string array", platforms: "optional string array", limit: "int, 1 to 12" },
+        var access = row.downloadUrl || row.actionUrl;
+        return /^https:\/\//i.test(String(row.sourceUrl || "")) && /^https:\/\//i.test(String(access || ""));
+      }), evidence: rows.length + " typed artifact records", reason: "no safely accessible artifact output" }; },
+    inputSchema: { query: "string", extensions: "optional string array", platforms: "optional string array", sourceRequirements: "object", limit: "int, 1 to 12" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
       if (!query) return Promise.reject(new Error("File discovery needs a query."));
       var limit = args && args.limit ? Math.max(1, Math.min(12, parseInt(args.limit, 10) || 8)) : 8;
       return ctx.files(query, limit, {
         extensions: Array.isArray(args && args.extensions) ? args.extensions.slice(0, 8) : [],
-        platforms: Array.isArray(args && args.platforms) ? args.platforms.slice(0, 8) : []
+        platforms: Array.isArray(args && args.platforms) ? args.platforms.slice(0, 8) : [],
+        sourceRequirements: args && args.sourceRequirements && typeof args.sourceRequirements === "object" ? args.sourceRequirements : {}
       }).then(function (out) {
         var clean = [], seen = {};
         ((out && out.results) || []).forEach(function (row) {
-          var download = String(row.downloadUrl || "");
-          if (!/^https:\/\//i.test(download) || seen[download] || clean.length >= limit) return;
-          if (!/^https:\/\//i.test(String(row.sourceUrl || "")) || !/^https:\/\//i.test(String(row.previewUrl || ""))) return;
-          seen[download] = true; clean.push(row);
+          var access = String(row.downloadUrl || row.actionUrl || "");
+          if (!/^https:\/\//i.test(access) || seen[access] || clean.length >= limit) return;
+          if (!/^https:\/\//i.test(String(row.sourceUrl || "")) || !/^https:\/\//i.test(String(row.previewUrl || row.actionUrl || ""))) return;
+          seen[access] = true; clean.push(row);
         });
-        return { files: clean, provider: out && out.provider || "", query: out && out.query || query };
+        return { files: clean, provider: out && out.provider || "", query: out && out.query || query,
+          sourcePlan: out && out.sourcePlan || null };
       });
     }
   };
@@ -4442,8 +4479,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     description: "Retrieves current public web resources with source metadata.",
     capabilities: ["search", "retrieve_information", "discover_web_resources", "search_current_information"],
     primaryCapability: "search_current_information",
-    inputs: { query: "string, 1 to 500 chars", limit: "int, 1 to 20" },
-    outputs: { results: "ranked source records", provider: "string", query: "string" },
+    inputs: { query: "semantic research subject, 1 to 500 chars", retrievalQuery: "concise query",
+      sourceRequirements: "artifactType, sourceClasses, requiredCapabilities, priorities, minimumTrust, diversity",
+      limit: "int, 1 to 20" },
+    outputs: { results: "ranked source records", provider: "string", query: "string", sourcePlan: "provider ranking and fallback evidence" },
     prerequisites: ["relay available"], permissions: [], sideEffects: "none",
     requiresApproval: false, cost: { latency: "medium", monetary: "none" }, reliability: 0.8,
     environments: ["browser"], composable: true, mutability: "read-only",
@@ -4451,29 +4490,35 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     verify: function (out) { var rows = out && out.results || []; return {
       ok: rows.length > 0 && rows.every(function (row) { return /^https?:\/\//i.test(String(row.url || "")); }),
       evidence: rows.length + " sourced web records", reason: "no sourced web results" }; },
-    inputSchema: { query: "string, 1 to 500 chars", limit: "int, 1 to 20" },
+    inputSchema: { query: "string", retrievalQuery: "string", sourceRequirements: "object", limit: "int, 1 to 20" },
     run: function (args, ctx) {
       var query = args && typeof args.query === "string" ? args.query.trim() : "";
       if (!query) return Promise.reject(new Error("Search needs a query."));
       if (query.length > 500) return Promise.reject(new Error("Search query is too long."));
       var limit = args && args.limit ? Math.max(1, Math.min(20, parseInt(args.limit, 10) || 8)) : 8;
-      ctx.emit({ t: "query", q: query });
-      return ctx.search(query, limit).then(function (out) {
+      var sourceRequirements = args && args.sourceRequirements && typeof args.sourceRequirements === "object"
+        ? Object.assign({}, args.sourceRequirements) : {};
+      if (args && args.retrievalQuery) sourceRequirements.retrievalQuery = String(args.retrievalQuery).slice(0, 500);
+      ctx.emit({ t: "query", q: sourceRequirements.retrievalQuery || query });
+      return ctx.search(query, limit, sourceRequirements).then(function (out) {
         var results = (out && out.results) || [];
         if (results.length > 0) {
-          return { results: results, provider: out.provider || "", query: query, retried: false };
+          return { results: results, provider: out.provider || "", query: query, retried: false,
+            sourcePlan: out.sourcePlan || null, retrievalQuery: out.retrievalQuery || query };
         }
         var simpler = simplifyQuery(query);
         if (!simpler || simpler === query) {
-          return { results: [], provider: out.provider || "", query: query, retried: false };
+          return { results: [], provider: out.provider || "", query: query, retried: false,
+            sourcePlan: out.sourcePlan || null, retrievalQuery: out.retrievalQuery || query };
         }
         ctx.emit({ t: "query", q: simpler });
-        return ctx.search(simpler, limit).then(function (out2) {
+        var revisedRequirements = Object.assign({}, sourceRequirements, { retrievalQuery: simpler });
+        return ctx.search(simpler, limit, revisedRequirements).then(function (out2) {
           return {
             results: (out2 && out2.results) || [],
             provider: (out2 && out2.provider) || "",
-            query: simpler,
-            retried: true
+            query: simpler, retried: true,
+            sourcePlan: out2 && out2.sourcePlan || null, retrievalQuery: out2 && out2.retrievalQuery || simpler
           };
         });
       });
@@ -4651,53 +4696,76 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       return plan().then(function (planned) {
         if (deps.signal && deps.signal.aborted) throw abortErr();
         deps.emit({ t: "status", text: !wantsResearch
-          ? (wantFiles ? "Finding downloadable files" : (wantVideos ? "Finding playable media" : "Finding images"))
+          ? (wantFiles ? "Finding usable files and templates" : (wantVideos ? "Finding playable media" : "Finding images"))
           : "Searching the web" });
         var gallery = null;
         var galleryFailed = false;
         function pause(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
         var galleryJob = wantImages ? (function () {
-          /* The web planner may append descriptive words such as “iconic hit”
-             that make an image relevance gate needlessly reject good photos.
-             Build the image query from the user’s request instead. */
-          var subject = imageSubject(modelQuestion);
-          deps.emit({ t: "status", text: "Finding images" });
+          var typed = {};
+          if (semanticIntent) intentRequirements.some(function (requirement) {
+            if (["discover_images", "retrieve_images", "images"].indexOf(String(requirement.capability || "")) === -1) return false;
+            typed = requirement.inputs || {}; return true;
+          });
+          /* Production gets a semantic subject and source requirements from
+             goal decomposition. Legacy callers retain the old local subject
+             adapter, but it never selects a source provider. */
+          var subject = semanticIntent ? String(typed.query || planned).trim() : imageSubject(modelQuestion);
+          var sourceRequirements = typed.sourceRequirements && typeof typed.sourceRequirements === "object"
+            ? Object.assign({}, typed.sourceRequirements) : {};
+          ["artifactType", "formats", "format", "characteristics", "sourceClasses", "requiredCapabilities",
+            "priorities", "minimumTrust", "diversity", "requiredTerms", "excludedTerms", "minimumWidth", "minimumHeight"]
+            .forEach(function (key) { if (Object.prototype.hasOwnProperty.call(typed, key)) sourceRequirements[key] = typed[key]; });
+          var retrievalQuery = String(typed.retrievalQuery || sourceRequirements.retrievalQuery || subject).trim();
+          sourceRequirements.retrievalQuery = retrievalQuery;
+          deps.emit({ t: "status", text: "Selecting image sources" });
           var raw = subject || planned;
-          var variants = uniqueVariants(raw, broadenSubject(raw), simplifyQuery(raw));
+          var variants = semanticIntent ? [raw] : uniqueVariants(raw, broadenSubject(raw), simplifyQuery(raw));
           function attempt(i) {
             if (deps.signal && deps.signal.aborted) return Promise.reject(abortErr());
             if (i >= variants.length) return Promise.reject(new Error("every image attempt failed"));
+            var args = { query: variants[i], retrievalQuery: retrievalQuery,
+              alternativeQueries: typed.alternativeQueries || sourceRequirements.alternativeQueries || [],
+              sourceRequirements: sourceRequirements, limit: 6 };
             if (i > 0) {
               deps.emit({ t: "imagestry", q: variants[i], n: i + 1 });
-              return pause(400).then(function () { return imagesFn.run({ query: variants[i], limit: 6 }, { images: deps.images }); })
+              return pause(400).then(function () { return imagesFn.run(args, { images: deps.images }); })
                 .then(good, function () { return attempt(i + 1); });
             }
-            return imagesFn.run({ query: variants[i], limit: 6 }, { images: deps.images }).then(good, function () { return attempt(i + 1); });
-            function good(g) { return g.images.length ? g : attempt(i + 1); }
+            return imagesFn.run(args, { images: deps.images }).then(good, function () { return attempt(i + 1); });
+            function good(g) {
+              if (g && g.sourcePlan) deps.emit({ t: "sourceplan", plan: g.sourcePlan, capability: "discover_images" });
+              return g.images.length ? g : attempt(i + 1);
+            }
           }
           function criticRound(g) {
             if (!g.images.length) return g;
             var titles = g.images.slice(0, 6).map(function (x) { return "- " + x.title; }).join("\n");
-            return askCritic("Request: photos of \"" + (subject || planned) + "\". The image search returned:\n" + titles +
-              "\nDo these images match the subject? Answer exactly GO if they do. If they do not, answer exactly QUERY: followed by one better image search query.")
+            return askCritic("Visual goal: \"" + (subject || planned) + "\". The selected source returned these candidates:\n" + titles +
+              "\nDo they depict the requested visual concept and satisfy the artifact requirements? Answer exactly GO if they do. " +
+              "If not, answer exactly QUERY: followed by one semantically clearer retrieval query.")
               .then(function (ans) {
                 var q2 = parseQueryAns(ans);
-                if (!q2 || q2.toLowerCase() === String(g.query).toLowerCase()) return g;
+                if (!q2 || q2.toLowerCase() === String(g.retrievalQuery || g.query).toLowerCase()) return g;
                 deps.emit({ t: "imagestry", q: q2, better: true });
-                return imagesFn.run({ query: q2, limit: 6 }, { images: deps.images })
-                  .then(function (g2) { return g2.images.length ? g2 : g; }, function () { return g; });
+                var revised = Object.assign({}, sourceRequirements, { retrievalQuery: q2 });
+                return imagesFn.run({ query: raw, retrievalQuery: q2, sourceRequirements: revised, limit: 6 }, { images: deps.images })
+                  .then(function (g2) {
+                    if (g2 && g2.sourcePlan) deps.emit({ t: "sourceplan", plan: g2.sourcePlan, capability: "discover_images" });
+                    if (!g2.images.length) throw new Error("replacement source results were empty");
+                    return g2;
+                  });
               });
           }
-          return attempt(0).then(criticRound, function () {
-            /* No gallery after every attempt. The verdict (and the honest
-               failure row, if it stays a failure) lands after the reading
-               phase gets its chance to donate page photos. */
-            galleryFailed = true;
-          }).then(function (g) {
+          return attempt(0).then(criticRound).then(function (g) {
             if (g && g.images && g.images.length) {
               gallery = g;
               deps.emit({ t: "images", n: g.images.length, provider: g.provider, images: g.images });
             }
+          }, function () {
+            /* A critic-rejected gallery never comes back merely because a
+               replacement provider failed. Wrong artifacts fail closed. */
+            galleryFailed = true;
           });
         })() : null;
         var videoResults = null;
@@ -4746,10 +4814,16 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             if (["discover_files", "retrieve_file_artifacts", "files"].indexOf(String(requirement.capability || "")) === -1) return false;
             typed = requirement.inputs || {}; return true;
           });
-          deps.emit({ t: "status", text: "Finding downloadable files" });
+          deps.emit({ t: "status", text: "Finding usable files and templates" });
+          var fileSourceRequirements = typed.sourceRequirements && typeof typed.sourceRequirements === "object"
+            ? Object.assign({}, typed.sourceRequirements) : {};
+          ["artifactType", "sourceClasses", "requiredCapabilities", "priorities", "minimumTrust", "diversity"]
+            .forEach(function (key) { if (Object.prototype.hasOwnProperty.call(typed, key)) fileSourceRequirements[key] = typed[key]; });
           return filesFn.run({ query: planned, limit: typed.limit || 8,
-            extensions: typed.extensions || typed.fileTypes || [], platforms: typed.platforms || [] }, { files: deps.files });
+            extensions: typed.extensions || typed.fileTypes || [], platforms: typed.platforms || [],
+            sourceRequirements: fileSourceRequirements }, { files: deps.files });
         }).then(function (result) {
+          if (result.sourcePlan) deps.emit({ t: "sourceplan", plan: result.sourcePlan, capability: "discover_files" });
           if (result.files && result.files.length) {
             fileResults = result.files; fileProvider = result.provider || "";
             deps.emit({ t: "files", n: fileResults.length, provider: fileProvider, files: fileResults });
@@ -4809,7 +4883,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
            not an implicit tax on every task. */
         if (!wantsResearch && (wantVideos || wantImages || wantFiles)) {
           return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve(), fileJob || Promise.resolve()]).then(function () {
-            var status = wantFiles ? "Found downloadable files" : (wantVideos ? "Checked playable media" : "Found verified images");
+            var status = wantFiles ? "Found usable files and templates" : (wantVideos ? "Checked playable media" : "Found verified images");
             deps.emit({ t: "settle", text: status });
             if (wantVideos && (!videoResults || !videoResults.length) && !gallery && !fileResults) {
               deps.emit({ t: "videosfail" });
@@ -4825,18 +4899,31 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
               deps.emit({ t: "filesfail" });
               return { sources: [], provider: fileProvider, images: null, videos: null, files: null,
                 fileFailed: true, traceStatus: status,
-                answer: "I couldn’t find a downloadable file that I could safely verify. Try a filename, extension, or source platform." };
+                answer: "I couldn’t find a file or template that I could safely verify. Try a filename, format, or source platform." };
             }
             return { sources: [], provider: fileProvider || videoProvider,
               images: gallery ? gallery.images : null, videos: videoResults, files: fileResults,
               traceStatus: status,
-              answer: fileResults ? "Here are the downloadable files I found."
+              answer: fileResults ? "Here are the usable files and templates I found."
                 : (videoResults && gallery ? "Here are the verified media artifacts I found."
                 : (videoResults ? "Here’s the verified media I found." : "Here are the verified images I found.")) };
           });
         }
-        return tool.run({ query: planned, limit: 8 }, { search: deps.search, emit: deps.emit }).then(function (out) {
+        var researchInputs = {};
+        if (semanticIntent) intentRequirements.some(function (requirement) {
+          if (["retrieve_information", "discover_web_resources", "search_current_information", "search"].indexOf(String(requirement.capability || "")) === -1) return false;
+          researchInputs = requirement.inputs || {}; return true;
+        });
+        var researchSourceRequirements = researchInputs.sourceRequirements && typeof researchInputs.sourceRequirements === "object"
+          ? Object.assign({}, researchInputs.sourceRequirements) : {};
+        ["artifactType", "sourceClasses", "requiredCapabilities", "priorities", "minimumTrust", "diversity"]
+          .forEach(function (key) { if (Object.prototype.hasOwnProperty.call(researchInputs, key)) researchSourceRequirements[key] = researchInputs[key]; });
+        return tool.run({ query: planned, limit: researchInputs.limit || 8,
+          retrievalQuery: researchInputs.retrievalQuery,
+          sourceRequirements: researchSourceRequirements },
+          { search: deps.search, emit: deps.emit }).then(function (out) {
           if (deps.signal && deps.signal.aborted) throw abortErr();
+          if (out && out.sourcePlan) deps.emit({ t: "sourceplan", plan: out.sourcePlan, capability: "search_current_information" });
           var results = (out.results || []).filter(function (r) {
             if (!deps.excluded || !deps.excluded.length) return true;
             return deps.excluded.indexOf(domainOf(r.url)) === -1;
@@ -4900,10 +4987,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
             results = rows;
             if (rows.length === 0) {
               return Promise.all([galleryJob || Promise.resolve(), videoJob || Promise.resolve(), fileJob || Promise.resolve()]).then(function () {
-                deps.emit({ t: "settle", text: fileResults ? "Found downloadable files" : "Searched the web" });
+                deps.emit({ t: "settle", text: fileResults ? "Found usable files and templates" : "Searched the web" });
                 if (fileResults && fileResults.length) {
                   return { sources: [], provider: fileProvider, images: gallery ? gallery.images : null,
-                    videos: videoResults, files: fileResults, answer: "Here are the downloadable files I found." };
+                    videos: videoResults, files: fileResults, answer: "Here are the usable files and templates I found." };
                 }
                 /* Prompt rules are not a security boundary. If every image
                    source failed, never ask a model to improvise an image
@@ -6073,7 +6160,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/"/g, "&quot;")
+      /* Not every interpolation lands inside a double-quoted attribute, and a
+         lone apostrophe then breaks the markup. Escape it so the helper is safe
+         by construction rather than by the caller remembering. */
+      .replace(/'/g, "&#39;");
   }
 
   function refreshIcons() {
@@ -6138,8 +6229,18 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   function dwarn(where, what) { dlog("warn", where, what); }
   function dfail(where, what) { dlog("error", where, what); }
 
+  /* The debug log is copyable and shared in bug reports, so anything shaped like a
+     credential must not survive it. Providers spell this many different ways and a
+     custom auth parameter can be named anything, so redaction is by name shape. */
   function sanitizeUrl(url) {
-    return String(url || "").replace(/([?&](key|api_key|token|auth|secret)=)[^&]*/gi, "$1…");
+    var out = String(url || "");
+    out = out.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^\/@:?#]+(:[^\/@?#]*)?@/gi, "$1redacted@");
+    out = out.replace(/[?&][^=&#]*(?:key|token|secret|password|passwd|credential|authorization|bearer|signature|api[-_]?key)[^=&#]*=[^&#]*/gi,
+      function (pair) { var at = pair.indexOf("="); return pair.slice(0, at + 1) + "…"; });
+    /* Short exact names that carry a credential, matched exactly so that
+       design= or assign= stay readable in the log. */
+    return out.replace(/([?&])(sig|auth|code|otp|token)=[^&#]*/gi,
+      function (pair, mark, name) { return mark + name + "…"; });
   }
 
   function sanitizeLogDetail(detail) {
@@ -6922,7 +7023,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       method: "GET",
       mode: "cors",
       cache: "no-store",
-      signal: withTimeout(9000)
+      signal: withTimeout(15000)
     }).then(function (r) {
       if (!r.ok) throw new Error("Relay health returned " + r.status);
       return r.json();
@@ -8486,18 +8587,24 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var cards = "";
     for (var i = 0; i < files.length && i < 12; i++) {
       var f = files[i] || {};
-      var source = safeArtifactUrl(f.sourceUrl), preview = safeArtifactUrl(f.previewUrl), download = safeArtifactUrl(f.downloadUrl);
-      if (!source || !preview || !download) continue;
-      var name = escapeHtml(String(f.name || f.title || "download").slice(0, 180));
+      var source = safeArtifactUrl(f.sourceUrl), action = safeArtifactUrl(f.actionUrl), download = safeArtifactUrl(f.downloadUrl);
+      var preview = safeArtifactUrl(f.previewUrl) || source;
+      if (!source || (!download && !action)) continue;
+      var fileName = escapeHtml(String(f.name || "download").slice(0, 180));
+      var name = escapeHtml(String(f.title || f.name || "Artifact").slice(0, 180));
       var kind = String(f.kind || "binary").replace(/[^a-z]/g, "") || "binary";
-      var meta = escapeHtml(String(f.platform || "Web") + " · " + String(f.mime || "File") + " · " + fileSizeLabel(f.size));
+      var meta = escapeHtml(String(f.platform || "Web") + " · " + (download ? String(f.mime || "File") + " · " + fileSizeLabel(f.size) : "Opens on provider"));
+      var controls = download
+        ? '<button type="button" class="btn small file-preview" data-url="' + escapeHtml(preview) + '" data-kind="' + kind +
+          '" data-name="' + fileName + '" data-source="' + escapeHtml(source) + '"><i data-lucide="eye"></i><span>Preview</span></button>' +
+          '<button type="button" class="btn small primary file-download" data-url="' + escapeHtml(download) + '" data-name="' + fileName +
+          '"><i data-lucide="download"></i><span>Download</span></button>'
+        : '<a class="btn small primary" href="' + escapeHtml(action) + '" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i><span>' +
+          escapeHtml(String(f.actionLabel || "Open artifact")) + '</span></a>';
       cards += '<article class="file-card"><div class="file-glyph file-' + kind + '"><i data-lucide="file"></i><span>' +
         escapeHtml(String(f.extension || kind).toUpperCase().slice(0, 8)) + '</span></div><div class="file-info"><strong title="' + name + '">' + name +
         '</strong><span>' + meta + '</span><a href="' + escapeHtml(source) + '" target="_blank" rel="noopener noreferrer">View source<i data-lucide="external-link"></i></a></div>' +
-        '<div class="file-actions"><button type="button" class="btn small file-preview" data-url="' + escapeHtml(preview) + '" data-kind="' + kind +
-        '" data-name="' + name + '" data-source="' + escapeHtml(source) + '"><i data-lucide="eye"></i><span>Preview</span></button>' +
-        '<button type="button" class="btn small primary file-download" data-url="' + escapeHtml(download) + '" data-name="' + name +
-        '"><i data-lucide="download"></i><span>Download</span></button></div></article>';
+        '<div class="file-actions">' + controls + '</div></article>';
     }
     return cards ? '<div class="file-list">' + cards + "</div>" : "";
   }
@@ -8514,6 +8621,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       var cap = escapeHtml(im.title || "image").replace(/\s+/g, " ").trim().slice(0, 90);
       tiles += '<button type="button" class="img-tile" data-full="' + escapeHtml(im.image) + '"' +
         ' data-title="' + cap + '"' +
+        (im.format ? ' data-format="' + escapeHtml(String(im.format).toLowerCase()) + '"' : "") +
         (im.page ? ' data-page="' + escapeHtml(im.page) + '"' : "") +
         ' style="animation-delay:' + Math.min(i * 45, 360) + 'ms" aria-label="Open image: ' + cap + '">' +
         '<img src="' + escapeHtml(im.thumb || im.image) + '" alt="' + cap + '"' +
@@ -9400,7 +9508,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       refreshIcons();
     }
     btn.classList.toggle("tool-active", web);
-    btn.title = web ? "Assistant tools — Web search on" : "Assistant tools";
+    btn.title = web ? "Assistant tools · Web search on" : "Assistant tools";
     btn.setAttribute("aria-label", web ? "Assistant tools, Web search on" : "Assistant tools");
     btn.setAttribute("aria-haspopup", "menu");
     btn.removeAttribute("aria-pressed");
@@ -9429,7 +9537,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
   }
 
-  function fetchSearchViaRelay(query, limit, signal) {
+  function fetchSearchViaRelay(query, limit, signal, requirements) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address in the provider editor under Advanced, Relay."));
     var url = stripSlash(cfg.url) + "/v1/search";
@@ -9438,7 +9546,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var opts = {
       method: "POST",
       headers: headers,
-      body: JSON.stringify({ query: query, limit: limit || 8 })
+      body: JSON.stringify({ query: query, limit: limit || 8, requirements: requirements || {} })
     };
     if (signal) opts.signal = signal;
     return fetch(url, opts).then(function (res) {
@@ -9448,7 +9556,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       });
     }).then(function (env) {
       if (env.status !== 200) throw new Error((env.data && env.data.detail) || ("Search failed (" + env.status + ")."));
-      return { results: env.data.results || [], provider: env.data.provider || "" };
+      return { results: env.data.results || [], provider: env.data.provider || "",
+        retrievalQuery: env.data.retrievalQuery || query, sourcePlan: env.data.sourcePlan || null };
     }, function (err) {
       if (err && err.name === "AbortError") throw err;
       if (err && err.name === "TypeError") { markRelayDown(); throw new Error("Could not reach the relay. Check the relay address."); }
@@ -9486,7 +9595,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return lines.slice(-6).join("\n");
   }
 
-  function fetchImagesViaRelay(query, limit, signal) {
+  function fetchImagesViaRelay(query, limit, signal, requirements) {
     var cfg = relayCfg();
     if (!cfg.url) return Promise.reject(new Error("Set the relay address to search images."));
     var headers = { "Content-Type": "application/json" };
@@ -9494,21 +9603,31 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var opts = {
       method: "POST",
       headers: headers,
-      body: JSON.stringify({ query: query, limit: limit || 6 })
+      body: JSON.stringify({ query: query, limit: limit || 6, requirements: requirements || {} })
     };
     if (signal) opts.signal = signal;
-    return fetch(stripSlash(cfg.url) + "/v1/images", opts).then(function (res) {
-      if (res.status === 401) throw new Error("That relay key was rejected.");
-      return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
-        throw new Error("The image search came back unreadable.");
+    function send(attempt) {
+      return fetch(stripSlash(cfg.url) + "/v1/images", opts).catch(function (err) {
+        if (attempt < 1 && !(signal && signal.aborted)) {
+          dwarn("images", "Image relay connection dropped; retrying once.");
+          return new Promise(function (resolve) { setTimeout(resolve, 350); }).then(function () { return send(attempt + 1); });
+        }
+        throw err;
+      }).then(function (res) {
+        if (res.status === 401) throw new Error("That relay key was rejected.");
+        return res.json().then(function (data) { return { status: res.status, data: data }; }, function () {
+          throw new Error("The image search came back unreadable.");
+        });
       });
-    }).then(function (env) {
+    }
+    return send(0).then(function (env) {
       if (env.status !== 200) {
         var detail = (env.data && env.data.detail) || ("Image search failed (" + env.status + ").");
         dwarn("images", sanitizeLogDetail(detail).slice(0, 240));
         throw new Error(detail);
       }
-      return { results: env.data.results || [], provider: env.data.provider || "" };
+      return { results: env.data.results || [], provider: env.data.provider || "",
+        query: env.data.query || query, count: env.data.count || 0, sourcePlan: env.data.sourcePlan || null };
     });
   }
 
@@ -9541,7 +9660,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var headers = { "Content-Type": "application/json" };
     if (cfg.key) headers.Authorization = "Bearer " + cfg.key;
     var body = { query: query, limit: limit || 8,
-      extensions: options && options.extensions || [], platforms: options && options.platforms || [] };
+      extensions: options && options.extensions || [], platforms: options && options.platforms || [],
+      requirements: options && options.sourceRequirements || {} };
     var request = { method: "POST", headers: headers, body: JSON.stringify(body) };
     if (signal) request.signal = signal;
     return fetch(stripSlash(cfg.url) + "/v1/files", request).then(function (res) {
@@ -9550,7 +9670,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       });
     }).then(function (env) {
       if (env.status !== 200) throw new Error(env.data && env.data.detail || ("File search failed (" + env.status + ")."));
-      return { results: env.data.results || [], provider: env.data.provider || "", query: env.data.query || query };
+      return { results: env.data.results || [], provider: env.data.provider || "", query: env.data.query || query,
+        sourcePlan: env.data.sourcePlan || null };
     });
   }
 
@@ -9703,9 +9824,24 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
       else if (ev.t === "files") {
         s.fileResults = ev.files || null;
-        trace.addRow({ primary: ev.n + " downloadable file" + (ev.n === 1 ? "" : "s"), secondary: ev.provider || "" });
+        trace.addRow({ primary: ev.n + " usable file" + (ev.n === 1 ? " or template" : "s or templates"), secondary: ev.provider || "" });
       }
       else if (ev.t === "filesfail") trace.addRow({ primary: "File discovery found no safe artifact", secondary: "try a filename or extension" });
+      else if (ev.t === "sourceplan" && ev.plan) {
+        s.sourcePlan = ev.plan;
+        s.sourcePlans = s.sourcePlans || [];
+        s.sourcePlans.push({ capability: ev.capability || "source", plan: ev.plan });
+        var candidates = (ev.plan.candidates || []).slice(0, 3).map(function (candidate) {
+          return candidate.provider + " " + Math.round((candidate.score || 0) * 100);
+        }).join(" · ");
+        trace.addRow({ primary: "Ranked source providers", secondary: candidates || "no eligible providers" });
+        var selected = (ev.plan.selectedProviders || []).join(", ");
+        if (selected) trace.addRow({ primary: "Selected " + selected,
+          secondary: ((ev.plan.resultEvaluation || {}).accepted || 0) + " artifacts passed quality checks" });
+        (ev.plan.fallbackDecisions || []).slice(-2).forEach(function (decision) {
+          trace.addRow({ primary: "Broadened source search", secondary: decision.reason || decision.decision || "quality was insufficient" });
+        });
+      }
       else if (ev.t === "imagestry") {
         trace.addRow({ primary: ev.better ? "Critic asked for better photos" : "Photos did not land - trying again",
           secondary: ev.q || "" });
@@ -9728,8 +9864,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       intent: intentDecision && intentDecision.intent || null,
       signal: signal,
       emit: emit,
-      search: function (q, limit) { return fetchSearchViaRelay(q, limit, signal); },
-      images: state.settings.imageTools === false ? undefined : function (q, limit) { return fetchImagesViaRelay(q, limit, signal); },
+      search: function (q, limit, requirements) { return fetchSearchViaRelay(q, limit, signal, requirements); },
+      images: state.settings.imageTools === false ? undefined : function (q, limit, requirements) { return fetchImagesViaRelay(q, limit, signal, requirements); },
       videos: function (q, limit, constraints) { return fetchVideosViaRelay(q, limit, signal, constraints); },
       files: function (q, limit, options) { return fetchFilesViaRelay(q, limit, signal, options); },
       read: function (url) {
@@ -9804,7 +9940,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         s.text = String(out.answer || "I couldn’t verify a playable result for this request. Try a specific channel or video name.");
         if (m) m.videoFailed = true;
       } else if (out && out.fileFailed) {
-        s.text = String(out.answer || "I couldn’t find a downloadable file that I could safely verify.");
+        s.text = String(out.answer || "I couldn’t find a file or template that I could safely verify.");
         if (m) m.fileFailed = true;
       } else if (out && out.researchFailed) {
         /* Empty or off-topic search evidence fails closed. Do not turn model
@@ -9823,6 +9959,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
       if (m && out && out.images && out.images.length) m.images = out.images.slice(0, 8);
       if (m && out && out.files && out.files.length) m.files = out.files.slice(0, 12);
+      if (m && s.sourcePlan) m.sourcePlan = s.sourcePlan;
+      if (m && s.sourcePlans && s.sourcePlans.length) m.sourcePlans = s.sourcePlans.slice(0, 12);
       if (m && out && out.videos && out.videos.length) {
         m.videos = out.videos.slice(0, 6);
         s.autoPlayMedia = intentDecision
@@ -10573,6 +10711,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       imgbox.setAttribute("aria-label", "Image preview");
       document.body.appendChild(imgbox);
       imgbox.addEventListener("click", function (e) {
+        var download = e.target.closest && e.target.closest(".imgbox-download");
+        if (download) { downloadFile(download); return; }
         /* Taps land on the icon inside the button, so match the button
            through the tree, and treat any tap outside the figure as close. */
         if (e.target === imgbox || e.target.closest(".imgbox-x") ||
@@ -10583,14 +10723,19 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     var full = tile.getAttribute("data-full") || "";
     var page = tile.getAttribute("data-page") || "";
     var title = tile.getAttribute("data-title") || "image";
+    var safeDownload = safeArtifactUrl(full);
+    var extension = tile.getAttribute("data-format") || "image";
+    try { extension = extension !== "image" ? extension : ((new URL(full).pathname.match(/\.([A-Za-z0-9]{2,8})$/) || [])[1] || "image"); } catch (e) { /* metadata fallback */ }
+    var downloadName = title.replace(/[^A-Za-z0-9._ -]+/g, "_").slice(0, 120) + (title.toLowerCase().endsWith("." + extension.toLowerCase()) ? "" : "." + extension.toLowerCase());
     imgbox.innerHTML =
       '<button type="button" class="imgbox-x icon-btn" aria-label="Close"><i data-lucide="x"></i></button>' +
       '<figure class="imgbox-fig">' +
       '<a href="' + escapeHtml(full) + '" target="_blank" rel="noopener noreferrer">' +
       '<img src="' + escapeHtml(full) + '" alt="' + escapeHtml(title) + '" referrerpolicy="no-referrer"></a>' +
-      '<figcaption class="imgbox-cap"><span>' + escapeHtml(title) + "</span>" +
+      '<figcaption class="imgbox-cap"><span>' + escapeHtml(title) + "</span><span class=\"imgbox-links\">" +
       (page ? '<a href="' + escapeHtml(page) + '" target="_blank" rel="noopener noreferrer">Source</a>' : "") +
-      "</figcaption></figure>";
+      (safeDownload ? '<button type="button" class="imgbox-download" data-url="' + escapeHtml(safeDownload) + '" data-name="' + escapeHtml(downloadName) + '"><i data-lucide="download"></i>Download</button>' : "") +
+      "</span></figcaption></figure>";
     clearTimeout(imgboxTimer);
     if (imgboxRaf) cancelAnimationFrame(imgboxRaf);
     imgbox.hidden = false;
@@ -12661,7 +12806,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (plan.sideEffects && plan.sideEffects.length) {
       plan.sideEffects.forEach(function (effect) {
         var detail = "**" + effect.kind + "** to " + (effect.target || "the stated target");
-        if (effect.text) detail += " — exact content: `" + JSON.stringify(effect.text) + "`";
+        if (effect.text) detail += " · exact content: `" + JSON.stringify(effect.text) + "`";
         lines.push("- " + detail);
       });
     } else {
@@ -12697,6 +12842,19 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
           }
         }
         browserPendingActions += 1;
+        /* Mint the single-use token from the consumed approval so the extension, not
+           only the page, can refuse a replay of the same external action. */
+        if ( /^(?:x\.post|x\.reply|dm\.send)$/.test(method) && operation.runRecord) {
+          operation.runRecord.actionSeq = (operation.runRecord.actionSeq || 0) + 1;
+          params = Object.assign({}, params, { approvalToken: [operation.runRecord.chatId,
+            operation.runRecord.planId, operation.runRecord.startedAt,
+            operation.runRecord.actionSeq].join(":") });
+          if (!saveBrowserRun(operation.runRecord)) {
+            finishExtLog(logId, "Execution state could not be checkpointed", false);
+            browserPendingActions = Math.max(0, browserPendingActions - 1);
+            return Promise.reject(new Error("Execution state could not be checkpointed safely. The browser action was not sent."));
+          }
+        }
         function settleAction() {
           browserPendingActions = Math.max(0, browserPendingActions - 1);
           if (!operation.runRecord) return;
@@ -12881,6 +13039,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
       var runRecord = {
         version: 1,
+        planId: record.id,
+        actionSeq: 0,
         chatId: chat.id,
         goal: record.goal,
         plan: record.plan,
@@ -13170,6 +13330,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   var sendArmed = false;
   var sendArmTimer = 0;
+  var manualSendToken = "";
+  var manualSendSpent = false;
   function disarmSend() {
     sendArmed = false;
     clearTimeout(sendArmTimer);
@@ -13184,6 +13346,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     if (!needTab()) return;
     if (!sendArmed) {
       sendArmed = true;
+      manualSendSpent = false;
+      /* The arm tap IS the user authorization, so it mints the single-use
+         token the extension verifies. A second tap on a stale arm state, a
+         repeated event, or a scripted call cannot send twice. */
+      manualSendToken = "manual-" + Date.now().toString(36) + "-" +
+        Math.random().toString(36).slice(2, 12);
       var btn = $("extSendBtn");
       btn.classList.add("armed");
       btn.querySelector("span").textContent = "Tap again to send";
@@ -13192,10 +13360,18 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       toast("Review the exact text above, then tap again to send.");
       return;
     }
+    var token = manualSendToken;
     disarmSend();
+    if (!token || manualSendSpent) {
+      toast.error("This send was not armed. Tap Send via extension again to confirm.");
+      return;
+    }
+    manualSendSpent = true;
+    manualSendToken = "";
     setExtBusy(true);
     var sendLog = extLog("send", "Waiting for confirmation from X", null);
-    extSend("dm.send", { tabId: ext.tabId, threadUrl: ext.threadUrl || undefined, text: text }).then(function (r) {
+    extSend("dm.send", { tabId: ext.tabId, threadUrl: ext.threadUrl || undefined, text: text,
+      approvalToken: token }).then(function (r) {
       setExtBusy(false);
       if (r && r.sent && r.confirmed) {
         toast.success("X confirmed the message in the thread.");

@@ -6,6 +6,10 @@ var X_URLS = ["https://x.com/*", "https://twitter.com/*"];
 var WEB_URLS = ["http://*/*", "https://*/*"];
 var PAGE_METHODS = ["page.snapshot", "page.click", "page.type", "page.select", "page.scroll", "page.wait"];
 var X_METHODS = ["probe", "snapshot", "dm.list", "dm.send", "x.post", "x.reply", "x.results"];
+/* Methods that change something outside this browser. Each one must present the
+   single-use token the client mints when it consumes the user approval, so a replay,
+   a duplicate tab event, or a client bug cannot publish twice on the user's behalf. */
+var SIDE_EFFECT_METHODS = ["x.post", "x.reply", "dm.send"];
 
 function messageTab(tabId, message) {
   return new Promise(function (resolve) {
@@ -97,6 +101,28 @@ function validNavigationUrl(raw) {
   var intent = String(url.searchParams.get("action") || url.searchParams.get("intent") || "").toLowerCase();
   if (["delete", "remove", "unsubscribe", "purchase", "transfer", "logout"].indexOf(intent) !== -1) return "";
   return value;
+}
+
+var spentApprovals = Object.create(null);
+var approvalChain = Promise.resolve();
+
+function approvalTokenShape(token) {
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{7,120}$/.test(String(token || ""));
+}
+
+function claimApproval(method, token) {
+  if (SIDE_EFFECT_METHODS.indexOf(method) === -1) return Promise.resolve("");
+  var value = String(token || "");
+  if (!approvalTokenShape(value)) {
+    return Promise.resolve("A side effect needs the single-use token from the approval the user just confirmed.");
+  }
+  /* Serialized so two requests arriving together cannot both read "unspent". */
+  approvalChain = approvalChain.then(function () {
+    if (spentApprovals[value]) return "That approval was already spent. Nothing was sent a second time.";
+    spentApprovals[value] = true;
+    return "";
+  });
+  return approvalChain;
 }
 
 function hasApprovedOrigin(params, origin) {
@@ -218,6 +244,14 @@ function route(message, sender) {
   var method = message.method;
   var params = message.params || {};
   var sourceTabId = sender && sender.tab ? sender.tab.id : 0;
+
+  return claimApproval(method, params.approvalToken).then(function (denied) {
+    if (denied) return { ok: false, error: denied, denied: "approval" };
+    return dispatch(method, params, sourceTabId, sender);
+  });
+}
+
+function dispatch(method, params, sourceTabId, sender) {
 
   if (method === "tabs.list") {
     return xTabs().then(function (tabs) {

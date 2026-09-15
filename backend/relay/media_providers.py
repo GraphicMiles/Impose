@@ -62,7 +62,7 @@ def _twitch_live_row(node):
     stream = (node or {}).get("stream") if "stream" in (node or {}) else node
     if not stream:
         return None
-    title = str(stream.get("title") or (display + " — live on Twitch"))
+    title = str(stream.get("title") or (display + " · live on Twitch"))
     row = _supported_result("https://www.twitch.tv/" + login, title)
     if not row:
         return None

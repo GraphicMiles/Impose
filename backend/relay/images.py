@@ -241,7 +241,7 @@ async def _iconify(client, queries, limit):
             prefix, name = icon.split(":", 1)
             metadata = collections.get(prefix) or {}
             license_data = metadata.get("license") or {}
-            out.append({"title": name.replace("-", " ").title() + " — result for " + primary,
+            out.append({"title": name.replace("-", " ").title() + " · result for " + primary,
                         "image": "https://api.iconify.design/" + quote(prefix, safe="") + "/" + quote(name, safe="-") + ".svg",
                         "thumb": "https://api.iconify.design/" + quote(prefix, safe="") + "/" + quote(name, safe="-") + ".svg",
                         "page": "https://icon-sets.iconify.design/" + quote(prefix, safe="") + "/" + quote(name, safe="-") + ".html",

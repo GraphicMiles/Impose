@@ -197,7 +197,11 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/"/g, "&quot;")
+      /* Not every interpolation lands inside a double-quoted attribute, and a
+         lone apostrophe then breaks the markup. Escape it so the helper is safe
+         by construction rather than by the caller remembering. */
+      .replace(/'/g, "&#39;");
   }
 
   function refreshIcons() {
@@ -262,8 +266,18 @@
   function dwarn(where, what) { dlog("warn", where, what); }
   function dfail(where, what) { dlog("error", where, what); }
 
+  /* The debug log is copyable and shared in bug reports, so anything shaped like a
+     credential must not survive it. Providers spell this many different ways and a
+     custom auth parameter can be named anything, so redaction is by name shape. */
   function sanitizeUrl(url) {
-    return String(url || "").replace(/([?&](key|api_key|token|auth|secret)=)[^&]*/gi, "$1…");
+    var out = String(url || "");
+    out = out.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^\/@:?#]+(:[^\/@?#]*)?@/gi, "$1redacted@");
+    out = out.replace(/[?&][^=&#]*(?:key|token|secret|password|passwd|credential|authorization|bearer|signature|api[-_]?key)[^=&#]*=[^&#]*/gi,
+      function (pair) { var at = pair.indexOf("="); return pair.slice(0, at + 1) + "…"; });
+    /* Short exact names that carry a credential, matched exactly so that
+       design= or assign= stay readable in the log. */
+    return out.replace(/([?&])(sig|auth|code|otp|token)=[^&#]*/gi,
+      function (pair, mark, name) { return mark + name + "…"; });
   }
 
   function sanitizeLogDetail(detail) {
@@ -3531,7 +3545,7 @@
       refreshIcons();
     }
     btn.classList.toggle("tool-active", web);
-    btn.title = web ? "Assistant tools — Web search on" : "Assistant tools";
+    btn.title = web ? "Assistant tools · Web search on" : "Assistant tools";
     btn.setAttribute("aria-label", web ? "Assistant tools, Web search on" : "Assistant tools");
     btn.setAttribute("aria-haspopup", "menu");
     btn.removeAttribute("aria-pressed");
@@ -6829,7 +6843,7 @@
     if (plan.sideEffects && plan.sideEffects.length) {
       plan.sideEffects.forEach(function (effect) {
         var detail = "**" + effect.kind + "** to " + (effect.target || "the stated target");
-        if (effect.text) detail += " — exact content: `" + JSON.stringify(effect.text) + "`";
+        if (effect.text) detail += " · exact content: `" + JSON.stringify(effect.text) + "`";
         lines.push("- " + detail);
       });
     } else {
@@ -6865,6 +6879,19 @@
           }
         }
         browserPendingActions += 1;
+        /* Mint the single-use token from the consumed approval so the extension, not
+           only the page, can refuse a replay of the same external action. */
+        if ( /^(?:x\.post|x\.reply|dm\.send)$/.test(method) && operation.runRecord) {
+          operation.runRecord.actionSeq = (operation.runRecord.actionSeq || 0) + 1;
+          params = Object.assign({}, params, { approvalToken: [operation.runRecord.chatId,
+            operation.runRecord.planId, operation.runRecord.startedAt,
+            operation.runRecord.actionSeq].join(":") });
+          if (!saveBrowserRun(operation.runRecord)) {
+            finishExtLog(logId, "Execution state could not be checkpointed", false);
+            browserPendingActions = Math.max(0, browserPendingActions - 1);
+            return Promise.reject(new Error("Execution state could not be checkpointed safely. The browser action was not sent."));
+          }
+        }
         function settleAction() {
           browserPendingActions = Math.max(0, browserPendingActions - 1);
           if (!operation.runRecord) return;
@@ -7049,6 +7076,8 @@
       }
       var runRecord = {
         version: 1,
+        planId: record.id,
+        actionSeq: 0,
         chatId: chat.id,
         goal: record.goal,
         plan: record.plan,
@@ -7338,6 +7367,8 @@
 
   var sendArmed = false;
   var sendArmTimer = 0;
+  var manualSendToken = "";
+  var manualSendSpent = false;
   function disarmSend() {
     sendArmed = false;
     clearTimeout(sendArmTimer);
@@ -7352,6 +7383,12 @@
     if (!needTab()) return;
     if (!sendArmed) {
       sendArmed = true;
+      manualSendSpent = false;
+      /* The arm tap IS the user authorization, so it mints the single-use
+         token the extension verifies. A second tap on a stale arm state, a
+         repeated event, or a scripted call cannot send twice. */
+      manualSendToken = "manual-" + Date.now().toString(36) + "-" +
+        Math.random().toString(36).slice(2, 12);
       var btn = $("extSendBtn");
       btn.classList.add("armed");
       btn.querySelector("span").textContent = "Tap again to send";
@@ -7360,10 +7397,18 @@
       toast("Review the exact text above, then tap again to send.");
       return;
     }
+    var token = manualSendToken;
     disarmSend();
+    if (!token || manualSendSpent) {
+      toast.error("This send was not armed. Tap Send via extension again to confirm.");
+      return;
+    }
+    manualSendSpent = true;
+    manualSendToken = "";
     setExtBusy(true);
     var sendLog = extLog("send", "Waiting for confirmation from X", null);
-    extSend("dm.send", { tabId: ext.tabId, threadUrl: ext.threadUrl || undefined, text: text }).then(function (r) {
+    extSend("dm.send", { tabId: ext.tabId, threadUrl: ext.threadUrl || undefined, text: text,
+      approvalToken: token }).then(function (r) {
       setExtBusy(false);
       if (r && r.sent && r.confirmed) {
         toast.success("X confirmed the message in the thread.");

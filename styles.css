@@ -1993,7 +1993,7 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 /* Keep the active composer inside the actually visible mobile viewport. */
 .composer-dock { z-index: 12; background: var(--bg); }
 
-/* Failures are calm, readable inline states—not alarming technical cards. */
+/* Failures are calm, readable inline states, not alarming technical cards. */
 .msg-error { align-items: flex-start; padding: 11px 12px; border: 0; border-radius: 12px; background: var(--border-soft); color: var(--text-2); }
 .msg-error .lucide, .msg-error i[data-lucide] { color: var(--text-3); }
 .banner.danger { color: var(--text-2); border: 0; background: var(--border-soft); }
