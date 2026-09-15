@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "providers": [
     {
       "id": "openverse",
@@ -960,6 +960,207 @@
       "authenticity": 0.93,
       "safety": 0.96,
       "version_accuracy": 0.93
+    },
+    {
+      "id": "microsoft-create",
+      "mechanism": "template_catalog",
+      "source_classes": [
+        "official_source",
+        "template_repository",
+        "publisher_source"
+      ],
+      "artifact_types": [
+        "template",
+        "document"
+      ],
+      "formats": [
+        "docx",
+        "pptx",
+        "xlsx",
+        "pdf"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "publisher_identity",
+        "download"
+      ],
+      "domains": [
+        "create.microsoft.com"
+      ],
+      "quality": 0.96,
+      "authority": 0.98,
+      "freshness": 0.93,
+      "coverage": 0.9,
+      "availability": 0.96,
+      "license_clarity": 0.82,
+      "download_reliability": 0.72,
+      "trust": 0.94,
+      "specialization": 0.96,
+      "authenticity": 0.95,
+      "safety": 0.96,
+      "version_accuracy": 0.9
+    },
+    {
+      "id": "canva-templates",
+      "mechanism": "template_catalog",
+      "source_classes": [
+        "template_repository",
+        "design_platform"
+      ],
+      "artifact_types": [
+        "template",
+        "document",
+        "design_asset"
+      ],
+      "formats": [
+        "pdf",
+        "png",
+        "pptx"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "publisher_identity",
+        "download"
+      ],
+      "domains": [
+        "canva.com"
+      ],
+      "quality": 0.9,
+      "authority": 0.88,
+      "freshness": 0.96,
+      "coverage": 0.97,
+      "availability": 0.96,
+      "license_clarity": 0.82,
+      "download_reliability": 0.72,
+      "trust": 0.9,
+      "specialization": 0.96,
+      "authenticity": 0.95,
+      "safety": 0.96,
+      "version_accuracy": 0.9
+    },
+    {
+      "id": "adobe-express",
+      "mechanism": "template_catalog",
+      "source_classes": [
+        "template_repository",
+        "design_platform",
+        "official_source"
+      ],
+      "artifact_types": [
+        "template",
+        "document",
+        "design_asset"
+      ],
+      "formats": [
+        "pdf",
+        "png"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "publisher_identity",
+        "download"
+      ],
+      "domains": [
+        "adobe.com",
+        "express.adobe.com"
+      ],
+      "quality": 0.91,
+      "authority": 0.94,
+      "freshness": 0.95,
+      "coverage": 0.91,
+      "availability": 0.95,
+      "license_clarity": 0.82,
+      "download_reliability": 0.72,
+      "trust": 0.93,
+      "specialization": 0.96,
+      "authenticity": 0.95,
+      "safety": 0.96,
+      "version_accuracy": 0.9
+    },
+    {
+      "id": "overleaf-templates",
+      "mechanism": "template_catalog",
+      "source_classes": [
+        "template_repository",
+        "academic_repository"
+      ],
+      "artifact_types": [
+        "template",
+        "document",
+        "research_paper"
+      ],
+      "formats": [
+        "tex",
+        "pdf"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "publisher_identity",
+        "download"
+      ],
+      "domains": [
+        "overleaf.com"
+      ],
+      "quality": 0.91,
+      "authority": 0.91,
+      "freshness": 0.91,
+      "coverage": 0.88,
+      "availability": 0.94,
+      "license_clarity": 0.82,
+      "download_reliability": 0.72,
+      "trust": 0.94,
+      "specialization": 0.96,
+      "authenticity": 0.95,
+      "safety": 0.96,
+      "version_accuracy": 0.9
+    },
+    {
+      "id": "google-docs-gallery",
+      "mechanism": "template_catalog",
+      "source_classes": [
+        "official_source",
+        "template_repository",
+        "publisher_source"
+      ],
+      "artifact_types": [
+        "template",
+        "document"
+      ],
+      "formats": [
+        "gdoc",
+        "docx",
+        "pdf"
+      ],
+      "capabilities": [
+        "search",
+        "preview",
+        "source_attribution",
+        "publisher_identity",
+        "download"
+      ],
+      "domains": [
+        "docs.google.com"
+      ],
+      "quality": 0.93,
+      "authority": 0.97,
+      "freshness": 0.95,
+      "coverage": 0.9,
+      "availability": 0.95,
+      "license_clarity": 0.82,
+      "download_reliability": 0.72,
+      "trust": 0.9,
+      "specialization": 0.96,
+      "authenticity": 0.95,
+      "safety": 0.96,
+      "version_accuracy": 0.9
     }
   ]
 }

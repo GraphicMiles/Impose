@@ -10,15 +10,16 @@ import asyncio
 import mimetypes
 import re
 from pathlib import PurePosixPath
-from urllib.parse import quote, unquote, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
 import httpx
 
 from relay.search import SearchFailed, engine_search
-from relay.source_intelligence import ROUTER, SourceRequirements
+from relay.source_intelligence import CATALOG, ROUTER, SourceRequirements
 
 _FILE_EXT = re.compile(r"\.([a-z0-9][a-z0-9.+_-]{0,15})$", re.I)
 _SAFE_EXT = re.compile(r"^[a-z0-9][a-z0-9.+_-]{0,15}$", re.I)
+_NON_FORMAT_VALUES = {"file", "document", "template", "resume", "cv", "image", "audio", "video", "software", "dataset"}
 
 
 def _https(url: str) -> str:
@@ -61,6 +62,42 @@ def _record(source_url: str, download_url: str, title: str = "", *, size=None,
             "previewUrl": preview_url, "downloadUrl": download_url, "platform": platform,
             "mime": mime, "extension": PurePosixPath(filename).suffix.lower().lstrip("."),
             "kind": _kind(filename, mime), "size": size if isinstance(size, int) and size >= 0 else None}
+
+
+def _action_record(source_url: str, title: str, provider_id: str) -> dict | None:
+    """Represent a verified template/catalog page whose legitimate completion
+    action happens on the provider, rather than pretending its HTML is a file."""
+    source_url = _https(source_url)
+    if source_url:
+        parsed = urlparse(source_url)
+        tracking = {"gclid", "fbclid", "msclkid", "msockid", "ref", "source"}
+        clean_query = urlencode([(key, value) for key, value in parse_qsl(parsed.query) if key.lower() not in tracking and not key.lower().startswith("utm_")])
+        source_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", clean_query, ""))
+    profile = CATALOG.get(provider_id)
+    if not source_url or not profile: return None
+    label = str(title or "Open artifact")[:180]
+    return {"name": label, "title": label, "sourceUrl": source_url, "previewUrl": source_url,
+            "downloadUrl": "", "actionUrl": source_url, "accessMode": "open",
+            "actionLabel": "Open template" if "template" in profile.artifact_types else "Open source",
+            "platform": provider_id, "providerId": provider_id, "mime": "text/html",
+            "extension": "", "kind": "template" if "template" in profile.artifact_types else "web",
+            "size": None, "verifiedClaims": ["source_attribution", "provider_domain"]}
+
+
+def _catalog_page_candidate(url: str, title: str = "", formats=()) -> dict | None:
+    clean = _https(url)
+    host = (urlparse(clean).hostname or "").lower().removeprefix("www.") if clean else ""
+    if not host: return None
+    for profile in CATALOG.providers():
+        if not profile.domains: continue
+        if any(host == domain or host.endswith("." + domain) for domain in profile.domains):
+            requested = {str(value).lower().lstrip(".") for value in formats or []}
+            if requested and profile.formats and not (requested & profile.formats): continue
+            if "template" in profile.artifact_types or "document" in profile.artifact_types:
+                row = _action_record(clean, title, profile.id)
+                if row and requested: row["requestedFormats"] = sorted(requested)
+                return row
+    return None
 
 
 def normalize_candidate(url: str, title: str = "") -> dict | None:
@@ -168,6 +205,7 @@ async def _github_repository_search(query: str, extensions: list[str], limit: in
         stem = PurePosixPath(name).stem
         if stem in terms: score += 4
         return score
+    out = [item for item in out if not item["name"].startswith(".") and relevance(item) > 0]
     out.sort(key=relevance, reverse=True)
     return out[:limit]
 
@@ -177,23 +215,35 @@ async def discover_files(query: str, limit: int = 8, extensions=None, platforms=
     if not query: raise ValueError("query is required")
     limit = max(1, min(12, int(limit)))
     exts = []
+    if isinstance(extensions, str): extensions = extensions.split(",")
     for value in extensions or []:
         ext = str(value or "").lower().strip().lstrip(".")
-        if _SAFE_EXT.fullmatch(ext) and ext not in exts: exts.append(ext)
+        if _SAFE_EXT.fullmatch(ext) and ext not in _NON_FORMAT_VALUES and ext not in exts: exts.append(ext)
+    if isinstance(platforms, str): platforms = platforms.split(",")
     platform_names = [str(x).strip() for x in (platforms or []) if str(x).strip()][:4]
     raw_requirements = requirements if isinstance(requirements, dict) else {}
+    requested_formats = raw_requirements.get("formats") or raw_requirements.get("format") or []
+    if isinstance(requested_formats, str): requested_formats = [requested_formats]
+    for value in requested_formats[:8]:
+        ext = str(value or "").lower().strip().lstrip(".")
+        if _SAFE_EXT.fullmatch(ext) and ext not in _NON_FORMAT_VALUES and ext not in exts: exts.append(ext)
     source_request = SourceRequirements.from_mapping("discover_files", {
         **raw_requirements, "artifactType": raw_requirements.get("artifactType") or "file",
-        "formats": raw_requirements.get("formats") or exts,
+        "formats": exts,
         "requiredCapabilities": raw_requirements.get("requiredCapabilities") or ["search", "preview", "download"],
     })
-    source_plan = ROUTER.plan(source_request, ["github-public", "gitlab-public", "huggingface-public", "bing-html", "ddg-lite"])
-    # Query expansion is based on typed capability inputs, not request wording.
+    available_sources = ["github-public", "gitlab-public", "huggingface-public", "bing-html", "ddg-lite",
+                         "microsoft-create", "canva-templates", "adobe-express", "overleaf-templates", "google-docs-gallery"]
+    source_plan = ROUTER.plan(source_request, available_sources)
+    # Query expansion comes from typed formats and the ranked provider catalog,
+    # never from request-word branches or a globally preferred website.
     queries = [query]
     if exts:
-        queries += [f"{query} filename.{ext} GitHub" for ext in exts[:3]]
-    else:
-        queries += [f"{query} GitHub", f"{query} download"]
+        queries += [f"{query} filetype:{ext}" for ext in exts[:3]]
+    for candidate in source_plan.get("candidates", [])[:5]:
+        profile = CATALOG.get(candidate.get("provider", ""))
+        if profile and profile.domains:
+            queries.append(f"{query} site:{sorted(profile.domains)[0]}")
     for platform in platform_names:
         queries.append(f"{query} {platform}")
     candidates, seen_urls, providers = [], set(), []
@@ -211,10 +261,13 @@ async def discover_files(query: str, limit: int = 8, extensions=None, platforms=
     files, seen_downloads, trees = [], set(), []
     for row in candidates:
         item = normalize_candidate(row.get("url", ""), row.get("title", ""))
-        if item and exts and item["extension"].lower() not in exts:
+        if not item:
+            item = _catalog_page_candidate(row.get("url", ""), row.get("title", ""), exts)
+        if item and exts and item.get("accessMode") != "open" and item["extension"].lower() not in exts:
             item = None
-        if item and item["downloadUrl"] not in seen_downloads:
-            seen_downloads.add(item["downloadUrl"]); files.append(item)
+        artifact_url = (item.get("downloadUrl") or item.get("actionUrl")) if item else ""
+        if item and artifact_url and artifact_url not in seen_downloads:
+            seen_downloads.add(artifact_url); files.append(item)
         elif "github.com/" in str(row.get("url", "")):
             trees.append(str(row.get("url", "")))
         if len(files) >= limit: break
@@ -237,16 +290,17 @@ async def discover_files(query: str, limit: int = 8, extensions=None, platforms=
     files = files[:limit]
     platform_ids = {"GitHub": "github-public", "GitLab": "gitlab-public", "Hugging Face": "huggingface-public",
                     "GitHub Gist": "github-public"}
-    selected = list(dict.fromkeys(platform_ids.get(item.get("platform"), "") for item in files))
+    selected = list(dict.fromkeys(item.get("providerId") or platform_ids.get(item.get("platform"), "") for item in files))
     selected = [provider for provider in selected if provider]
     for provider in selected:
-        rows = [item for item in files if platform_ids.get(item.get("platform")) == provider]
+        rows = [item for item in files if (item.get("providerId") or platform_ids.get(item.get("platform"))) == provider]
         ROUTER.observe(provider, success=True, result_quality=min(1, 0.55 + len(rows) / max(1, limit) * 0.45),
                        valid_ratio=1, latency_ms=0)
     source_plan["selectedProviders"] = selected
     source_plan["resultEvaluation"] = {"accepted": len(files), "requestedFormats": sorted(exts),
         "formatCompatible": sum(not exts or item.get("extension") in exts for item in files),
         "downloadable": sum(bool(item.get("downloadUrl")) for item in files),
+        "actionable": sum(bool(item.get("actionUrl")) for item in files),
         "constraintsSatisfied": bool(files)}
     source_plan["fallbackDecisions"] = ([] if files else [{"stage": 1, "decision": "broaden",
         "reason": "known source adapters and broad web discovery returned no verified file"}])

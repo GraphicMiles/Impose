@@ -68,12 +68,14 @@ def test_owner_key_still_works_and_has_own_bucket(monkeypatch):
 
 def test_public_limit_is_tight(monkeypatch):
     _patch_engines(monkeypatch)
-    # PUB_SEARCH_LIMIT=2 per window; two unauthed calls already happened,
-    # so the next unauthed one is over the line (auth failures excluded)
-    codes = []
-    for _ in range(2):
-        codes.append(client.post("/v1/search", json={"query": "test"}).status_code)
-    assert 429 in codes
+    # Make this assertion independent of test ordering.
+    with server._rate_lock:
+        for key in [key for key in server._RATE_BUCKETS if key.startswith("pubsearch:")]:
+            server._RATE_BUCKETS.pop(key, None)
+    codes = [client.post("/v1/search", json={"query": "test"}).status_code
+             for _ in range(server.PUB_SEARCH_LIMIT + 1)]
+    assert codes[:-1] == [200] * server.PUB_SEARCH_LIMIT
+    assert codes[-1] == 429
 
 
 def test_public_tier_can_be_disabled(monkeypatch):
