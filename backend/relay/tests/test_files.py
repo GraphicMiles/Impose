@@ -27,6 +27,8 @@ def test_platform_adapters_and_arbitrary_binary_fallback():
     "https://user:pass@github.com/a/b/blob/main/x.md",
     "javascript:alert(1)",
     "https://example.com/no-file-page",
+    "https://duckduckgo.com/y.js?ad_domain=example.com",
+    "https://www.bing.com/aclick?target=https://example.com/file.pdf",
 ])
 def test_normalizer_rejects_unsafe_or_non_file_candidates(url):
     assert files.normalize_candidate(url) is None
