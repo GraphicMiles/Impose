@@ -185,7 +185,8 @@
     return {
       id: text(raw.id || ("requirement-" + (index + 1)), 120),
       capability: text(raw.capability, 120), description: text(raw.description, 600),
-      required: raw.required !== false, inputs: clone(raw.inputs || {}),
+      required: raw.required !== false,
+      inputs: (raw.inputs && typeof raw.inputs === "object") ? clone(raw.inputs) : {},
       success: text(raw.success || raw.successCriterion, 600)
     };
   }
@@ -364,7 +365,13 @@
   MemoryTaskStore.prototype.save = function (task) { this.value = clone(task); return this.load(); };
   MemoryTaskStore.prototype.clear = function () { this.value = null; };
 
-  function defaultVerify(output) { return output !== undefined && output !== null && output !== false; }
+  /* The fallback verifier treats empty-ish outputs as unverified completions:
+     undefined, null, false, zero and the empty string carry no evidence that
+     the requested outcome happened. Tools with richer notions ship verify. */
+  function defaultVerify(output) {
+    return output !== undefined && output !== null && output !== false &&
+      output !== 0 && output !== "";
+  }
 
   /* Failure classification drives recovery strategy instead of blind retry:
      empty results rewrite the query, transport errors retry the provider
@@ -464,6 +471,14 @@
     context = context || {};
     var self = this;
     if (!task || TASK_STATES.indexOf(task.status) === -1) return Promise.reject(new Error("Invalid task state."));
+    /* A corrupted or hand-edited checkpoint must fail with a clear contract
+       error, never a TypeError from missing arrays deep in the loop. */
+    if (!Array.isArray(task.steps) || !Array.isArray(task.observations) ||
+        !Array.isArray(task.verification) || !Array.isArray(task.trace) ||
+        !Array.isArray(task.failures)) {
+      return Promise.reject(new Error("Invalid task shape."));
+    }
+    if (typeof task.cursor !== "number" || !isFinite(task.cursor) || task.cursor < 0) task.cursor = 0;
     if (task.status === "needs_clarification" || task.status === "blocked") return Promise.resolve(task);
     task.status = "executing"; task.updatedAt = Date.now(); self.store.save(task);
 
