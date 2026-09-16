@@ -10,6 +10,7 @@ with nothing relevant yields empty results so the agent can fail closed;
 SearchFailed is reserved for a true outage where nobody answered at all.
 """
 import asyncio
+import dataclasses
 import base64
 import os
 import re
@@ -406,8 +407,35 @@ async def engine_search(query, limit=8, domains=None, freshness=None,
         **raw_requirements, "artifactType": raw_requirements.get("artifactType") or "information",
         "requiredCapabilities": raw_requirements.get("requiredCapabilities") or ["search", "source_attribution"],
     })
-    source_plan = ROUTER.plan(request, ["searxng", "bing-html", "ddg-lite", "yahoo-html"])
+    available = ["searxng", "bing-html", "ddg-lite", "yahoo-html"]
+    source_plan = ROUTER.plan(request, available)
     collected, selected_providers, fallback = [], [], []
+    if not source_plan["stages"]:
+        # Source requirements express preference, not physics. Model-authored
+        # capabilities, formats or trust floors can exclude every engine in
+        # the catalog; an empty plan must not mean "nothing attempted". Relax
+        # in a documented ladder, record each relaxation in the trace, and if
+        # even the baseline cannot rank, try the engines unranked so failures
+        # carry real per-provider evidence instead of an empty verdict.
+        ladder = (
+            ("dropped formats and source classes",
+             dict(formats=frozenset(), source_classes=frozenset())),
+            ("baseline capabilities and trust floor",
+             dict(required_capabilities=frozenset({"search", "source_attribution"}),
+                  minimum_trust=0.0)),
+        )
+        for reason, changes in ladder:
+            relaxed = dataclasses.replace(request, **changes)
+            candidate = ROUTER.plan(relaxed, available)
+            if candidate["stages"]:
+                request, source_plan = relaxed, candidate
+                fallback.append({"stage": 0, "decision": "relax-requirements", "reason": reason})
+                break
+        if not source_plan["stages"]:
+            source_plan["stages"] = [{"stage": 1, "strategy": "baseline-coverage",
+                                      "providers": list(available)}]
+            fallback.append({"stage": 0, "decision": "baseline-coverage",
+                             "reason": "no catalog provider matched the requirements; engines tried unranked"})
     async with httpx.AsyncClient(headers=UA, follow_redirects=True, max_redirects=3) as client:
         jobs = {
             "searxng": [("searxng:" + base.split("://", 1)[-1],
@@ -474,5 +502,10 @@ async def engine_search(query, limit=8, domains=None, freshness=None,
         return {"results": collected, "provider": "+".join(selected_providers), "attempts": attempts,
                 "query": query, "retrievalQuery": retrieval_query, "count": len(collected), "ms": total,
                 "sourcePlan": source_plan}
-    raise SearchFailed("all search providers failed: " + "; ".join(
-        item["provider"] + "=" + item["error"] for item in attempts), attempts)
+    detail = "; ".join(item["provider"] + "=" + str(item.get("error")) for item in attempts)
+    if not detail:
+        detail = ("no engine produced results for requirements: artifactType=%s, "
+                  "requiredCapabilities=%s, formats=%s, minimumTrust=%s"
+                  % (request.artifact_type, sorted(request.required_capabilities),
+                     sorted(request.formats), request.minimum_trust))
+    raise SearchFailed("all search providers failed: " + detail, attempts)

@@ -172,6 +172,31 @@ except SearchFailed:
 (search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo,
  search_mod.SEARXNG_URLS) = _real
 
+# Requirements that exclude every catalog engine must still attempt the
+# engines (relaxation ladder), and a true outage under such requirements
+# must raise with per-provider evidence, never an empty verdict.
+_excluding = {"requiredCapabilities": ["search", "quantum_entropy"]}
+search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo = (
+    _sx_empty, _scrape_empty, _scrape_empty, _scrape_empty)
+out = asyncio.run(engine_search("kortyeo", limit=5, requirements=_excluding))
+check("excluding requirements still attempt engines",
+      out["results"] == [] and any(not a["ok"] for a in out["attempts"]))
+check("relaxation is recorded in the source plan",
+      any(d["decision"] in ("relax-requirements", "baseline-coverage")
+          for d in out["sourcePlan"]["fallbackDecisions"]),
+      out["sourcePlan"]["fallbackDecisions"])
+search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo = (
+    _sx_down, _scrape_down, _scrape_down, _scrape_down)
+try:
+    asyncio.run(engine_search("kortyeo", limit=5, requirements=_excluding))
+    check("outage under excluding requirements still raises", False)
+except SearchFailed as e:
+    check("outage under excluding requirements still raises", True)
+    check("failure detail carries provider evidence",
+          not str(e).rstrip().endswith(":") and "=" in str(e), str(e))
+(search_mod._searxng, search_mod._bing, search_mod._ddg, search_mod._yahoo,
+ search_mod.SEARXNG_URLS) = _real
+
 if os.environ.get("RUN_LIVE", "1") == "1":
     try:
         out = asyncio.run(engine_search("best gaming phones under 300000 naira",
