@@ -3614,6 +3614,15 @@
           return new Promise(function (resolve) { setTimeout(resolve, 350); }).then(function () { return send(attempt + 1); });
         }
         throw err;
+      }).then(function (res) {
+        /* Gateway statuses are transient by nature (cold starts, upstream
+           blips): one bounded retry before the failure becomes fatal. */
+        if (attempt < 1 && (res.status === 502 || res.status === 503 || res.status === 504)
+            && !(signal && signal.aborted)) {
+          dwarn("net", "Search relay answered " + res.status + "; retrying once.");
+          return new Promise(function (resolve) { setTimeout(resolve, 450); }).then(function () { return send(attempt + 1); });
+        }
+        return res;
       });
     }
     return send(0).then(function (res) {
