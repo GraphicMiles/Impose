@@ -175,6 +175,160 @@ test("malformed intent JSON receives exactly one bounded repair", async function
   eq(result.intent.subgoals[0].requirements[0].capability, "discover_files");
 });
 
+test("goal contract carries failure conditions, preferences and budget", function () {
+  var parsed = intent("contracted outcome", ["search_current_information"], {
+    failureConditions: ["fewer than three verified sources"],
+    preferences: { recency: "prefer-newest" },
+    budget: { maxAppendedSteps: 2, maxQueryRewrites: 1, maxProviderAttempts: 2 }
+  });
+  eq(parsed.failureConditions, ["fewer than three verified sources"]);
+  eq(parsed.preferences, { recency: "prefer-newest" });
+  eq(parsed.budget, { maxAppendedSteps: 2, maxQueryRewrites: 1, maxProviderAttempts: 2 });
+  var defaulted = intent("plain outcome", ["search_current_information"]);
+  eq(defaulted.budget, { maxAppendedSteps: 3, maxQueryRewrites: 2, maxProviderAttempts: 3 });
+  eq(defaulted.failureConditions, []);
+});
+
+test("failure classification maps error kinds to recovery classes", function () {
+  eq(O.classifyFailure(new Error("403 forbidden"), null), "auth");
+  eq(O.classifyFailure(new Error("connect ETIMEDOUT"), null), "network");
+  eq(O.classifyFailure(new Error("unexpected JSON token"), null), "parse");
+  eq(O.classifyFailure(new Error("x"), { reason: "no results returned" }), "empty");
+  eq(O.classifyFailure(new Error("boom"), null), "provider");
+});
+
+test("utility ranking prefers safe reliable providers", function () {
+  var safe = tool("safe", ["x"], function () { return {}; });
+  var risky = tool("risky", ["x"], function () { return {}; }, { sideEffects: "destructive" });
+  ok(O.utilityOf(safe) > O.utilityOf(risky), "side-effect risk lowers utility");
+  var reliable = tool("rel", ["x"], function () { return {}; },
+    { reliability: 0.99, cost: { latency: "medium", monetary: "none" } });
+  ok(O.utilityOf(reliable) > O.utilityOf(safe), "reliability dominates latency");
+});
+
+test("empty results recover by rewriting the query before switching provider", async function () {
+  var orch = O.createOrchestrator();
+  var queries = [];
+  var calls = 0;
+  orch.registry.register(tool("search.a", ["search_current_information"], function (input) {
+    queries.push(input.query);
+    calls++;
+    if (calls < 3) return Promise.resolve({ results: [] });
+    return Promise.resolve({ results: [1, 2] });
+  }, { verify: function (out) { return { ok: (out.results || []).length > 0, reason: "no results" }; } }));
+  orch.registry.register(tool("search.b", ["search_current_information"], function () {
+    return Promise.resolve({ results: [9] });
+  }));
+  var parsed = intent("current hiring", ["search_current_information"]);
+  parsed.subgoals[0].requirements[0].inputs = { query: "hiring now", alternativeQueries: ["hiring 2026", "open roles"] };
+  var task = await orch.executor.run(orch.planner.plan(parsed), {});
+  eq(task.status, "succeeded");
+  eq(queries, ["hiring now", "hiring 2026", "open roles"]);
+  eq(task.failures.map(function (f) { return f.kind; }), ["empty", "empty"]);
+  ok(task.trace.some(function (e) { return e.type === "replan" && e.reason === "query-rewrite"; }));
+});
+
+test("transport failures retry the same provider once before alternatives", async function () {
+  var orch = O.createOrchestrator();
+  var attempts = { a: 0, b: 0 };
+  orch.registry.register(tool("net.a", ["search_current_information"], function () {
+    attempts.a++;
+    if (attempts.a === 1) return Promise.reject(new Error("fetch failed"));
+    return Promise.resolve({ results: [1] });
+  }, { verify: function (out) { return { ok: (out.results || []).length > 0 }; } }));
+  orch.registry.register(tool("net.b", ["search_current_information"], function () {
+    attempts.b++;
+    return Promise.resolve({ results: [2] });
+  }));
+  var task = await orch.executor.run(orch.planner.plan(intent("current hiring", ["search_current_information"])), {});
+  eq(task.status, "succeeded");
+  eq(attempts, { a: 2, b: 0 });
+  eq(task.failures[0].kind, "network");
+});
+
+test("observations can append planned steps for unmet requirements", async function () {
+  var orch = O.createOrchestrator();
+  orch.registry.register(tool("discover", ["discover_records"], function () {
+    return Promise.resolve({ rows: [1], unmetRequirements: [{ capability: "compose_result",
+      inputs: { draft: "x" }, success: "composed answer verified" }] });
+  }));
+  orch.registry.register(tool("compose", ["compose_result"], function (input) {
+    return Promise.resolve({ answer: "done " + (input.draft || "") });
+  }, { verify: function (out) { return { ok: !!out.answer }; } }));
+  var plan = orch.planner.plan(intent("discover and compose", ["discover_records"]));
+  eq(plan.steps.length, 1);
+  var task = await orch.executor.run(plan, {});
+  eq(task.steps.length, 2);
+  eq(task.steps[1].toolId, "compose");
+  eq(task.steps[1].dependsOn, ["step-1"]);
+  eq(task.status, "succeeded");
+  ok(task.trace.some(function (e) { return e.type === "replan" && e.reason === "observation"; }));
+});
+
+test("outcome verification counts deliverables against the contract", async function () {
+  var orch = O.createOrchestrator();
+  orch.registry.register(tool("icons", ["discover_records"], function () { return Promise.resolve({ rows: [1] }); }));
+  var parsed = intent("five icon sources", ["discover_records"]);
+  parsed.desiredOutput = { type: "list", count: 5 };
+  var task = await orch.executor.run(orch.planner.plan(parsed), {});
+  eq(task.status, "partial");
+  eq(task.outcome.satisfied, false);
+  ok(task.outcome.missing.some(function (m) { return m.indexOf("1 of the requested 5") !== -1; }));
+  ok(task.trace.some(function (e) { return e.type === "outcome_verification"; }));
+
+  var orch2 = O.createOrchestrator();
+  orch2.registry.register(tool("icons2", ["discover_records"], function () { return Promise.resolve({ rows: [1, 2, 3] }); }));
+  var parsed2 = intent("three icon sources", ["discover_records"]);
+  parsed2.desiredOutput = { type: "list", count: 3 };
+  var task2 = await orch2.executor.run(orch2.planner.plan(parsed2), {});
+  eq(task2.status, "succeeded");
+  eq(task2.outcome.satisfied, true);
+  eq(task2.outcome.recommendedAction, "deliver");
+});
+
+test("semantic verifier hook merges into outcome verification", async function () {
+  var orch = O.createOrchestrator();
+  orch.registry.register(tool("s", ["search_current_information"], function () { return Promise.resolve({ results: [1] }); }));
+  var plan = orch.planner.plan(intent("free svg icon sites", ["search_current_information"]));
+  var task = await orch.executor.run(plan, { semanticVerifier: function () {
+    return { satisfied: false, missing: ["licensing freedom not confirmed"] };
+  } });
+  eq(task.outcome.satisfied, false);
+  ok(task.outcome.missing.indexOf("licensing freedom not confirmed") !== -1);
+  eq(task.outcome.semantic.satisfied, false);
+  eq(task.status, "partial");
+});
+
+test("persistent task store checkpoints and resumes across a crash", async function () {
+  var backend = {
+    data: Object.create(null),
+    getItem: function (k) { return Object.prototype.hasOwnProperty.call(this.data, k) ? this.data[k] : null; },
+    setItem: function (k, v) { this.data[k] = String(v); },
+    removeItem: function (k) { delete this.data[k]; }
+  };
+  var store = new O.PersistentTaskStore("impose.test.task", backend);
+  var orch = O.createOrchestrator({ store: store });
+  var calls = 0;
+  orch.registry.register(tool("crashy", ["discover_records"], function () {
+    calls++;
+    if (calls === 1) return Promise.reject(new Error("provider down"));
+    return Promise.resolve({ rows: [1] });
+  }));
+  var plan = orch.planner.plan(intent("discover records", ["discover_records"]));
+  var first = await orch.executor.run(plan, {});
+  eq(first.status, "failed");
+  eq(JSON.parse(backend.data["impose.test.task"]).status, "failed", "checkpoint persisted");
+  /* Simulated restart: a fresh orchestrator over the same store resumes. */
+  var restarted = O.createOrchestrator({ store: new O.PersistentTaskStore("impose.test.task", backend) });
+  restarted.registry.register(tool("crashy", ["discover_records"], function () {
+    calls++;
+    return Promise.resolve({ rows: [1] });
+  }));
+  var resumed = await restarted.executor.resume({});
+  eq(resumed.status, "succeeded");
+  eq(JSON.parse(backend.data["impose.test.task"]).status, "succeeded");
+});
+
 (async function () {
   var pass = 0;
   for (var i = 0; i < tests.length; i++) {

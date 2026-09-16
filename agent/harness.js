@@ -381,7 +381,12 @@
 
   function createHarness() {
     var tools = [];
-    var orchestrator = orchestrationApi().createOrchestrator();
+    var orchestration = orchestrationApi();
+    /* Persistent task store: lifecycle checkpoints survive a browser reload
+       or crash where localStorage exists; memory elsewhere (node tests). */
+    var orchestrator = orchestration.createOrchestrator({
+      store: new orchestration.PersistentTaskStore("impose.orchestration.task")
+    });
 
     function resolve(capability) {
       for (var i = 0; i < tools.length; i++) {
@@ -951,6 +956,8 @@
       planIntent: function (intent, state) { return orchestrator.planner.plan(intent, state || {}); },
       executePlan: function (plan, context) { return orchestrator.executor.run(plan, context || {}); },
       inspectTask: function () { return orchestrator.inspect(); },
+      verifyOutcome: function (task, context) { return orchestrator.verifier.verify(task, context || {}); },
+      resumeTask: function (context) { return orchestrator.executor.resume(context || {}); },
       runAgent: runAgent
     };
   }

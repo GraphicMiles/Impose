@@ -3388,8 +3388,13 @@
     task.verification = [{ ok: task.status === "succeeded",
       evidence: task.status === "succeeded" ? "non-empty requested output rendered" : "" }];
     if (failed) task.failures = [{ error: sanitizeLogDetail(err && err.message || err).slice(0, 300) }];
+    var outcomeHarness = window.ImposeHarness && window.ImposeHarness.harness;
+    if (outcomeHarness && typeof outcomeHarness.verifyOutcome === "function") {
+      task.outcome = outcomeHarness.verifyOutcome(task, {});
+    }
     chat.activeTask = task;
-    if (msg) msg.intentExecution = { taskId: task.id, status: task.status, verification: task.verification };
+    if (msg) msg.intentExecution = { taskId: task.id, status: task.status, verification: task.verification,
+      outcome: task.outcome || null };
   }
 
   function finishLive(s, failed, err) {
@@ -4035,8 +4040,13 @@
           videos: out && out.videos ? out.videos.length : 0 }];
         intentDecision.plan.verification = [{ ok: !failedIntent,
           evidence: failedIntent ? "required output was not verified" : "typed output and evidence gates passed" }];
+        var outcomeHarness = window.ImposeHarness && window.ImposeHarness.harness;
+        if (outcomeHarness && typeof outcomeHarness.verifyOutcome === "function") {
+          intentDecision.plan.outcome = outcomeHarness.verifyOutcome(intentDecision.plan, {});
+        }
         if (m) m.intentExecution = { taskId: intentDecision.plan.id,
-          status: intentDecision.plan.status, verification: intentDecision.plan.verification };
+          status: intentDecision.plan.status, verification: intentDecision.plan.verification,
+          outcome: intentDecision.plan.outcome || null };
         c.activeTask = intentDecision.plan;
       }
       save();

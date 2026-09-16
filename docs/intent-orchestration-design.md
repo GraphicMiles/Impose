@@ -61,6 +61,67 @@ Persisted task states are `planned`, `executing`, `waiting`, `succeeded`, `block
 - Verification failure is handled like provider failure: the planner tries an unused provider advertising the same capability.
 - Every transition is checkpointed through the task store, allowing inspection and resume.
 
+## Goal contract
+
+Interpretation returns a full contract, not a label: `goal`, `confidence`, `risk`,
+`constraints`, `desiredOutput` (type, presentation, autoplay, requested count),
+`subgoals` with typed requirements, `successCriteria`, `failureConditions`,
+`preferences`, and a bounded `budget` (`maxAppendedSteps`, `maxQueryRewrites`,
+`maxProviderAttempts`, defaulted 3/2/3). The budget caps every recovery and
+replan loop, so no task can spend unbounded attempts on a failing path.
+
+## Utility ranking
+
+Provider selection scores each available tool with
+`utility = expected progress x probability of success / linearized cost`,
+where progress is 1 for an exact-capability match, success is the tool's
+audited reliability, and cost aggregates latency, approval interruption and
+side-effect risk. Failure evidence reranks through the recovery tiers below
+rather than through hard-coded provider order.
+
+## Failure-classified recovery
+
+Every tool or verification failure is classified before retry:
+
+| Class | Trigger | Recovery |
+|---|---|---|
+| `empty` | verified output with no results | rewrite the query from `requirement.inputs.alternativeQueries`, same provider, budget-capped |
+| `network` | transport errors (timeout, conn reset, fetch failed) | retry the same provider once, then alternatives |
+| `auth` | 401/403/permission errors | alternatives, reranked toward environments with more access |
+| `parse` | malformed JSON/HTML from a provider | alternatives with independent parsers |
+| `provider` | anything else | alternatives in utility order |
+
+Each transition is checkpointed as a `replan` trace event with its reason.
+
+## Observation-driven replanning
+
+A provider output may carry typed `unmetRequirements` (capability, inputs,
+success criterion). Within `budget.maxAppendedSteps`, the executor discovers
+providers for them and appends planned steps dependent on the observing step,
+so execution stays a decide-after-observe loop instead of one frozen plan.
+
+## Outcome verification
+
+`OutcomeVerifier` is an independent component invoked when the step sequence
+ends. Deterministic checks run in code: final per-step states, the last
+verification record per step, and requested deliverable counts against
+observed rows or artifacts. An optional caller-supplied `semanticVerifier`
+judges meaning (for example whether a source is truly free for commercial
+use) and its missing items merge into the same report. The result
+(`satisfied`, `missing`, `recommendedAction`, `semantic`) is stored as
+`task.outcome`, checkpointed as `outcome_verification`, and downgrades an
+otherwise clean run to `partial` when the contract is unmet. When a failed
+step still holds unused alternatives, an unsatisfied outcome routes the task
+to `recovering` with the cursor on that step instead of declaring success.
+
+## Persistence and resume
+
+`PersistentTaskStore` checkpoints every lifecycle transition to
+`localStorage` where a host provides it (memory otherwise). The harness wires
+it into the orchestrator, and `resume()` continues a crashed or interrupted
+task from its last checkpoint, promoting an unused alternative when the
+failed step has one.
+
 ## Runtime integration
 
 - `index.html` loads orchestration before the harness.
