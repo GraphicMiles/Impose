@@ -3540,13 +3540,24 @@
     });
   }
 
+  /* The composer button wears the face of the active mode: plus when idle,
+     the mode's own glyph when a mode is on. No dot, no badge. */
+  var MODE_FACES = { searchMode: "globe" };
+  function activeModeFace() {
+    var keys = Object.keys(MODE_FACES);
+    for (var i = 0; i < keys.length; i++) {
+      if (state.settings[keys[i]]) return MODE_FACES[keys[i]];
+    }
+    return "plus";
+  }
+
   function syncSearchBtn() {
-    /* The button keeps its plus face; a restrained dot reflects Web search. */
     var btn = $("searchBtn");
     var web = !!state.settings.searchMode;
-    if (btn.getAttribute("data-face") !== "plus") {
-      btn.setAttribute("data-face", "plus");
-      btn.innerHTML = '<i data-lucide="plus"></i>';
+    var face = activeModeFace();
+    if (btn.getAttribute("data-face") !== face) {
+      btn.setAttribute("data-face", face);
+      btn.innerHTML = '<i data-lucide="' + face + '"></i>';
       refreshIcons();
     }
     btn.classList.toggle("tool-active", web);
