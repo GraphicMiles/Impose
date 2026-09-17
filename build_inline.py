@@ -22,6 +22,7 @@ features = (ROOT / "agent" / "features.js").read_text(encoding="utf-8")
 app = (ROOT / "app.js").read_text(encoding="utf-8")
 community_js = (ROOT / "community.js").read_text(encoding="utf-8")
 config_js = (ROOT / "config.js").read_text(encoding="utf-8")
+avatars_js = (ROOT / "avatars.js").read_text(encoding="utf-8")
 ui_core_js = (ROOT / "ui-core.js").read_text(encoding="utf-8")
 access_js = (ROOT / "access.js").read_text(encoding="utf-8")
 
@@ -80,6 +81,11 @@ html = html.replace(
 html = html.replace(
     '<script src="./config.js"></script>',
     "<script>\n" + config_js + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./avatars.js"></script>',
+    "<script>\n" + avatars_js + "\n</script>",
     1,
 )
 html = html.replace(

@@ -908,3 +908,118 @@ body:not(.community-mode) .modebar { display: none; }
   .wl-row { flex-direction: column; }
   .wl-row .btn { width: 100%; }
 }
+
+/* ---------- identity avatars ----------
+   Faces come from avatars.js, a local port of the Boring Avatars "beam"
+   style. The SVG fills the circle the initial used to sit in, so every
+   existing size class (.avatar, .avatar-sm, .gen-avatar) still governs the
+   geometry and nothing else had to move. */
+
+.avatar-img {
+  padding: 0;
+  overflow: hidden;
+  background: var(--chrome);
+}
+
+.avatar-img svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+}
+
+.cm-scope .npp-ava-img {
+  padding: 0;
+  overflow: hidden;
+}
+
+.cm-scope .npp-ava-img svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+}
+
+/* ---------- composer @bot highlight ----------
+   A textarea cannot colour part of its own value, so the composer layers a
+   painted copy of the string underneath a transparent-text textarea. The
+   two must agree on every metric that affects line breaking, or the
+   coloured mention drifts out from under the real glyphs. Any change to
+   .composer textarea's font, padding, or wrapping has to be mirrored here.
+   agent/tests/taste.js asserts the shared metrics stay in lockstep. */
+
+/* The field box wraps only the textarea, so the layer cannot spill over the
+   button row below it. The textarea stays in flow and dictates the height;
+   the layer is absolutely positioned to match it exactly. */
+.cm-scope .composer-field { position: relative; }
+
+.cm-scope .composer-field .composer-hl,
+.cm-scope .composer-field textarea {
+  /* Shared metrics. Both boxes occupy the same grid cell and wrap
+     identically. */
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  padding: 8px 8px 4px 0;
+  border: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 4;
+}
+
+.cm-scope .composer-field .composer-hl {
+  position: absolute;
+  inset: 0;
+  /* Matches .composer textarea's own box so wrapping is identical. */
+  width: 100%;
+  box-sizing: border-box;
+  /* The textarea owns the scroll; the layer is driven from its scrollTop. */
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text);
+  /* Sits under the caret and selection, which belong to the textarea. */
+  z-index: 0;
+}
+
+/* The real control keeps the caret and the selection, and hands its glyph
+   painting to the layer below. -webkit-text-fill-color is what actually
+   hides the text in WebKit while leaving the caret visible. */
+.cm-scope .composer-field textarea {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--text);
+  background: transparent;
+}
+
+.cm-scope .composer-field textarea::placeholder {
+  /* The placeholder is real text in the textarea, so it needs its own fill
+     colour back or it would inherit the transparent one and vanish. */
+  -webkit-text-fill-color: var(--text-3);
+  color: var(--text-3);
+}
+
+.cm-scope .composer-field textarea::selection {
+  background: var(--press);
+  -webkit-text-fill-color: var(--text);
+  color: var(--text);
+}
+
+/* The mention itself: the one coloured token, like a keyword in an editor. */
+.cm-scope .hl-at {
+  color: var(--link);
+  font-weight: 500;
+}
+
+/* Send button states its consequence: asking the agent versus posting. */
+.cm-scope .cm-composer-dock.to-bot .send-btn {
+  background: var(--link);
+  color: #0d0d0d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-scope .composer-hl { transition: none; }
+}

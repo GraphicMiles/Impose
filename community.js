@@ -24,6 +24,42 @@
 
   function $(id) { return document.getElementById(id); }
 
+  /* Identity avatar for a creator. Seeded by handle (stable) and falling
+     back to name, so the same person shows the same face everywhere. If
+     avatars.js is missing from a half-deployed tree, this degrades to the
+     old initial rather than rendering an empty circle. */
+  function avatar(creator, cls) {
+    var who = creator || {};
+    var seed = who.handle || who.name || "?";
+    var klass = "avatar " + (cls || "");
+    if (window.BotoAvatar) {
+      return '<span class="' + klass.trim() + ' avatar-img">' + BotoAvatar.svg(seed) + "</span>";
+    }
+    return '<span class="' + klass.trim() + '">' +
+      esc(String(who.name || "?").charAt(0).toUpperCase()) + "</span>";
+  }
+
+  /* ---------- @bot addressing ----------
+     A post is a generation only when it is addressed to the agent with a
+     leading @bot. Anything else is a plain post: it is shared to the feed,
+     it can be discussed and saved, and no agent is called for it. The
+     composer, the send path, and the card renderer all read this one
+     function so they can never disagree about what counts. */
+  var BOT_MENTION = /^\s*@bot\b[ \t]*/i;
+
+  function addressesBot(raw) {
+    return BOT_MENTION.test(String(raw == null ? "" : raw));
+  }
+
+  /* Whether a stored generation asked the agent for something. Anything
+     saved before plain posts existed has no `addressed` field and was an
+     agent generation by definition, so a missing flag reads as true. That
+     keeps every seeded card and every already-stored post rendering
+     exactly as it did. */
+  function isAddressed(gen) {
+    return !gen || gen.addressed === undefined ? true : !!gen.addressed;
+  }
+
   /* Shared kernel: identical escaping to the workspace. */
   function esc(value) {
     return window.BotoUI ? BotoUI.escapeHtml(value) : String(value == null ? "" : value);
@@ -538,7 +574,7 @@
 
     article.innerHTML =
       '<header class="gen-head">' +
-        '<span class="avatar gen-avatar">' + esc(gen.creator.name.charAt(0).toUpperCase()) + "</span>" +
+        avatar(gen.creator, "gen-avatar") +
         '<div class="gen-id">' +
           '<span class="gen-name">' + esc(gen.creator.name) + "</span>" +
           '<span class="gen-handle">' + esc(gen.creator.handle) + "</span>" +
@@ -548,8 +584,11 @@
       "</header>" +
       lineageLabel(gen) +
       '<div class="gen-body">' +
-        '<p class="gen-prompt"><span class="gen-at">@bot</span>' + esc(gen.prompt) + "</p>" +
-        responseBlock(gen, detail) +
+        '<p class="gen-prompt">' +
+          (isAddressed(gen) ? '<span class="gen-at">@bot</span>' : "") +
+          esc(gen.prompt) +
+        "</p>" +
+        (isAddressed(gen) ? responseBlock(gen, detail) : "") +
         actionRow(gen, detail) +
       "</div>";
     return article;
@@ -731,7 +770,7 @@
       rails + elbow +
       '<div class="trow-main">' +
         '<div class="comment' + (row.depth > 0 ? " comment--reply" : "") + '" data-reply-id="' + c.id + '">' +
-          '<span class="avatar avatar-sm">' + esc(c.creator.name.charAt(0).toUpperCase()) + "</span>" +
+          avatar(c.creator, "avatar-sm") +
           '<div class="comment-main">' +
             '<div class="comment-id">' +
               '<span class="comment-name">' + esc(c.creator.name) + "</span>" +
@@ -1014,7 +1053,9 @@
       if (seen[name]) continue;
       seen[name] = true;
       count += 1;
-      avas += '<span class="npp-ava">' + esc(name.charAt(0).toUpperCase()) + "</span>";
+      avas += window.BotoAvatar
+        ? '<span class="npp-ava npp-ava-img">' + BotoAvatar.svg(pendingGens[i].creator.handle || name, 20) + "</span>"
+        : '<span class="npp-ava">' + esc(name.charAt(0).toUpperCase()) + "</span>";
     }
     $("cmNppAvas").innerHTML = avas;
     $("cmNewPostsPill").hidden = false;
@@ -1124,11 +1165,15 @@
     $("cmRemixCtx").querySelector(".remix-ctx-icon").setAttribute("data-lucide", mode === "challenge" ? "swords" : "repeat-2");
     refreshIcons();
     var input = $("cmInput");
-    input.value = gen.prompt;
+    /* Remixing an agent generation re-addresses the agent, since the point
+       is a new answer. Remixing a plain post carries the text as-is. */
+    input.value = (isAddressed(gen) ? "@bot " : "") + gen.prompt;
     autogrow(input);
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
     syncSend();
+    paintHighlight();
+    syncSendIntent();
   }
 
   function clearContext() {
@@ -1136,17 +1181,20 @@
     $("cmRemixCtx").hidden = true;
   }
 
+  /* Strip the @bot mention off an addressed prompt. The card re-adds it as
+     its own coloured span, so the stored prompt never carries it twice. */
   function parsePrompt(raw) {
-    var text = raw.trim();
-    var m = text.match(/^@bot\s*/i);
-    if (m) text = text.slice(m[0].length);
-    return text.trim();
+    return String(raw == null ? "" : raw).replace(BOT_MENTION, "").trim();
   }
 
   function sendGeneration() {
     if (streamingNow) return;
     var input = $("cmInput");
-    var prompt = parsePrompt(input.value);
+    var raw = input.value;
+    /* Addressed to the agent or not. Unaddressed text is a plain post: it
+       goes to the feed as itself and no agent is called for it. */
+    var toBot = addressesBot(raw);
+    var prompt = toBot ? parsePrompt(raw) : String(raw).trim();
     if (!prompt) { input.value = ""; syncSend(); return; }
 
     var kind = "original";
@@ -1169,8 +1217,20 @@
       own: true,
       creator: YOU,
       prompt: prompt,
+      /* addressed: this post asked the agent for something. A plain post
+         has no response block, is never streamed, and never reaches the
+         demo engine or (in production) the provider layer. Stored on the
+         object so a reload keeps the distinction. */
+      addressed: toBot,
       response: "",
-      status: "streaming",
+      status: toBot ? "streaming" : "complete",
+      /* An addressed post pins itself to the top while it streams. A plain
+         post is complete the instant it is made, so with no pin it would
+         sort on engagement it has not earned yet and drop out of view the
+         moment you posted it. freshPinned is the existing "ride to the top
+         exactly once" flag, and it clears on the next merge just like any
+         other new arrival. */
+      freshPinned: !toBot,
       kind: kind,
       parentId: parentId,
       rootId: rootId,
@@ -1185,9 +1245,13 @@
 
     input.value = "";
     autogrow(input);
+    paintHighlight();
+    syncSendIntent();
     clearContext();
     renderFeed();
-    streamGeneration(gen);
+    /* The one place the agent is invoked. A plain post is already in its
+       terminal state, so there is nothing to run and nothing to await. */
+    if (toBot) streamGeneration(gen);
   }
 
   /* Demo engine: deterministic canned responses shaped by the prompt.
@@ -1331,9 +1395,51 @@
 
   /* ---------- wiring ---------- */
 
+  /* Repaint the highlight layer under the composer. The layer mirrors the
+     textarea's exact string and metrics, so the coloured @bot sits pixel
+     for pixel under the real (transparent) text. Only the leading mention
+     is coloured: a stray "@bot" mid-sentence does not address the agent,
+     and colouring it would promise behaviour that will not happen. */
+  function paintHighlight() {
+    var input = $("cmInput");
+    var layer = $("cmInputHl");
+    if (!input || !layer) return;
+    var raw = input.value;
+    var m = raw.match(BOT_MENTION);
+    if (m) {
+      /* Split on the real match so whitespace is preserved exactly. */
+      var mention = raw.slice(0, m[0].length);
+      layer.innerHTML = '<span class="hl-at">' + esc(mention) + "</span>" + esc(raw.slice(m[0].length));
+    } else {
+      layer.textContent = raw;
+    }
+    /* The textarea scrolls independently once it hits its max height. */
+    layer.scrollTop = input.scrollTop;
+  }
+
+  /* Tell the user which of the two things the send button will do, so the
+     outcome is never a surprise (flow rule: every control states its
+     consequence). */
+  function syncSendIntent() {
+    var btn = $("cmSendBtn");
+    var dock = $("cmComposerDock");
+    if (!btn) return;
+    var toBot = addressesBot($("cmInput").value);
+    var label = toBot ? "Ask @bot" : "Post to the feed";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    if (dock) dock.classList.toggle("to-bot", toBot);
+  }
+
   function initComposer() {
     var input = $("cmInput");
-    input.addEventListener("input", function () { autogrow(input); syncSend(); });
+    input.addEventListener("input", function () {
+      autogrow(input); syncSend(); paintHighlight(); syncSendIntent();
+    });
+    input.addEventListener("scroll", function () {
+      var layer = $("cmInputHl");
+      if (layer) layer.scrollTop = input.scrollTop;
+    });
     input.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -1349,6 +1455,8 @@
       syncVisBtn();
     });
     syncVisBtn();
+    paintHighlight();
+    syncSendIntent();
   }
 
   function syncVisBtn() {

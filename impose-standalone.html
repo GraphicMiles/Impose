@@ -372,6 +372,11 @@ body:not(.nav-open) .sidebar-inner {
   flex: none;
 }
 .avatar-sm { width: 28px; height: 28px; font-size: 13px; }
+/* Identity avatars (avatars.js) replace the initial with an inline SVG.
+   The size classes above still own the geometry; this only clears the
+   text-centering padding and clips the artwork to the circle. */
+.avatar-img { padding: 0; overflow: hidden; background: var(--code); }
+.avatar-img svg { width: 100%; height: 100%; display: block; border-radius: 50%; }
 .avatar-btn { transition: transform 160ms var(--ease-out); }
 @media (hover: hover) { .avatar-btn:hover { transform: scale(1.05); } }
 .avatar-btn:active { transform: scale(0.94); }
@@ -2944,6 +2949,121 @@ body:not(.community-mode) .modebar { display: none; }
   .wl-row .btn { width: 100%; }
 }
 
+/* ---------- identity avatars ----------
+   Faces come from avatars.js, a local port of the Boring Avatars "beam"
+   style. The SVG fills the circle the initial used to sit in, so every
+   existing size class (.avatar, .avatar-sm, .gen-avatar) still governs the
+   geometry and nothing else had to move. */
+
+.avatar-img {
+  padding: 0;
+  overflow: hidden;
+  background: var(--chrome);
+}
+
+.avatar-img svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+}
+
+.cm-scope .npp-ava-img {
+  padding: 0;
+  overflow: hidden;
+}
+
+.cm-scope .npp-ava-img svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+}
+
+/* ---------- composer @bot highlight ----------
+   A textarea cannot colour part of its own value, so the composer layers a
+   painted copy of the string underneath a transparent-text textarea. The
+   two must agree on every metric that affects line breaking, or the
+   coloured mention drifts out from under the real glyphs. Any change to
+   .composer textarea's font, padding, or wrapping has to be mirrored here.
+   agent/tests/taste.js asserts the shared metrics stay in lockstep. */
+
+/* The field box wraps only the textarea, so the layer cannot spill over the
+   button row below it. The textarea stays in flow and dictates the height;
+   the layer is absolutely positioned to match it exactly. */
+.cm-scope .composer-field { position: relative; }
+
+.cm-scope .composer-field .composer-hl,
+.cm-scope .composer-field textarea {
+  /* Shared metrics. Both boxes occupy the same grid cell and wrap
+     identically. */
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  padding: 8px 8px 4px 0;
+  border: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 4;
+}
+
+.cm-scope .composer-field .composer-hl {
+  position: absolute;
+  inset: 0;
+  /* Matches .composer textarea's own box so wrapping is identical. */
+  width: 100%;
+  box-sizing: border-box;
+  /* The textarea owns the scroll; the layer is driven from its scrollTop. */
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text);
+  /* Sits under the caret and selection, which belong to the textarea. */
+  z-index: 0;
+}
+
+/* The real control keeps the caret and the selection, and hands its glyph
+   painting to the layer below. -webkit-text-fill-color is what actually
+   hides the text in WebKit while leaving the caret visible. */
+.cm-scope .composer-field textarea {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--text);
+  background: transparent;
+}
+
+.cm-scope .composer-field textarea::placeholder {
+  /* The placeholder is real text in the textarea, so it needs its own fill
+     colour back or it would inherit the transparent one and vanish. */
+  -webkit-text-fill-color: var(--text-3);
+  color: var(--text-3);
+}
+
+.cm-scope .composer-field textarea::selection {
+  background: var(--press);
+  -webkit-text-fill-color: var(--text);
+  color: var(--text);
+}
+
+/* The mention itself: the one coloured token, like a keyword in an editor. */
+.cm-scope .hl-at {
+  color: var(--link);
+  font-weight: 500;
+}
+
+/* Send button states its consequence: asking the agent versus posting. */
+.cm-scope .cm-composer-dock.to-bot .send-btn {
+  background: var(--link);
+  color: #0d0d0d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-scope .composer-hl { transition: none; }
+}
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -3631,7 +3751,16 @@ try {
               </div>
             </div>
             <div class="composer" id="cmComposer">
-              <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything" aria-label="Message Botocracy"></textarea>
+              <!-- Syntax-highlight layer for the composer. The textarea keeps
+                   its own transparent text and caret; this div sits exactly
+                   underneath it and repaints the same string with @bot in the
+                   mention colour, the way a code editor highlights a keyword.
+                   It is aria-hidden and never focusable: the textarea remains
+                   the single real control. -->
+              <div class="composer-field">
+                <div class="composer-hl" id="cmInputHl" aria-hidden="true"></div>
+                <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything, or just post a thought" aria-label="Message Botocracy"></textarea>
+              </div>
               <div class="composer-row">
                 <button class="icon-btn" id="cmVisBtn" title="Visibility: Public" aria-label="Visibility: Public" aria-pressed="false">
                   <i data-lucide="globe"></i>
@@ -6738,6 +6867,149 @@ window.BotoConfig = {
      waitlist grant (production). */
   ACCESS_MODE: "open"
 };
+
+</script>
+<script>
+/* BotoAvatar: deterministic identity avatars, generated locally.
+
+   This is a port of the Boring Avatars "beam" style (MIT, Hayk An /
+   boringdesigners) rather than a call to their hosted service or to
+   DiceBear. The repo is offline-first on purpose: Lucide is vendored, the
+   standalone build runs from file:// with no server, the service worker
+   precaches the shell, and the CSP sets font-src 'self'. A CDN avatar would
+   break all four, so the generator lives here and emits inline SVG.
+
+   Same input always gives the same face: the hash below is a plain
+   character-code sum, so "@ada" renders identically in the feed, in a
+   comment, in the new-posts pill, and on another device. No storage, no
+   network, no per-user asset to keep in sync.
+
+   The palette is drawn from the app's own surfaces rather than the stock
+   Boring Avatars colours, which are bright pastels that would fight the
+   dark, flat house design. These are desaturated to sit with the UI
+   (taste-skill 9.A: keep saturation down, no neon).
+
+   Public API:
+     BotoAvatar.svg(seed, size)   -> SVG markup string
+     BotoAvatar.dataUri(seed, sz) -> data: URI of the same
+     BotoAvatar.initial(seed)     -> the letter used as the text fallback
+*/
+(function () {
+  "use strict";
+
+  /* Desaturated, dark-UI friendly. Six colours keeps faces distinct
+     without turning the feed into confetti. */
+  var PALETTE = ["#5b7c99", "#7a9b76", "#a88055", "#8c6b8e", "#5f8a8b", "#9c6f62"];
+
+  var SIZE = 36; /* internal viewBox; the element scales it */
+
+  /* Counter for unique mask ids within a document. Not part of the face:
+     the same seed always draws the same picture, only the internal id
+     differs between instances. */
+  var uidCounter = 0;
+
+  /* Deterministic, order-dependent, and stable across engines. Not a
+     security hash and never used as one: it only picks colours and
+     offsets. */
+  function hash(name) {
+    var str = String(name == null ? "" : name);
+    var h = 0;
+    for (var i = 0; i < str.length; i++) {
+      h = (h * 31 + str.charCodeAt(i)) >>> 0;
+    }
+    return h;
+  }
+
+  function unit(value, max, allowNegative) {
+    var v = value % max;
+    return allowNegative && (value % 2) === 0 ? -v : v;
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  /* The geometry of the "beam" face: a coloured tile, an offset backing
+     square, two eyes and a mouth. Every value is derived from the hash, so
+     the face is a pure function of the seed. */
+  function parts(seed) {
+    var h = hash(seed);
+    var bg = PALETTE[h % PALETTE.length];
+    var fg = PALETTE[(h + 1) % PALETTE.length];
+    /* Guarantee the two tones differ, or the face disappears into its tile. */
+    if (fg === bg) fg = PALETTE[(h + 3) % PALETTE.length];
+    return {
+      bg: bg,
+      fg: fg,
+      wrapperRotate: unit(h, 360),
+      wrapperScale: 1 + unit(h, 3) / 10,
+      wrapperX: unit(h, 10, true),
+      wrapperY: unit(h, 10, true),
+      faceRotate: unit(h, 10, true),
+      faceX: unit(h, 7, true) / 2,
+      faceY: unit(h, 7, true) / 2,
+      eyeSpread: unit(h, 5),
+      mouthSpread: unit(h, 5),
+      isMouthOpen: (h % 2) === 0,
+      isCircle: (h % 3) === 0
+    };
+  }
+
+  /* Inline SVG so it needs no network, no CSP allowance, and inherits the
+     page's own colours. role="img" with a label, because these stand in
+     for a person and a screen reader should say whose face it is. */
+  function svg(seed, size) {
+    var p = parts(seed);
+    var s = size || SIZE;
+    var label = "Avatar for " + String(seed == null ? "someone" : seed);
+    var eyeY = 14 + p.eyeSpread;
+    var mouthY = 20 + p.mouthSpread;
+
+    var mouth = p.isMouthOpen
+      ? '<path d="M15 ' + (19 + p.mouthSpread) + 'c2 1 4 1 6 0" stroke="#000" fill="none" stroke-opacity="0.5" stroke-linecap="round"/>'
+      : '<path d="M13 ' + mouthY + 'a5 3 0 0 0 10 0" fill="#000" fill-opacity="0.5"/>';
+
+    /* SVG ids are document-global. Several avatars render on one page, so a
+       fixed id="m" would make every face reuse the first one's mask. The id
+       is derived from the seed and a counter, so it stays unique even when
+       the same person appears twice on screen. */
+    var maskId = "ba" + hash(seed).toString(36) + "-" + (uidCounter++).toString(36);
+
+    return '<svg viewBox="0 0 ' + SIZE + " " + SIZE + '" width="' + s + '" height="' + s + '"' +
+      ' fill="none" role="img" aria-label="' + esc(label) + '"' +
+      ' xmlns="http://www.w3.org/2000/svg">' +
+      '<mask id="' + maskId + '" maskUnits="userSpaceOnUse" x="0" y="0" width="' + SIZE + '" height="' + SIZE + '">' +
+        '<rect width="' + SIZE + '" height="' + SIZE + '" rx="' + (SIZE * 2) + '" fill="#FFF"/>' +
+      "</mask>" +
+      '<g mask="url(#' + maskId + ')">' +
+        '<rect width="' + SIZE + '" height="' + SIZE + '" fill="' + p.bg + '"/>' +
+        '<rect x="0" y="0" width="' + SIZE + '" height="' + SIZE + '" fill="' + p.fg + '"' +
+          ' transform="translate(' + p.wrapperX + " " + p.wrapperY + ") rotate(" + p.wrapperRotate +
+          " " + (SIZE / 2) + " " + (SIZE / 2) + ") scale(" + p.wrapperScale + ')"' +
+          ' rx="' + (p.isCircle ? SIZE : SIZE / 6) + '"/>' +
+        '<g transform="translate(' + p.faceX + " " + p.faceY + ") rotate(" + p.faceRotate +
+          " " + (SIZE / 2) + " " + (SIZE / 2) + ')">' +
+          mouth +
+          '<rect x="' + (14 - p.eyeSpread) + '" y="' + eyeY + '" width="1.5" height="2" rx="1" fill="#000" fill-opacity="0.5"/>' +
+          '<rect x="' + (20 + p.eyeSpread) + '" y="' + eyeY + '" width="1.5" height="2" rx="1" fill="#000" fill-opacity="0.5"/>' +
+        "</g>" +
+      "</g>" +
+      "</svg>";
+  }
+
+  function dataUri(seed, size) {
+    return "data:image/svg+xml;utf8," + encodeURIComponent(svg(seed, size));
+  }
+
+  function initial(seed) {
+    var s = String(seed == null ? "" : seed).replace(/^@/, "");
+    return s ? s.charAt(0).toUpperCase() : "?";
+  }
+
+  window.BotoAvatar = { svg: svg, dataUri: dataUri, initial: initial, palette: PALETTE };
+})();
 
 </script>
 <script>
@@ -12918,10 +13190,24 @@ window.BotoConfig = {
   function syncAvatars() {
     var name = displayName();
     var initial = (name.charAt(0) || "Y").toUpperCase();
-    $("avatarBtn").textContent = initial;
-    $("profileAvatar").textContent = initial;
+    /* Identity avatar, seeded by display name so the workspace shows the
+       same face the Community feed draws for you. Falls back to the plain
+       initial if avatars.js is absent from a half-deployed tree. */
+    function paint(id) {
+      var el = $(id);
+      if (!el) return;
+      if (window.BotoAvatar) {
+        el.classList.add("avatar-img");
+        el.innerHTML = BotoAvatar.svg(name);
+      } else {
+        el.classList.remove("avatar-img");
+        el.textContent = initial;
+      }
+    }
+    paint("avatarBtn");
+    paint("profileAvatar");
+    paint("acctAvatar");
     $("profileName").textContent = name;
-    $("acctAvatar").textContent = initial;
     if (document.activeElement !== $("acctName")) $("acctName").value = name;
   }
 
@@ -15056,6 +15342,42 @@ window.BotoConfig = {
 
   function $(id) { return document.getElementById(id); }
 
+  /* Identity avatar for a creator. Seeded by handle (stable) and falling
+     back to name, so the same person shows the same face everywhere. If
+     avatars.js is missing from a half-deployed tree, this degrades to the
+     old initial rather than rendering an empty circle. */
+  function avatar(creator, cls) {
+    var who = creator || {};
+    var seed = who.handle || who.name || "?";
+    var klass = "avatar " + (cls || "");
+    if (window.BotoAvatar) {
+      return '<span class="' + klass.trim() + ' avatar-img">' + BotoAvatar.svg(seed) + "</span>";
+    }
+    return '<span class="' + klass.trim() + '">' +
+      esc(String(who.name || "?").charAt(0).toUpperCase()) + "</span>";
+  }
+
+  /* ---------- @bot addressing ----------
+     A post is a generation only when it is addressed to the agent with a
+     leading @bot. Anything else is a plain post: it is shared to the feed,
+     it can be discussed and saved, and no agent is called for it. The
+     composer, the send path, and the card renderer all read this one
+     function so they can never disagree about what counts. */
+  var BOT_MENTION = /^\s*@bot\b[ \t]*/i;
+
+  function addressesBot(raw) {
+    return BOT_MENTION.test(String(raw == null ? "" : raw));
+  }
+
+  /* Whether a stored generation asked the agent for something. Anything
+     saved before plain posts existed has no `addressed` field and was an
+     agent generation by definition, so a missing flag reads as true. That
+     keeps every seeded card and every already-stored post rendering
+     exactly as it did. */
+  function isAddressed(gen) {
+    return !gen || gen.addressed === undefined ? true : !!gen.addressed;
+  }
+
   /* Shared kernel: identical escaping to the workspace. */
   function esc(value) {
     return window.BotoUI ? BotoUI.escapeHtml(value) : String(value == null ? "" : value);
@@ -15570,7 +15892,7 @@ window.BotoConfig = {
 
     article.innerHTML =
       '<header class="gen-head">' +
-        '<span class="avatar gen-avatar">' + esc(gen.creator.name.charAt(0).toUpperCase()) + "</span>" +
+        avatar(gen.creator, "gen-avatar") +
         '<div class="gen-id">' +
           '<span class="gen-name">' + esc(gen.creator.name) + "</span>" +
           '<span class="gen-handle">' + esc(gen.creator.handle) + "</span>" +
@@ -15580,8 +15902,11 @@ window.BotoConfig = {
       "</header>" +
       lineageLabel(gen) +
       '<div class="gen-body">' +
-        '<p class="gen-prompt"><span class="gen-at">@bot</span>' + esc(gen.prompt) + "</p>" +
-        responseBlock(gen, detail) +
+        '<p class="gen-prompt">' +
+          (isAddressed(gen) ? '<span class="gen-at">@bot</span>' : "") +
+          esc(gen.prompt) +
+        "</p>" +
+        (isAddressed(gen) ? responseBlock(gen, detail) : "") +
         actionRow(gen, detail) +
       "</div>";
     return article;
@@ -15763,7 +16088,7 @@ window.BotoConfig = {
       rails + elbow +
       '<div class="trow-main">' +
         '<div class="comment' + (row.depth > 0 ? " comment--reply" : "") + '" data-reply-id="' + c.id + '">' +
-          '<span class="avatar avatar-sm">' + esc(c.creator.name.charAt(0).toUpperCase()) + "</span>" +
+          avatar(c.creator, "avatar-sm") +
           '<div class="comment-main">' +
             '<div class="comment-id">' +
               '<span class="comment-name">' + esc(c.creator.name) + "</span>" +
@@ -16046,7 +16371,9 @@ window.BotoConfig = {
       if (seen[name]) continue;
       seen[name] = true;
       count += 1;
-      avas += '<span class="npp-ava">' + esc(name.charAt(0).toUpperCase()) + "</span>";
+      avas += window.BotoAvatar
+        ? '<span class="npp-ava npp-ava-img">' + BotoAvatar.svg(pendingGens[i].creator.handle || name, 20) + "</span>"
+        : '<span class="npp-ava">' + esc(name.charAt(0).toUpperCase()) + "</span>";
     }
     $("cmNppAvas").innerHTML = avas;
     $("cmNewPostsPill").hidden = false;
@@ -16156,11 +16483,15 @@ window.BotoConfig = {
     $("cmRemixCtx").querySelector(".remix-ctx-icon").setAttribute("data-lucide", mode === "challenge" ? "swords" : "repeat-2");
     refreshIcons();
     var input = $("cmInput");
-    input.value = gen.prompt;
+    /* Remixing an agent generation re-addresses the agent, since the point
+       is a new answer. Remixing a plain post carries the text as-is. */
+    input.value = (isAddressed(gen) ? "@bot " : "") + gen.prompt;
     autogrow(input);
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
     syncSend();
+    paintHighlight();
+    syncSendIntent();
   }
 
   function clearContext() {
@@ -16168,17 +16499,20 @@ window.BotoConfig = {
     $("cmRemixCtx").hidden = true;
   }
 
+  /* Strip the @bot mention off an addressed prompt. The card re-adds it as
+     its own coloured span, so the stored prompt never carries it twice. */
   function parsePrompt(raw) {
-    var text = raw.trim();
-    var m = text.match(/^@bot\s*/i);
-    if (m) text = text.slice(m[0].length);
-    return text.trim();
+    return String(raw == null ? "" : raw).replace(BOT_MENTION, "").trim();
   }
 
   function sendGeneration() {
     if (streamingNow) return;
     var input = $("cmInput");
-    var prompt = parsePrompt(input.value);
+    var raw = input.value;
+    /* Addressed to the agent or not. Unaddressed text is a plain post: it
+       goes to the feed as itself and no agent is called for it. */
+    var toBot = addressesBot(raw);
+    var prompt = toBot ? parsePrompt(raw) : String(raw).trim();
     if (!prompt) { input.value = ""; syncSend(); return; }
 
     var kind = "original";
@@ -16201,8 +16535,20 @@ window.BotoConfig = {
       own: true,
       creator: YOU,
       prompt: prompt,
+      /* addressed: this post asked the agent for something. A plain post
+         has no response block, is never streamed, and never reaches the
+         demo engine or (in production) the provider layer. Stored on the
+         object so a reload keeps the distinction. */
+      addressed: toBot,
       response: "",
-      status: "streaming",
+      status: toBot ? "streaming" : "complete",
+      /* An addressed post pins itself to the top while it streams. A plain
+         post is complete the instant it is made, so with no pin it would
+         sort on engagement it has not earned yet and drop out of view the
+         moment you posted it. freshPinned is the existing "ride to the top
+         exactly once" flag, and it clears on the next merge just like any
+         other new arrival. */
+      freshPinned: !toBot,
       kind: kind,
       parentId: parentId,
       rootId: rootId,
@@ -16217,9 +16563,13 @@ window.BotoConfig = {
 
     input.value = "";
     autogrow(input);
+    paintHighlight();
+    syncSendIntent();
     clearContext();
     renderFeed();
-    streamGeneration(gen);
+    /* The one place the agent is invoked. A plain post is already in its
+       terminal state, so there is nothing to run and nothing to await. */
+    if (toBot) streamGeneration(gen);
   }
 
   /* Demo engine: deterministic canned responses shaped by the prompt.
@@ -16363,9 +16713,51 @@ window.BotoConfig = {
 
   /* ---------- wiring ---------- */
 
+  /* Repaint the highlight layer under the composer. The layer mirrors the
+     textarea's exact string and metrics, so the coloured @bot sits pixel
+     for pixel under the real (transparent) text. Only the leading mention
+     is coloured: a stray "@bot" mid-sentence does not address the agent,
+     and colouring it would promise behaviour that will not happen. */
+  function paintHighlight() {
+    var input = $("cmInput");
+    var layer = $("cmInputHl");
+    if (!input || !layer) return;
+    var raw = input.value;
+    var m = raw.match(BOT_MENTION);
+    if (m) {
+      /* Split on the real match so whitespace is preserved exactly. */
+      var mention = raw.slice(0, m[0].length);
+      layer.innerHTML = '<span class="hl-at">' + esc(mention) + "</span>" + esc(raw.slice(m[0].length));
+    } else {
+      layer.textContent = raw;
+    }
+    /* The textarea scrolls independently once it hits its max height. */
+    layer.scrollTop = input.scrollTop;
+  }
+
+  /* Tell the user which of the two things the send button will do, so the
+     outcome is never a surprise (flow rule: every control states its
+     consequence). */
+  function syncSendIntent() {
+    var btn = $("cmSendBtn");
+    var dock = $("cmComposerDock");
+    if (!btn) return;
+    var toBot = addressesBot($("cmInput").value);
+    var label = toBot ? "Ask @bot" : "Post to the feed";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    if (dock) dock.classList.toggle("to-bot", toBot);
+  }
+
   function initComposer() {
     var input = $("cmInput");
-    input.addEventListener("input", function () { autogrow(input); syncSend(); });
+    input.addEventListener("input", function () {
+      autogrow(input); syncSend(); paintHighlight(); syncSendIntent();
+    });
+    input.addEventListener("scroll", function () {
+      var layer = $("cmInputHl");
+      if (layer) layer.scrollTop = input.scrollTop;
+    });
     input.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -16381,6 +16773,8 @@ window.BotoConfig = {
       syncVisBtn();
     });
     syncVisBtn();
+    paintHighlight();
+    syncSendIntent();
   }
 
   function syncVisBtn() {

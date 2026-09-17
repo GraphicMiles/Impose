@@ -274,6 +274,76 @@ test("every authored public asset is copied by the Render build", function () {
 
 /* ---------- run ---------- */
 
+/* ---- Task 3: identity avatars + @bot addressing ---- */
+
+var avatarsJs = read("avatars.js");
+var communityJs = read("community.js");
+var communityCss = read("community.css");
+var indexHtml = read("index.html");
+var stylesCss = read("styles.css");
+
+test("avatars.js exposes the BotoAvatar API", function () {
+  ok(avatarsJs.indexOf("window.BotoAvatar") !== -1 &&
+    avatarsJs.indexOf("svg:") !== -1);
+});
+test("avatar SVG ids are per instance, never a fixed id", function () {
+  /* Strip comments first: the source documents the fixed-id bug it fixed,
+     and an unstripped scan matches that prose instead of real code. */
+  var code = avatarsJs.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  ok(code.indexOf('id="m"') === -1, "a fixed mask id would collide across avatars");
+  ok(code.indexOf("uidCounter++") !== -1, "mask ids must vary per instance");
+});
+test("avatars.js is registered everywhere a root asset must be", function () {
+  ok(indexHtml.indexOf('src="./avatars.js"') !== -1 &&
+    read("render.yaml").indexOf("avatars.js") !== -1 &&
+    read("sw.js").indexOf('"./avatars.js"') !== -1 &&
+    read("build_inline.py").indexOf("avatars.js") !== -1);
+});
+test("avatar circles clip the artwork instead of centering a letter", function () {
+  ok(stylesCss.indexOf(".avatar-img") !== -1 &&
+    communityCss.indexOf(".avatar-img") !== -1);
+});
+test("community renders avatars through the shared helper", function () {
+  ok(communityJs.indexOf('avatar(gen.creator, "gen-avatar")') !== -1 &&
+    communityJs.indexOf('avatar(c.creator, "avatar-sm")') !== -1);
+});
+test("addressesBot is the single source of truth for calling the agent", function () {
+  ok(communityJs.indexOf("function addressesBot") !== -1 &&
+    communityJs.indexOf("if (toBot) streamGeneration(gen)") !== -1);
+});
+test("a plain post never enters a streaming state", function () {
+  ok(communityJs.indexOf('status: toBot ? "streaming" : "complete"') !== -1);
+});
+test("legacy stored posts keep rendering as agent generations", function () {
+  ok(communityJs.indexOf("function isAddressed") !== -1 &&
+    communityJs.indexOf("gen.addressed === undefined ? true") !== -1);
+});
+test("only addressed cards show the @bot chip and a response block", function () {
+  ok(communityJs.indexOf('isAddressed(gen) ? \'<span class="gen-at">@bot</span>\' : ""') !== -1 &&
+    communityJs.indexOf('isAddressed(gen) ? responseBlock(gen, detail) : ""') !== -1);
+});
+test("plain posts pin once so they do not sink on zero engagement", function () {
+  ok(communityJs.indexOf("freshPinned: !toBot") !== -1);
+});
+test("composer highlight layer exists and is hidden from assistive tech", function () {
+  ok(indexHtml.indexOf('id="cmInputHl"') !== -1 &&
+    indexHtml.indexOf('class="composer-hl" id="cmInputHl" aria-hidden="true"') !== -1);
+});
+test("highlight layer and textarea share the metrics that drive wrapping", function () {
+  ok(communityCss.indexOf(".cm-scope .composer-field .composer-hl,") !== -1 &&
+    communityCss.indexOf(".cm-scope .composer-field textarea {") !== -1);
+});
+test("the real textarea keeps its caret while handing off glyph painting", function () {
+  ok(communityCss.indexOf("caret-color: var(--text)") !== -1 &&
+    communityCss.indexOf("-webkit-text-fill-color: transparent") !== -1);
+});
+test("placeholder is not swallowed by the transparent text fill", function () {
+  ok(communityCss.indexOf(".cm-scope .composer-field textarea::placeholder") !== -1);
+});
+test("only a leading mention is highlighted", function () {
+  ok(communityJs.indexOf("BOT_MENTION = /^") !== -1);
+});
+
 queue.forEach(function (entry) {
   try { entry[1](); passed++; console.log("PASS: " + entry[0]); }
   catch (e) { failed++; console.log("FAIL: " + entry[0] + "\n      " + e.message); }

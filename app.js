@@ -5942,10 +5942,24 @@
   function syncAvatars() {
     var name = displayName();
     var initial = (name.charAt(0) || "Y").toUpperCase();
-    $("avatarBtn").textContent = initial;
-    $("profileAvatar").textContent = initial;
+    /* Identity avatar, seeded by display name so the workspace shows the
+       same face the Community feed draws for you. Falls back to the plain
+       initial if avatars.js is absent from a half-deployed tree. */
+    function paint(id) {
+      var el = $(id);
+      if (!el) return;
+      if (window.BotoAvatar) {
+        el.classList.add("avatar-img");
+        el.innerHTML = BotoAvatar.svg(name);
+      } else {
+        el.classList.remove("avatar-img");
+        el.textContent = initial;
+      }
+    }
+    paint("avatarBtn");
+    paint("profileAvatar");
+    paint("acctAvatar");
     $("profileName").textContent = name;
-    $("acctAvatar").textContent = initial;
     if (document.activeElement !== $("acctName")) $("acctName").value = name;
   }
 
