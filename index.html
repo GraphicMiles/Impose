@@ -202,7 +202,16 @@ try {
               </div>
             </div>
             <div class="composer" id="cmComposer">
-              <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything" aria-label="Message Botocracy"></textarea>
+              <!-- Syntax-highlight layer for the composer. The textarea keeps
+                   its own transparent text and caret; this div sits exactly
+                   underneath it and repaints the same string with @bot in the
+                   mention colour, the way a code editor highlights a keyword.
+                   It is aria-hidden and never focusable: the textarea remains
+                   the single real control. -->
+              <div class="composer-field">
+                <div class="composer-hl" id="cmInputHl" aria-hidden="true"></div>
+                <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything, or just post a thought" aria-label="Message Botocracy"></textarea>
+              </div>
               <div class="composer-row">
                 <button class="icon-btn" id="cmVisBtn" title="Visibility: Public" aria-label="Visibility: Public" aria-pressed="false">
                   <i data-lucide="globe"></i>
@@ -782,6 +791,7 @@ try {
 <script src="./agent/harness.js"></script>
 <script src="./agent/features.js"></script>
 <script src="./config.js"></script>
+<script src="./avatars.js"></script>
 <script src="./ui-core.js"></script>
 <script src="./access.js"></script>
 <script src="./app.js"></script>

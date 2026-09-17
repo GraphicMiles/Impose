@@ -7,7 +7,7 @@ services:
     # Ship the service worker, manifest, icons, and the legacy _headers mirror.
     # Render's actual response headers are declared below. Keep this file list
     # in sync with new root assets.
-    buildCommand: mkdir -p dist/agent && cp index.html styles.css fonts.css app.js community.css community.js config.js ui-core.js access.js auth.html auth.css auth.js about.html privacy.html terms.html data-security.html contact.html acceptable-use.html 404.html public.css public.js lucide.min.js anime.min.js og-image.jpg manifest.json sw.js _headers impose-standalone.html dist/ && cp icon-*.png dist/ && cp agent/*.js agent/*.css dist/agent/
+    buildCommand: mkdir -p dist/agent && cp index.html styles.css fonts.css app.js community.css community.js config.js avatars.js ui-core.js access.js auth.html auth.css auth.js about.html privacy.html terms.html data-security.html contact.html acceptable-use.html 404.html public.css public.js lucide.min.js anime.min.js og-image.jpg manifest.json sw.js _headers impose-standalone.html dist/ && cp icon-*.png dist/ && cp agent/*.js agent/*.css dist/agent/
     staticPublishPath: ./dist
     routes:
       - type: rewrite
