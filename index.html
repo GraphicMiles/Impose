@@ -3,23 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Impose</title>
-<meta name="description" content="Impose chat client. Bring your own key and chat with any provider.">
+<title>Botocracy</title>
+<meta name="description" content="Botocracy. In bots we trust.">
 <link rel="canonical" href="https://impose-web.onrender.com/">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Impose">
-<meta property="og:title" content="Impose">
-<meta property="og:description" content="Impose chat client. Bring your own key and chat with any provider.">
+<meta property="og:site_name" content="Botocracy">
+<meta property="og:title" content="Botocracy">
+<meta property="og:description" content="Botocracy. In bots we trust.">
 <meta property="og:url" content="https://impose-web.onrender.com/">
 <meta property="og:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:secure_url" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Impose: bring your own key and chat with any provider.">
+<meta property="og:image:alt" content="Botocracy: in bots we trust.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Impose">
-<meta name="twitter:description" content="Impose chat client. Bring your own key and chat with any provider.">
+<meta name="twitter:title" content="Botocracy">
+<meta name="twitter:description" content="Botocracy. In bots we trust.">
 <meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta name="color-scheme" content="dark">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
@@ -30,6 +30,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="./manifest.json">
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./community.css">
 <link rel="stylesheet" href="./agent/trace.css">
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "ea82ca6a085a41139df10d19abeda6a6"}'></script><!-- End Cloudflare Web Analytics -->
 </head>
@@ -96,10 +97,6 @@ try {
         <button class="icon-btn" id="chatParamsBtn" title="Chat settings" aria-label="Chat settings">
           <i data-lucide="sliders-horizontal"></i>
         </button>
-        <button class="icon-btn" id="actionsBtn" title="Agent actions" aria-label="Agent actions">
-          <i data-lucide="puzzle"></i>
-          <span class="ext-dot" id="extDot" hidden></span>
-        </button>
         <button class="share-btn" id="shareBtn">
           <i data-lucide="share"></i><span>Share</span>
         </button>
@@ -107,7 +104,19 @@ try {
       </div>
     </header>
 
-    <div id="banners" aria-live="polite"></div>
+    <!-- Mode switch, always visible: Community is the Botocracy feed, Workspace is the chat shell -->
+    <nav class="modebar" aria-label="Product mode">
+      <div class="modeseg" role="tablist" aria-label="Mode">
+        <button class="modeseg-tab" id="cmTabCommunity" role="tab" aria-selected="true" data-mode="community">
+          Community
+        </button><button class="modeseg-tab" id="cmTabWorkspace" role="tab" aria-selected="false" data-mode="workspace">
+          Workspace
+        </button><span class="modeseg-glide" id="cmModeGlide" aria-hidden="true"></span>
+      </div>
+    </nav>
+
+    <div id="wsContent" hidden>
+    <div id="banners" aria-live="polite" hidden></div>
     <div class="chat-scroll" id="chatScroll">
       <div class="empty" id="emptyState">
         <h1 class="greeting">What can I help with?</h1>
@@ -138,6 +147,70 @@ try {
       <button id="jumpPill" class="jump-pill" hidden><i data-lucide="arrow-down"></i><span>Latest</span></button>
       <div class="dock-slot" id="dockSlot"></div>
     </div>
+    </div><!-- /wsContent -->
+
+    <!-- Community mode: the Slopify prototype, ported 1:1. Workspace never
+         reads from this tree; Community never reads from wsContent. -->
+    <div class="cm-main cm-scope" id="cmMain" hidden>
+      <div class="pull-refresh" id="cmPullRefresh" hidden>
+        <span class="pull-arrow" id="cmPullArrow"><i data-lucide="arrow-down"></i></span>
+        <span class="pull-spin" id="cmPullSpin" hidden><span class="spinner"></span></span>
+      </div>
+
+      <button class="new-posts-pill" id="cmNewPostsPill" hidden>
+        <i data-lucide="arrow-up"></i>
+        <span class="npp-avas" id="cmNppAvas"></span>
+        <span>posted</span>
+      </button>
+
+      <div class="cm-view" id="cmFeedView">
+        <div class="feed" id="cmFeed">
+          <div id="cmFeedList"></div>
+          <div id="cmFeedSentinel" aria-hidden="true"></div>
+          <div class="feed-loader" id="cmFeedLoader" hidden role="status" aria-label="Loading more generations">
+            <span class="spinner" aria-hidden="true"></span><span>Loading more generations</span>
+          </div>
+          <div class="feed-end" id="cmFeedEnd" hidden>You are all caught up.</div>
+          <div class="feed-empty" id="cmFeedEmpty" hidden>
+            <h1 class="greeting">Nothing here yet</h1>
+            <p class="feed-empty-sub">Start a generation with @bot. It shows up here for everyone to remix.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="cm-view" id="cmDetailView" hidden>
+        <div class="detail" id="cmDetail"></div>
+      </div>
+
+      <div class="composer-dock cm-composer-dock" id="cmComposerDock">
+        <div class="dock-slot">
+          <div class="composer-block">
+            <div class="remix-ctx" id="cmRemixCtx" hidden>
+              <i data-lucide="repeat-2" class="remix-ctx-icon"></i>
+              <div class="remix-ctx-text">
+                <span class="remix-ctx-label" id="cmRemixCtxLabel"></span>
+                <button class="remix-ctx-clear" id="cmRemixCtxClear" aria-label="Clear remix context">
+                  <i data-lucide="x"></i>
+                </button>
+              </div>
+            </div>
+            <div class="composer" id="cmComposer">
+              <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything" aria-label="Message Botocracy"></textarea>
+              <div class="composer-row">
+                <button class="icon-btn" id="cmVisBtn" title="Visibility: Public" aria-label="Visibility: Public" aria-pressed="false">
+                  <i data-lucide="globe"></i>
+                </button>
+                <div class="composer-spacer"></div>
+                <button class="send-btn" id="cmSendBtn" title="Generate" aria-label="Generate" disabled>
+                  <i data-lucide="arrow-up"></i>
+                </button>
+              </div>
+            </div>
+            <p class="disclaimer">Botocracy can make mistakes. Check important info.</p>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -145,7 +218,7 @@ try {
   <input type="file" id="filePicker" hidden multiple>
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
-    <textarea id="input" rows="1" maxlength="200000" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
+    <textarea id="input" rows="1" maxlength="200000" placeholder="Ask anything, / for saved prompts" aria-label="Message Botocracy"></textarea>
     <div class="composer-row">
       <button class="icon-btn" id="searchBtn" title="Assistant tools" aria-label="Assistant tools" aria-haspopup="menu">
         <i data-lucide="plus"></i>
@@ -166,7 +239,7 @@ try {
       </div>
     </div>
   </div>
-  <p class="disclaimer">Impose can make mistakes. Check important info.</p>
+  <p class="disclaimer">Botocracy can make mistakes. Check important info.</p>
   <div class="pop pop-sm slash-pop" id="slashPop" role="listbox" aria-label="Saved prompts" hidden>
     <p class="pop-label">Saved prompts</p>
     <div id="slashList"></div>
@@ -244,7 +317,7 @@ try {
   <button class="pop-item" id="acctAbout" role="menuitem"><i data-lucide="file-text"></i><span>About &amp; privacy</span></button>
   <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
   <button class="pop-item danger" id="acctWipe" role="menuitem"><i data-lucide="trash-2"></i><span>Delete all chats</span></button>
-  <p class="acct-foot">Impose 1.2 · Keys and chats stay in this browser.</p>
+  <p class="acct-foot">Botocracy 1.2 · Keys and chats stay in this browser.</p>
 </div>
 
 <div class="overlay" id="palette" hidden>
@@ -274,7 +347,7 @@ try {
     <div class="onboard-intro">
       <div class="onboard-badge"><i data-lucide="sparkles"></i></div>
       <div class="onboard-copy">
-        <h2 id="onboardTitle">Welcome to Impose</h2>
+        <h2 id="onboardTitle">Welcome to Botocracy</h2>
         <p class="onboard-sub">A chat app that shows its work. One thing to know before you start:</p>
       </div>
     </div>
@@ -373,7 +446,7 @@ try {
             <button class="btn" id="exportBtn"><i data-lucide="download"></i><span>Export</span></button>
           </div>
           <div class="setting-row">
-            <div class="setting-text"><strong>Import backup</strong><span>Restore a Impose JSON export</span></div>
+            <div class="setting-text"><strong>Import backup</strong><span>Restore a Botocracy JSON export</span></div>
             <button class="btn" id="importBtn"><i data-lucide="upload"></i><span>Import</span></button>
           </div>
           <input type="file" id="importPicker" accept="application/json,.json" hidden>
@@ -395,7 +468,7 @@ try {
             <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
           </div>
         </section>
-        <p class="version">Impose 1.2. Keys and chats stay in this browser.</p>
+        <p class="version">Botocracy 1.2. Keys and chats stay in this browser.</p>
       </div>
     </div>
   </div>
@@ -469,7 +542,7 @@ try {
           </div>
           <div class="field">
             <label class="flabel" for="pfHeaders">Extra headers</label>
-            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Impose" spellcheck="false"></textarea>
+            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Botocracy" spellcheck="false"></textarea>
             <p class="fhelp">One per line, written as Name: value.</p>
           </div>
           <p class="flabel gap">Prices, per million tokens (optional, for cost estimates)</p>
@@ -658,88 +731,17 @@ try {
   </div>
 </div>
 
-<div class="overlay center" id="actionsModal" hidden>
-  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Agent actions">
-    <div class="settings-head">
-      <h2>Agent actions</h2>
-      <button class="icon-btn" id="actionsClose" title="Close" aria-label="Close">
-        <i data-lucide="x"></i>
-      </button>
-    </div>
-    <div class="settings-body">
-      <div class="ext-status" id="extStatus">
-        <span class="ext-dot lg off" id="extDotLg"></span>
-        <div class="ext-status-text"><strong id="extStatusTitle">Extension not connected</strong><span id="extStatusSub">Install the Impose bridge to act in your tabs.</span></div>
-        <button class="btn small" id="extPingBtn" type="button"><i data-lucide="plug"></i><span>Retry</span></button>
-      </div>
-      <div id="extSetup" class="pane-note">Load the companion extension once: open chrome://extensions, turn on Developer mode, Load unpacked, and pick the extension folder from the Impose repo. Then press Retry. You log in on the sites themselves; the bridge never sees passwords.</div>
-      <div id="extMain" hidden>
-        <div class="field">
-          <label class="flabel" for="extTabs">X tab</label>
-          <div class="ext-row">
-            <select id="extTabs" class="text-input" aria-label="X tab"></select>
-            <button class="btn small" id="extTabsBtn" type="button"><i data-lucide="rotate-ccw"></i><span>Tabs</span></button>
-          </div>
-        </div>
-        <div class="ext-row">
-          <button class="btn small" id="extReadBtn" type="button"><i data-lucide="scan-eye"></i><span>Read page</span></button>
-          <button class="btn small" id="extThreadsBtn" type="button"><i data-lucide="list-checks"></i><span>Threads</span></button>
-          <button class="btn small" id="extProbeBtn" type="button"><i data-lucide="shield-check"></i><span>Check page</span></button>
-        </div>
-        <details class="snap" id="extSnapWrap">
-          <summary>Page snapshot</summary>
-          <pre id="extSnap">Nothing read yet.</pre>
-        </details>
-        <div id="extThreads"></div>
-        <div class="field">
-          <label class="flabel" for="extInstr">Instruction for the draft</label>
-          <input type="text" class="text-input" id="extInstr" placeholder="e.g. accept politely and ask for Thursday" autocomplete="off">
-        </div>
-        <button class="btn small" id="extDraftBtn" type="button"><i data-lucide="bot"></i><span>Draft with Impose</span></button>
-        <div class="field">
-          <label class="flabel" for="extReply">Reply to send</label>
-          <textarea class="text-input mono text-area" id="extReply" rows="3" placeholder="The exact text that will be sent."></textarea>
-        </div>
-        <p class="fhelp" id="extTarget">No thread chosen yet. Open a DM thread in the X tab, or pick one from Threads.</p>
-        <div class="editor-foot">
-          <button class="btn primary grow" id="extSendBtn" type="button"><i data-lucide="send"></i><span>Send via extension</span></button>
-        </div>
-        <p class="fhelp">Nothing sends without your tap. Every send is logged below and in the debug log.</p>
-        <div class="action-log" id="extLog"></div>
-      </div>
-      <div class="paste-mode">
-        <h3 class="paste-title">No extension? Paste mode</h3>
-        <p class="pane-note">On mobile: copy the conversation from your X app, paste it below, draft, then copy the reply back. No install, no login needed.</p>
-        <div class="field">
-          <label class="flabel" for="extPaste">Pasted conversation</label>
-          <textarea class="text-input mono text-area" id="extPaste" rows="4" placeholder="Paste the DM conversation here."></textarea>
-        </div>
-        <div class="field">
-          <label class="flabel" for="extPasteInstr">Instruction</label>
-          <input type="text" class="text-input" id="extPasteInstr" placeholder="e.g. accept politely and ask for Thursday" autocomplete="off">
-        </div>
-        <button class="btn small" id="extPasteDraft" type="button"><i data-lucide="bot"></i><span>Draft reply</span></button>
-        <div class="field">
-          <label class="flabel" for="extPasteOut">Draft</label>
-          <textarea class="text-input mono text-area" id="extPasteOut" rows="3" placeholder="Your draft appears here."></textarea>
-        </div>
-        <button class="btn small" id="extPasteCopy" type="button"><i data-lucide="copy"></i><span>Copy draft</span></button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div id="opStatus" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<noscript><p style="padding:24px;font-family:sans-serif">Impose needs JavaScript to run.</p></noscript>
+<noscript><p style="padding:24px;font-family:sans-serif">Botocracy needs JavaScript to run.</p></noscript>
 <script src="./lucide.min.js"></script>
 <script src="./anime.min.js"></script>
 <script src="./agent/trace.js"></script>
 <script src="./agent/orchestrator.js"></script>
 <script src="./agent/harness.js"></script>
 <script src="./agent/features.js"></script>
-<script src="./agent/browser-agent.js"></script>
 <script src="./app.js"></script>
+<script src="./community.js"></script>
 </body>
 </html>

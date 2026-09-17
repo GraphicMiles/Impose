@@ -364,21 +364,6 @@
     run: function (args, ctx) { return ctx.synthesize(args); }
   };
 
-  var browserTool = {
-    id: "browser.agent", name: "Browser agent", version: "1.0",
-    description: "Navigates and interacts with websites through an origin-bounded, approved browser plan.",
-    capabilities: ["navigate_web", "interact_with_websites", "authenticate_session", "submit_forms"],
-    primaryCapability: "interact_with_websites",
-    inputs: { goal: "string", constraints: "object" }, outputs: { result: "verified browser execution report" },
-    prerequisites: ["browser extension connected"], permissions: ["browser_control"], sideEffects: "external",
-    requiresApproval: true, cost: { latency: "high", monetary: "metered" }, reliability: 0.72,
-    environments: ["browser"], composable: true, mutability: "mutating",
-    failureModes: ["extension unavailable", "authentication required", "site changed", "outcome uncertain"],
-    verify: function (out) { return { ok: !!(out && (out.verified === true || out.status === "succeeded")),
-      evidence: out && out.evidence || "", reason: "browser outcome was not independently confirmed" }; },
-    run: function (args, ctx) { return ctx.browser(args); }
-  };
-
   function createHarness() {
     var tools = [];
     var orchestration = orchestrationApi();
@@ -986,7 +971,6 @@
   api.harness.registerTool(videosTool);
   api.harness.registerTool(filesTool);
   api.harness.registerTool(reasoningTool);
-  api.harness.registerTool(browserTool);
 
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else getRoot().ImposeHarness = api;

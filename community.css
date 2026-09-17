@@ -1,0 +1,829 @@
+/* Community mode: the Slopify prototype ported 1:1 into the Impose shell.
+   Everything here is additive: Impose's styles.css runs the Workspace tab
+   untouched, and every Community rule either carries new class names
+   (modebar, npp, feed, gen, trow, comment) or is scoped under .cm-scope so
+   it can never bleed into the chat experience. Token values, easings, and
+   the composer read from Impose's own variables; only feed-specific
+   variables are redeclared locally. */
+
+/* ==========================================================================
+   Mode chrome: the shared Community | Workspace switch and the mode gates.
+   ========================================================================== */
+
+#wsContent { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.modebar {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 8px 12px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg);
+}
+
+/* Community mode hides the workspace-only chrome; the topbar itself stays */
+body.community-mode #openSidebarBtn,
+body.community-mode #modelBtn,
+body.community-mode #chatParamsBtn,
+body.community-mode #shareBtn { display: none; }
+body.community-mode .sidebar,
+body.community-mode .backdrop { display: none !important; }
+
+/* Community root: column with scrolling views above an in-flow composer
+   dock, mirroring the workspace layout */
+.cm-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--bg);
+}
+.cm-view { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+
+/* feed sizing tokens that only Community uses */
+.cm-scope {
+  --feed-measure: 660px;
+}
+
+/* Fixed overlay offsets (new posts pill, pull to refresh) live at the end
+   of this file: topbar + modebar = ~108px, so both overlays park just under
+   it. They must follow the base rules below or the cascade drops them. */
+
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ==========================================================================
+   Ported Community styles (scoped)
+   ========================================================================== */
+
+/* Pull to refresh indicator: a 40px chrome circle that rides the finger
+   (drag sets its transform inline, no transition while dragging), the arrow
+   rotates toward "release to refresh", then a spinner takes over. */
+
+.cm-scope .pull-refresh {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translate(-50%, -80px);
+  z-index: 40;
+  width: 40px; height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--chrome);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-2);
+}
+
+.cm-scope .pull-refresh.is-settling { transition: transform var(--dur-2) var(--ease-out); }
+
+.cm-scope .pull-arrow { display: inline-flex; transition: none; will-change: transform; }
+
+.cm-scope .pull-arrow .lucide { width: 18px; height: 18px; }
+
+.cm-scope .pull-spin .spinner { width: 18px; height: 18px; border-width: 2px; }
+
+/* New posts pill (Twitter): polls surface fresh generations invisibly, this
+   pill announces them with the author avatars, tap merges them on top. */
+
+.cm-scope .new-posts-pill {
+  position: fixed;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 41;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 10px;
+  background: var(--link);
+  color: #0d0d0d;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  font-weight: 700;
+  animation: pill-in var(--dur-2) var(--ease-out) both;
+}
+
+.cm-scope .new-posts-pill:active { transform: translateX(-50%) scale(0.96); }
+
+.cm-scope .new-posts-pill .lucide { width: 15px; height: 15px; }
+
+@keyframes pill-in {
+  from { opacity: 0; transform: translate(-50%, -14px); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+
+.cm-scope .npp-avas { display: flex; align-items: center; }
+
+.cm-scope .npp-ava {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--link);
+}
+
+.cm-scope .npp-ava + .npp-ava { margin-left: -5px; }
+
+.cm-scope h1, .cm-scope h2, .cm-scope h3 { font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; text-wrap: balance; }
+
+.cm-scope p, .cm-scope li { text-wrap: pretty; }
+
+.cm-scope button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.cm-scope button:focus-visible, .cm-scope a:focus-visible, .cm-scope textarea:focus-visible {
+  outline: 2px solid rgba(138, 180, 255, 0.72);
+  outline-offset: 2px;
+}
+
+.cm-scope .sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- shell ---------- */
+
+.cm-scope .app { min-height: 100dvh; padding-bottom: 132px; }
+
+/* Community | Workspace segmentation */
+
+.modeseg {
+  position: relative;
+  display: flex;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  padding: 3px;
+}
+
+.modeseg-tab {
+  position: relative;
+  z-index: 1;
+  padding: 6px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+  border-radius: var(--r-pill);
+  transition: color 140ms ease;
+}
+
+.modeseg-tab.active { color: var(--text); }
+
+@media (hover: hover) {
+.cm-scope .modeseg-tab:not(.active):hover { color: var(--text); }
+}
+
+.modeseg-y-glide { display: none; }
+
+.modeseg-glide {
+  position: absolute;
+  top: 3px; bottom: 3px; left: 3px;
+  width: 0;
+  background: var(--seg-active);
+  border-radius: var(--r-pill);
+  transition: transform var(--dur-2) var(--ease-in-out), width var(--dur-2) var(--ease-in-out);
+}
+
+/* ---------- empty states (Impose idiom) ---------- */
+
+.cm-scope .empty {
+  min-height: 60dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+  gap: 10px;
+  text-align: center;
+}
+
+.cm-scope .empty-sub { margin: 0; color: var(--text-2); font-size: 14px; max-width: 42ch; }
+
+/* ---------- feed ---------- */
+
+.cm-scope .view { min-height: 60dvh; }
+
+.cm-scope .feed { max-width: var(--feed-measure); margin: 0 auto; }
+
+/* Feed order is engagement ranked in JS; there is no tab bar by design.
+   Pagination follows the NearSpace feed pattern: an observed sentinel starts
+   the next page before the user reaches it, and while it loads a big,
+   high-contrast ring runs at the bottom of the list so the fetch is felt,
+   not inferred. */
+
+.cm-scope .feed-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 24px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  animation: ctx-in var(--dur-2) var(--ease-out) both;
+}
+
+.cm-scope .spinner {
+  width: 26px; height: 26px;
+  border: 3px solid var(--border);
+  border-top-color: var(--link);
+  border-radius: 50%;
+  animation: feed-spin 750ms linear infinite;
+  flex: none;
+}
+
+/* House motion rule cuts infinite animations to 1ms, which would freeze the
+   ring mid-frame; a gentle opacity pulse reads as loading without spinning. */
+
+@media (prefers-reduced-motion: reduce) {
+.cm-scope .spinner { animation: spinner-pulse 1.6s var(--ease-out) infinite !important; }
+}
+
+@keyframes spinner-pulse { 50% { opacity: 0.35; } }
+
+@keyframes feed-spin { to { transform: rotate(1turn); } }
+
+.cm-scope .feed-end {
+  padding: 22px 16px 28px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+/* same hidden attribute guard as .remix-ctx[hidden] */
+
+.cm-scope .feed-loader[hidden], .cm-scope .feed-end[hidden] { display: none; }
+
+.cm-scope .feed-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* see .remix-ctx[hidden]: flex must not defeat the hidden attribute */
+  text-align: center;
+  padding: 72px 16px;
+  gap: 8px;
+}
+
+.cm-scope .feed-empty[hidden] { display: none; }
+
+.cm-scope .feed-empty-sub { margin: 0; color: var(--text-2); font-size: 14px; max-width: 40ch; }
+
+/* ---------- generation card (twitter rhythm, impose skin) ---------- */
+
+.cm-scope .gen {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  transition: background-color 140ms ease;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+.cm-scope .gen:hover { background: var(--hover); }
+}
+
+.cm-scope .gen.streaming { cursor: default; }
+
+.cm-scope .gen-head { display: flex; align-items: center; gap: 10px; }
+
+.cm-scope .gen-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex-wrap: wrap; }
+
+.cm-scope .gen-name { font-weight: 600; font-size: 14px; color: var(--text); }
+
+.cm-scope .gen-handle { color: var(--text-3); font-size: 13px; }
+
+.cm-scope .gen-time { color: var(--text-3); font-size: 13px; }
+
+.cm-scope .gen-time::before { content: "·"; margin-right: 6px; }
+
+.cm-scope .gen-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+}
+
+.cm-scope .gen-badge .lucide, .cm-scope .gen-badge i[data-lucide] { width: 12px; height: 12px; }
+
+.cm-scope .gen-badge.locked { color: var(--warn); border-color: rgba(224, 166, 63, 0.35); }
+
+.cm-scope .gen-lineage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0 38px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.cm-scope .gen-lineage .lucide, .cm-scope .gen-lineage i[data-lucide] { width: 13px; height: 13px; flex: none; }
+
+.cm-scope .gen-body { margin-left: 38px; }
+
+.cm-scope .gen-prompt {
+  margin: 6px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cm-scope .gen-at {
+  color: var(--link);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+/* Impose response block inside the social object */
+
+.cm-scope .gen-resp {
+  margin-top: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-5);
+  padding: 10px 12px;
+  background: var(--chrome);
+}
+
+.cm-scope .gen-resp-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+
+.cm-scope .gen-resp-label .lucide, .cm-scope .gen-resp-label i[data-lucide] { width: 12px; height: 12px; }
+
+.cm-scope .gen-resp-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.cm-scope .gen-resp-body.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cm-scope .gen-resp-body strong { color: var(--text); font-weight: 600; }
+
+.cm-scope .gen-thinking { color: var(--text-3); }
+
+.cm-scope .gen-cursor {
+  display: inline-block;
+  width: 8px; height: 16px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--accent);
+  animation: blink 1s steps(1) infinite;
+}
+
+.cm-scope .gen-expand {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--link);
+}
+
+@media (hover: hover) {
+.cm-scope .gen-expand:hover { text-decoration: underline; }
+}
+
+.cm-scope .gen-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.cm-scope .gen-retry {
+  font-size: 13px;
+  color: var(--link);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cm-scope .gen-retry .lucide, .cm-scope .gen-retry i[data-lucide] { width: 13px; height: 13px; }
+
+@media (hover: hover) {
+.cm-scope .gen-retry:hover { text-decoration: underline; }
+}
+
+/* action row */
+
+.cm-scope .gen-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  margin-left: -8px;
+}
+
+.cm-scope .gen-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--r-3);
+  font-size: 13px;
+  color: var(--text-3);
+  transition: transform 160ms var(--ease-out), background-color 140ms ease, color 140ms ease;
+}
+
+.cm-scope .gen-act .lucide, .cm-scope .gen-act i[data-lucide] { width: 16px; height: 16px; }
+
+@media (hover: hover) {
+.cm-scope .gen-act:hover { background: var(--hover); color: var(--text); }
+}
+
+.cm-scope .gen-act:active { transform: scale(0.93); background: var(--press); }
+
+.cm-scope .gen-act:disabled { color: var(--text-3); opacity: 0.5; cursor: default; }
+
+@media (hover: hover) {
+.cm-scope .gen-act:disabled:hover { background: none; }
+}
+
+.cm-scope .gen-act:disabled:active { transform: none; background: none; }
+
+.cm-scope .gen-act.on { color: var(--link); }
+
+.cm-scope .gen-act-spacer { flex: 1; }
+
+.cm-scope .gen-visibility-note { font-size: 12px; color: var(--text-3); display: inline-flex; align-items: center; gap: 4px; }
+
+.cm-scope .gen-visibility-note .lucide, .cm-scope .gen-visibility-note i[data-lucide] { width: 12px; height: 12px; }
+
+/* ---------- detail view ---------- */
+
+.cm-scope .detail { max-width: var(--feed-measure); margin: 0 auto; padding-bottom: 24px; }
+
+.cm-scope .detail-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px;
+  font-size: 14px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border-soft);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 11;
+}
+
+.cm-scope .detail-back .icon-btn { width: 32px; height: 32px; }
+
+.cm-scope .detail-back-title { font-weight: 600; color: var(--text); margin-left: 6px; }
+
+.cm-scope .detail .gen { cursor: default; }
+
+@media (hover: hover) {
+.cm-scope .detail .gen:hover { background: none; }
+}
+
+.cm-scope .detail .gen-resp-body { -webkit-line-clamp: none; }
+
+.cm-scope .comments { border-top: 1px solid var(--border-soft); }
+
+.cm-scope .comments-title {
+  padding: 12px 16px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+
+.cm-scope .comment {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.cm-scope .comment-main { min-width: 0; flex: 1 1 auto; }
+
+.cm-scope .comment-id { display: flex; align-items: baseline; gap: 6px; }
+
+.cm-scope .comment-name { font-weight: 600; font-size: 14px; }
+
+.cm-scope .comment-handle { color: var(--text-3); font-size: 13px; }
+
+.cm-scope .comment-time { color: var(--text-3); font-size: 13px; }
+
+.cm-scope .comment-text {
+  margin: 2px 0 0;
+  font-size: 15px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cm-scope .comments-empty {
+  padding: 24px 16px;
+  color: var(--text-3);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* comment composer: the same object, sized down */
+
+.cm-scope .comment-box {
+  padding: 12px 16px;
+}
+
+.cm-scope .comment-box .composer { border-radius: var(--r-6); padding: 8px 8px 6px 16px; }
+
+.cm-scope .comment-box .composer textarea { font-size: 15px; max-height: 120px; }
+
+.cm-scope .comment-ctx { margin: 0 0 8px; }
+
+/* Column geometry: every reply column is 30px wide. Root avatars center at
+   x=30 (16px inset + half of 28px). Reply avatars sit one column per depth,
+   their center at column edge minus 1, so each connector line runs exactly
+   through its parent avatar's center and each arm lands flush on the child
+   avatar's left edge. Lines touch every comment in the chain. */
+
+.cm-scope :root { --thread-rail: 30px; }
+
+.cm-scope .trow {
+  display: flex;
+  align-items: stretch;
+  position: relative;
+}
+
+/* Ancestor continuation line: one column per ancestor with siblings below. */
+
+.cm-scope .trail {
+  flex: 0 0 var(--thread-rail);
+  position: relative;
+}
+
+.cm-scope .trail--line::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0; bottom: 0;
+  width: 1.5px;
+  background: var(--border);
+}
+
+/* Connector into this row's own parent: vertical line down through the
+   parent avatar column, then the arm across to this reply's avatar edge.
+   Last sibling's vertical stops at the arm, giving the └ shape; earlier
+   siblings run full height so the next sibling's line picks up seamlessly. */
+
+.cm-scope .telbow {
+  flex: 0 0 var(--thread-rail);
+  position: relative;
+}
+
+.cm-scope .telbow::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0; bottom: 0;
+  width: 1.5px;
+  background: var(--border);
+}
+
+.cm-scope .telbow--last::before { bottom: auto; height: 21px; }
+
+.cm-scope .telbow::after {
+  content: "";
+  position: absolute;
+  left: calc(100% - 1px);
+  top: 21px;
+  width: 17px;
+  height: 1.5px;
+  background: var(--border);
+}
+
+.cm-scope .trow-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+/* Highlight the branch the composer is aimed at. */
+
+.cm-scope .trow--on-path > .trail--line::before, .cm-scope .trow--on-path > .telbow::before, .cm-scope .trow--on-path > .telbow::after {
+  background: var(--link);
+  opacity: 0.55;
+}
+
+/* Replies read one size lighter, like the NearSpace thread. */
+
+.cm-scope .comment--reply { padding: 8px 16px; }
+
+.cm-scope .comment--reply .avatar { width: 26px; height: 26px; font-size: 12px; flex: 0 0 26px; }
+
+.cm-scope .comment--reply .comment-text { font-size: 14px; }
+
+.cm-scope .comment-mention {
+  color: var(--link);
+  font-weight: 500;
+}
+
+.cm-scope .comment-ops {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+  margin-left: -8px;
+}
+
+.cm-scope .comment-reply-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: var(--r-2);
+  font-size: 13px;
+  color: var(--text-3);
+  transition: transform 160ms var(--ease-out), background-color 140ms ease, color 140ms ease;
+}
+
+.cm-scope .comment-reply-btn .lucide, .cm-scope .comment-reply-btn i[data-lucide] { width: 14px; height: 14px; }
+
+@media (hover: hover) {
+.cm-scope .comment-reply-btn:hover { background: var(--hover); color: var(--text); }
+}
+
+.cm-scope .comment-reply-btn:active { transform: scale(0.95); background: var(--press); }
+
+/* Reply count chip: never its own row, always beside Reply. Tapping reveals
+   the comment's tree; the lit state means its replies are currently shown. */
+
+.cm-scope .comment-replies-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: var(--r-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--link);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.cm-scope .comment-replies-btn .lucide { width: 14px; height: 14px; }
+
+.cm-scope .comment-replies-btn[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+
+@media (hover: hover) {
+.cm-scope .comment-replies-btn:hover { background: var(--hover); color: var(--text); }
+}
+
+/* ---------- composer (verbatim from Impose) ---------- */
+
+.cm-scope .composer {
+  background: var(--composer);
+  border: 1px solid var(--border-soft);
+  border-radius: 28px;
+  padding: 10px 10px 8px 20px;
+  transition: border-color 160ms ease;
+}
+
+/* remix / challenge context bar above the composer */
+
+.cm-scope .remix-ctx {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--chrome);
+  border-radius: var(--r-5);
+  padding: 8px 10px;
+  animation: ctx-in var(--dur-2) var(--ease-out) both;
+}
+
+/* Beats the flex display above at the same specificity without !important,
+   so the hidden attribute hides the bar in every engine. */
+
+.cm-scope .remix-ctx[hidden] { display: none; }
+
+@keyframes ctx-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cm-scope .remix-ctx-icon { width: 15px; height: 15px; color: var(--link); margin-top: 2px; flex: none; }
+
+.cm-scope .remix-ctx-text { flex: 1; min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+
+.cm-scope .remix-ctx-label {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.cm-scope .remix-ctx-label strong { color: var(--text); font-weight: 600; }
+
+.cm-scope .remix-ctx-clear {
+  flex: none;
+  width: 24px; height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
+  color: var(--text-3);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.cm-scope .remix-ctx-clear .lucide, .cm-scope .remix-ctx-clear i[data-lucide] { width: 14px; height: 14px; }
+
+@media (hover: hover) {
+.cm-scope .remix-ctx-clear:hover { background: var(--hover); color: var(--text); }
+}
+
+/* ---------- motion safety ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+.cm-scope *, .cm-scope *::before, .cm-scope *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+  .gen-cursor { animation: none; opacity: 1; }
+}
+
+/* ---------- small screens ---------- */
+
+@media (max-width: 480px) {
+.cm-scope .modeseg-tab { padding: 6px 12px; font-size: 13px; }
+  .brand span { display: none; }
+  .gen { padding: 12px 12px 8px; }
+  .gen-body, .gen-lineage { margin-left: 0; }
+  .gen-head .avatar { width: 28px; height: 28px; font-size: 13px; }
+}
+
+/* ==========================================================================
+   Slim generation composer: the dock was two stacked rows (field, then a
+   full row of buttons) plus a disclaimer - far too tall on phones. The
+   controls join the field on one row via display: contents, so the markup
+   and the autogrow behaviour stay untouched. Scoped to the cm dock only;
+   the workspace chat composer is unchanged.
+   ========================================================================== */
+
+.cm-composer-dock { padding: 8px 12px max(8px, env(safe-area-inset-bottom)); }
+
+.cm-composer-dock .composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 4px 4px 4px 16px;
+}
+
+.cm-composer-dock .composer textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 0 7px;
+}
+
+.cm-composer-dock .composer .composer-row { display: contents; }
+
+.cm-composer-dock .composer .composer-spacer { display: none; }
+
+.cm-composer-dock .disclaimer { margin: 6px 0 0; font-size: 11px; }
+
+/* Fixed overlays park below topbar (60px) + modebar (~48px). */
+.cm-scope .new-posts-pill { top: 110px; }
+.cm-scope .pull-refresh { top: 106px; }

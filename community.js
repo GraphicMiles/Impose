@@ -1,0 +1,1348 @@
+/* Community mode for the Botocracy shell: the Slopify prototype, ported 1:1.
+   Owns the Community | Workspace mode switch, the engagement ranked feed,
+   generation detail with threaded discussion, remix/challenge flows, the new
+   posts pill, pull to refresh, and paginated infinite scroll. It never
+   touches wsContent (the workspace chat world), workspace state, or its storage;
+   its own state lives under the same LS key as always. Local data stands in
+   for the backend so the core loop can be felt end to end. */
+(function () {
+  "use strict";
+
+  var LS_KEY = "slopify:v6"; /* v6: ported into the Botocracy shell as Community mode */
+
+  /* Deepest level a comment may nest. Root(0) + replies(1) + sub-replies(2)
+     = 3 visible rows, the YouTube rule. Replying to a comment already at the
+     cap re-attaches the new comment to that comment's parent: it renders as a
+     flattened sibling, and the @mention carries who it was really aimed at.
+     Threads can grow long but never deep, so columns never march right. */
+  var MAX_REPLY_DEPTH = 2;
+  var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var YOU = { name: "You", handle: "@you" };
+
+  /* ---------- utils ---------- */
+
+  function $(id) { return document.getElementById(id); }
+
+  function esc(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function rich(value) {
+    return esc(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  }
+
+  function uid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+  }
+
+  function timeAgo(ms) {
+    var s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+    if (s < 60) return s + "s";
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + "m";
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + "h";
+    return Math.floor(h / 24) + "d";
+  }
+
+  /* ---------- state ---------- */
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.generations)) return null;
+      return parsed;
+    } catch (e) { return null; }
+  }
+
+  function seed() {
+    var now = Date.now();
+    return {
+      visibility: "public",
+      generations: [
+        {
+          id: "g1", own: false,
+          creator: { name: "Miles", handle: "@miles" },
+          prompt: "Give me 5 business ideas for Nigerian developers.",
+          response: "1. **Payroll tooling for remote teams.** Nigerian firms hiring across Africa need compliant payout rails. Build the boring parts nobody enjoys.\n\n2. **Offline-first learning apps.** Data costs shape behavior here. Content that syncs on wifi and works fully offline wins real users.\n\n3. **Agency productization.** Many devs sell hours. Package one narrow service, like payment integration or WhatsApp ordering, as a fixed price product with a sales page.\n\n4. **Local language voice interfaces.** Yoruba, Hausa, and Igbo voice UX is underserved compared to English-first products.\n\n5. **Compliance trackers for small businesses.** Tax dates and filings get missed constantly. A simple reminder tool beats a bloated CRM.\n\nThe thread running through all five: pick a painful, frequent, local problem and let distribution decide the winner.",
+          status: "complete", kind: "original", parentId: null, rootId: "g1",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 18 * 60 * 1000,
+          counts: { remix: 1, challenge: 0, comment: 5, save: 4 }
+        },
+        {
+          id: "g2", own: false,
+          creator: { name: "Ada", handle: "@ada" },
+          prompt: "Explain why Lagos traffic is so difficult to solve.",
+          response: "Lagos traffic is a systems failure, not a single broken part.\n\n**Demand keeps outrunning supply.** The city adds vehicles and commuters faster than it adds road capacity, so every new expressway fills up within a few years. Induced demand is the tax on each expansion.\n\n**Roads carry jobs they were not designed for.** Danfos and okadas stop anywhere because formal transit never fully absorbed their routes. Every curb becomes a terminal, which converts moving lanes into queues.\n\n**Incidents have no shock absorbers.** One broken-down truck can lock an entire corridor because there are few alternative crossings of the lagoon and few parallel arterials.\n\nThe hard part is that each actor is behaving rationally. Drivers compete for space, operators stop where demand is, agencies optimize for their own budgets. Untangling it needs pricing, transit investment, and incident response to move together, which is why single projects keep disappointing.",
+          status: "complete", kind: "original", parentId: null, rootId: "g2",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 52 * 60 * 1000,
+          counts: { remix: 0, challenge: 1, comment: 2, save: 3 }
+        },
+        {
+          id: "g3", own: false,
+          creator: { name: "Kamsi", handle: "@kamsi" },
+          prompt: "Give me 5 business ideas for Nigerian developers that require less than 100,000 naira to start.",
+          response: "Tighter constraints, better list. All five stay under 100k in upfront cost.\n\n1. **WhatsApp storefront setup.** Small shops already sell in chat. Charge a fixed fee to structure their catalog, auto replies, and payment links.\n\n2. **Notion and Sheets consulting for SMEs.** Sell working systems, not hours: inventory trackers, invoice books, staff rosters. Templates are nearly free to replicate.\n\n3. **Landing pages on a subscription.** One niche, one stack, flat monthly fee. Churn math works if you pick clients with recurring campaigns.\n\n4. **Excel to automation rescue gigs.** Every office has a spreadsheet held together by one person. Charge to stabilize it, then a retainer to keep it alive.\n\n5. **Tutorial content in local context.** Teach tools using Nigerian business cases. Costs are time plus a mic; distribution compounds.\n\nRemix note: the 100k cap kills anything with inventory, logistics, or hardware. That is a feature. It forces service-shaped ideas with fast feedback loops.",
+          status: "complete", kind: "remix", parentId: "g1", rootId: "g1",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 9 * 60 * 1000,
+          counts: { remix: 0, challenge: 0, comment: 0, save: 2 }
+        },
+        {
+          id: "g4", own: false,
+          creator: { name: "Dami", handle: "@dami" },
+          prompt: "Model Lagos traffic as a pricing problem and propose the cheapest intervention that still works.",
+          response: "Same task, different approach.\n\nFrame: road space is a scarce good priced at zero, so it is overconsumed at peak hours. The cheapest real lever is not more asphalt, it is price signals on the scarcest corridors.\n\n**Cheapest intervention that still works:** cordon pricing on 3 to 5 bridges and expressway segments during 6:30 to 9:30 and 16:30 to 19:30, collected through existing toll and plate infrastructure.\n\nWhy this one:\n\n- It targets the actual bottleneck instead of the network average.\n- Revenue hypothecates directly into bus rapid transit frequency, so the alternative improves at the same moment driving gets pricier.\n- Exemptions for registered buses keep the system legible and politically survivable.\n\nFailure mode to watch: if enforcement is manual it leaks. Budget for automated plate reading from day one, or the cordon becomes a suggestion.",
+          status: "complete", kind: "challenge", parentId: "g2", rootId: "g2",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 4 * 60 * 1000,
+          counts: { remix: 0, challenge: 0, comment: 0, save: 1 }
+        },
+        {
+          id: "g5", own: true,
+          creator: YOU,
+          prompt: "Draft a cold email to a fintech CTO about pilot testing our developer tool.",
+          response: "Subject: 20 minute pilot on your payout reconciliation flow\n\nHi Ada,\n\nWe built a tool that flags payout mismatches before your settlement run, and I think it maps directly to the reconciliation pain you mentioned at the Lagos fintech meetup.\n\nWould your team be open to a two week pilot? We handle setup, you point us at a sandbox feed. If it does not catch anything useful, you keep the report and owe nothing.\n\nWorth a short call this week?\n\nBest,\nYou",
+          status: "complete", kind: "original", parentId: null, rootId: "g5",
+          locked: false, visibility: "private", saved: false,
+          createdAt: now - 2 * 60 * 60 * 1000,
+          counts: { remix: 0, challenge: 0, comment: 0, save: 0 }
+        },
+        /* Extended corpus so engagement ranking and pagination are visible.
+           Old-but-viral (g9) deliberately outranks fresh-but-quiet posts. */
+        {
+          id: "g6", own: false,
+          creator: { name: "Ireti", handle: "@ireti" },
+          prompt: "Design a 5 day sprint to validate a booking app for beauty salons.",
+          response: "Day 1: map the riskiest assumption, that salons will share live calendars.\n\nDay 2: landing page plus 10 manual booking DMs.\nDay 3: concierge bookings by hand for 5 salons.\nDay 4: fake the reschedule flow with a spreadsheet.\nDay 5: measure the no show rate and rebooking.\n\nIf no salon shares a calendar by Day 3, the product is dispatching, not booking.",
+          status: "complete", kind: "original", parentId: null, rootId: "g6",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 3 * 60 * 60 * 1000,
+          counts: { remix: 2, challenge: 0, comment: 0, save: 6 }
+        },
+        {
+          id: "g7", own: false,
+          creator: { name: "Tobi", handle: "@tobi" },
+          prompt: "Explain vector databases to a backend engineer who has only used Postgres.",
+          response: "Stop thinking of it as a new database. A vector db is Postgres with one extra trick: store an embedding per row, then index it so nearest neighbor search is fast.\n\nEverything else you know still applies. Rows, filters, transactions. The difference is the query: instead of WHERE exact match, you ask for the k closest vectors and get semantic search.",
+          status: "complete", kind: "original", parentId: null, rootId: "g7",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 5 * 60 * 60 * 1000,
+          counts: { remix: 1, challenge: 0, comment: 0, save: 4 }
+        },
+        {
+          id: "g8", own: false,
+          creator: { name: "Zainab", handle: "@zainab" },
+          prompt: "Roast my landing page headline: We make teams productive.",
+          response: "Verdict: the headline says nothing, slowly.\n\nThat line could be any tool from Excel to espresso. Rewrite: cut standup to 90 seconds with updates your team writes once. Specific beats clever. Name the outcome, not the vibe.",
+          status: "complete", kind: "original", parentId: null, rootId: "g8",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 7 * 60 * 60 * 1000,
+          counts: { remix: 6, challenge: 2, comment: 2, save: 9 }
+        },
+        {
+          id: "g9", own: false,
+          creator: { name: "Ada", handle: "@ada" },
+          prompt: "Is the 10x engineer real, or a hiring myth?",
+          response: "Both, depending on what you multiply.\n\nOne great engineer rarely writes 10x the code. But one great engineer regularly removes 10x of the rework: clearer interfaces, fewer dead end frameworks, docs that stop Slack arguments.\n\nTeams that hire for output get a myth. Teams that hire for leverage find the real thing.",
+          status: "complete", kind: "original", parentId: null, rootId: "g9",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 5 * 24 * 60 * 60 * 1000,
+          counts: { remix: 14, challenge: 6, comment: 3, save: 31 }
+        },
+        {
+          id: "g10", own: false,
+          creator: { name: "Miles", handle: "@miles" },
+          prompt: "Write a standup update for a week where everything slipped.",
+          response: "Yesterday: burned down 0 of 6. The auth migration discovered a second auth system.\nToday: unifying both into one, genuinely.\nBlockers: the original author left in 2023.\nMood: we now know why it was slow. That is progress, just the expensive kind.",
+          status: "complete", kind: "original", parentId: null, rootId: "g10",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 9 * 60 * 60 * 1000,
+          counts: { remix: 0, challenge: 1, comment: 0, save: 2 }
+        },
+        {
+          id: "g11", own: false,
+          creator: { name: "Kamsi", handle: "@kamsi" },
+          prompt: "Monolith first or microservices first for a 4 person team?",
+          response: "Monolith first, nearly always.\n\nFour people cannot pay the coordination tax of microservices: service discovery, distributed debugging, versioning contracts between services that all ship together anyway.\n\nThe escape hatch is not services. It is module boundaries inside the monolith, enforced in code review. When a module outgrows the team, that is your first extraction candidate.",
+          status: "complete", kind: "original", parentId: null, rootId: "g11",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 26 * 60 * 60 * 1000,
+          counts: { remix: 3, challenge: 2, comment: 1, save: 8 }
+        },
+        {
+          id: "g12", own: false,
+          creator: { name: "Dami", handle: "@dami" },
+          prompt: "Give me the 5 onboarding friction points every B2B SaaS has by user 50.",
+          response: "1. Signup asks for a credit card before value.\n2. First run shows an empty dashboard with no sample data.\n3. The one integration everyone needs is hidden in settings.\n4. Docs explain the API before the workflow.\n5. Nobody is told what success looks like in week 1.\n\nBy user 50 every one of these has cost you a team that would have paid.",
+          status: "complete", kind: "original", parentId: null, rootId: "g12",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 30 * 60 * 60 * 1000,
+          counts: { remix: 1, challenge: 0, comment: 0, save: 5 }
+        },
+        {
+          id: "g13", own: false,
+          creator: { name: "Chidi", handle: "@chidi" },
+          prompt: "Turn this bug report into a postmortem readers will actually finish.",
+          response: "Structure it like a story, not a spreadsheet.\n\nWhat broke, in one sentence a non engineer gets.\nWhat users felt, with timestamps.\nWhat we believed that was wrong. That line is the whole postmortem.\nWhat changed, each fix with an owner and a date.\n\nSkip blame, keep the wrong belief visible. Readers finish stories about beliefs.",
+          status: "complete", kind: "original", parentId: null, rootId: "g13",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 2 * 24 * 60 * 60 * 1000,
+          counts: { remix: 2, challenge: 1, comment: 0, save: 3 }
+        },
+        {
+          id: "g14", own: false,
+          creator: { name: "Ireti", handle: "@ireti" },
+          prompt: "Script a 60 second demo video for a CLI tool.",
+          response: "0 to 8s: the problem, one line of painful terminal output.\n8 to 20s: install, one command, no music yet.\n20 to 45s: the aha. Run it on a real file, show before and after side by side.\n45 to 55s: the flag everyone asks about.\n55 to 60s: repo URL, done.\n\nNo talking head. The terminal is the demo.",
+          status: "complete", kind: "original", parentId: null, rootId: "g14",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - (2 * 24 * 60 + 60) * 60 * 1000,
+          counts: { remix: 0, challenge: 0, comment: 0, save: 2 }
+        },
+        {
+          id: "g15", own: false,
+          creator: { name: "Zainab", handle: "@zainab" },
+          prompt: "What metrics prove a community feature is working in week one?",
+          response: "Week one proof, in order of honesty:\n\n1. A stranger comments without being tagged.\n2. Someone remixes the featured post instead of posting fresh.\n3. A thread goes two replies deep without the original poster.\n4. The same 10 people return unprompted.\n\nPage views and signups are vanity until number 3 happens.",
+          status: "complete", kind: "original", parentId: null, rootId: "g15",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 3 * 24 * 60 * 60 * 1000,
+          counts: { remix: 4, challenge: 3, comment: 2, save: 11 }
+        },
+        {
+          id: "g16", own: false,
+          creator: { name: "Tobi", handle: "@tobi" },
+          prompt: "Rewrite our pricing page so a tired founder understands it at 2am.",
+          response: "One page, three cards.\n\nFree: what it does, no asterisks.\nPro: the price, big, per month, not per seat math in footnotes.\nEnterprise: talk to us, no calculator.\n\nAbove the cards, one line: pay only when it saves you a hire. A tired founder reads the headline, picks the middle card, and goes to sleep.",
+          status: "complete", kind: "original", parentId: null, rootId: "g16",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - (3 * 24 * 60 + 120) * 60 * 1000,
+          counts: { remix: 1, challenge: 1, comment: 0, save: 4 }
+        },
+        {
+          id: "g17", own: false,
+          creator: { name: "Miles", handle: "@miles" },
+          prompt: "Design the empty state for a notes app people abandon after day one.",
+          response: "The empty state is the second onboarding.\n\nShow one prewritten note that answers the question every quitter had: what do I even write? Make it editable. Put the keyboard shortcut next to it.\n\nThen one line: people who write 3 notes on day 1 keep the app. Social proof with a job to do.",
+          status: "complete", kind: "original", parentId: null, rootId: "g17",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 4 * 24 * 60 * 60 * 1000,
+          counts: { remix: 2, challenge: 0, comment: 0, save: 6 }
+        },
+        {
+          id: "g18", own: false,
+          creator: { name: "Chidi", handle: "@chidi" },
+          prompt: "Explain why our API latency spikes only on Sundays.",
+          response: "Sundays are when the batch jobs run.\n\nMore precisely: Sunday is low traffic, so your p99 graph is dominated by cold starts and the weekly analytics rollup, not by users. Check cron first, cache hit rates second. Spiky p99 on the quietest day is almost never a code path problem.",
+          status: "complete", kind: "original", parentId: null, rootId: "g18",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - (4 * 24 * 60 + 180) * 60 * 1000,
+          counts: { remix: 0, challenge: 1, comment: 0, save: 2 }
+        },
+        {
+          id: "g19", own: false,
+          creator: { name: "Ada", handle: "@ada" },
+          prompt: "Plan a launch on a $0 budget with 200 followers.",
+          response: "With 200 followers you do not launch. You premiere.\n\nWeek 1: DM the 20 people who reply to you most. Hand them the thing personally.\nWeek 2: post a build log each day, one screenshot, one honest failure.\nLaunch day: the 20 people post their own results. You amplify.\n\nBudget 0 dollars. The currency is favors you already earned.",
+          status: "complete", kind: "original", parentId: null, rootId: "g19",
+          locked: false, visibility: "public", saved: false,
+          createdAt: now - 6 * 24 * 60 * 60 * 1000,
+          counts: { remix: 5, challenge: 2, comment: 1, save: 12 }
+        }
+      ],
+      comments: [
+        { id: "c1", genId: "g1", parentId: null, own: false, creator: { name: "Ada", handle: "@ada" }, replyingToName: null, text: "Number 3 is underrated. Fixed price beats hourly in this market.", createdAt: now - 14 * 60 * 1000 },
+        { id: "c2", genId: "g1", parentId: "c1", own: false, creator: { name: "Dami", handle: "@dami" }, replyingToName: "Ada", text: "Until the client tries to renegotiate mid project. Scope lock matters more than the price tag.", createdAt: now - 12 * 60 * 1000 },
+        { id: "c3", genId: "g1", parentId: "c2", own: false, creator: { name: "Ada", handle: "@ada" }, replyingToName: "Dami", text: "That is the real lesson. Fixed price without a change request rule is just hourly with extra steps.", createdAt: now - 10 * 60 * 1000 },
+        { id: "c4", genId: "g1", parentId: null, own: true, creator: YOU, replyingToName: null, text: "Tried the offline learning one last year. The sync logic basically was the product.", createdAt: now - 11 * 60 * 1000 },
+        { id: "c6", genId: "g1", parentId: "c1", own: false, creator: { name: "Miles", handle: "@miles" }, replyingToName: "Ada", text: "Agree on fixed price. The real unlock was making the package visible before the pitch, so nobody negotiates from zero.", createdAt: now - 9 * 60 * 1000 },
+        { id: "c5", genId: "g2", parentId: null, own: false, creator: { name: "Kamsi", handle: "@kamsi" }, replyingToName: null, text: "The demand side framing is the part most people skip when they argue about traffic.", createdAt: now - 40 * 60 * 1000 },
+        { id: "c7", genId: "g2", parentId: "c5", own: true, creator: YOU, replyingToName: "Kamsi", text: "Which is why the pricing challenge above land differently once you read this one first.", createdAt: now - 30 * 60 * 1000 },
+        { id: "c8", genId: "g9", parentId: null, own: false, creator: { name: "Miles", handle: "@miles" }, replyingToName: null, text: "The 10x engineer exists. It is one engineer who deletes meetings for nine others.", createdAt: now - 5 * 24 * 60 * 60 * 1000 },
+        { id: "c9", genId: "g9", parentId: "c8", own: false, creator: { name: "Ada", handle: "@ada" }, replyingToName: "Miles", text: "That reframing is doing more work than the original question.", createdAt: now - (5 * 24 * 60 - 30) * 60 * 1000 },
+        { id: "c10", genId: "g9", parentId: null, own: false, creator: { name: "Zainab", handle: "@zainab" }, replyingToName: null, text: "Hiring myth. The 10x was always leverage, not talent.", createdAt: now - (5 * 24 * 60 - 60) * 60 * 1000 },
+        { id: "c11", genId: "g8", parentId: null, own: false, creator: { name: "Kamsi", handle: "@kamsi" }, replyingToName: null, text: "Your rewrite is a promise. The original was a weather report.", createdAt: now - 6 * 60 * 60 * 1000 },
+        { id: "c12", genId: "g8", parentId: null, own: false, creator: { name: "Tobi", handle: "@tobi" }, replyingToName: null, text: "Try naming the outcome: ship releases without the group chat.", createdAt: now - 5 * 60 * 60 * 1000 },
+        { id: "c13", genId: "g15", parentId: null, own: false, creator: { name: "Miles", handle: "@miles" }, replyingToName: null, text: "Week one is activation, not retention. Did the second comment happen?", createdAt: now - 3 * 24 * 60 * 60 * 1000 },
+        { id: "c14", genId: "g15", parentId: "c13", own: false, creator: { name: "Ada", handle: "@ada" }, replyingToName: "Miles", text: "A second comment from a different person. That is the tell.", createdAt: now - (3 * 24 * 60 - 40) * 60 * 1000 },
+        { id: "c15", genId: "g19", parentId: null, own: false, creator: { name: "Dami", handle: "@dami" }, replyingToName: null, text: "The 0 dollar launch plan is just distribution you do yourself.", createdAt: now - 5 * 24 * 60 * 60 * 1000 },
+        { id: "c16", genId: "g11", parentId: null, own: false, creator: { name: "Ireti", handle: "@ireti" }, replyingToName: null, text: "Monolith first, but draw the module seams like you mean it.", createdAt: now - 20 * 60 * 60 * 1000 }
+      ]
+    };
+  }
+
+  var state = load() || seed();
+  var streamingNow = false;
+
+  function persist() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { /* storage full or blocked */ }
+  }
+
+  /* Interrupted streams from a refresh or closed tab become failed generations
+     with a retry path, instead of silently vanishing or duplicating. */
+  state.generations.forEach(function (gen) {
+    if (gen.status === "streaming") { gen.status = "failed"; }
+  });
+  persist();
+
+  function genById(id) {
+    for (var i = 0; i < state.generations.length; i++) {
+      if (state.generations[i].id === id) return state.generations[i];
+    }
+    return null;
+  }
+
+  function commentsFor(genId) {
+    return state.comments.filter(function (c) { return c.genId === genId; })
+      .sort(function (a, b) { return a.createdAt - b.createdAt; });
+  }
+
+  /* Comment tree, ported from NearSpace utils/postText.js.
+     buildCommentTree links parent to child with cycle protection,
+     emitTree emits a flat row list carrying rail geometry so the
+     DOM never nests, and pathToRoot marks the branch being replied to. */
+
+  function buildCommentTree(comments) {
+    var list = Array.isArray(comments) ? comments : [];
+    var nodes = new Map();
+    list.forEach(function (c) { nodes.set(c.id, Object.assign({}, c, { replies: [] })); });
+
+    var safe = new Map();
+    function hasSafeAncestry(id) {
+      if (safe.has(id)) return safe.get(id);
+      var path = [];
+      var seen = new Set();
+      var cur = id;
+      var ok = true;
+      while (cur != null) {
+        if (seen.has(cur)) { ok = false; break; }
+        if (safe.has(cur)) { ok = safe.get(cur); break; }
+        seen.add(cur);
+        path.push(cur);
+        var node = nodes.get(cur);
+        var pid = node ? node.parentId : null;
+        if (!pid || pid === cur || !nodes.has(pid)) break;
+        cur = pid;
+      }
+      for (var i = 0; i < path.length; i++) safe.set(path[i], ok);
+      return ok;
+    }
+
+    var roots = [];
+    list.forEach(function (c) {
+      var node = nodes.get(c.id);
+      var pid = c.parentId;
+      var parent = pid && pid !== c.id ? nodes.get(pid) : null;
+      if (parent && hasSafeAncestry(c.id)) parent.replies.push(node);
+      else roots.push(node);
+    });
+    return roots;
+  }
+
+  function pathToRoot(comments, id) {
+    var byId = new Map((Array.isArray(comments) ? comments : []).map(function (c) { return [c.id, c]; }));
+    var out = new Set();
+    var cur = byId.get(id);
+    while (cur && !out.has(cur.id)) {
+      out.add(cur.id);
+      cur = cur.parentId ? byId.get(cur.parentId) : null;
+    }
+    return out;
+  }
+
+  /* Deterministic trending score, documented: remix 4, challenge 3,
+     comment 2, save 1, newest wins ties. No hidden ranking. */
+  function score(gen) {
+    var c = gen.counts;
+    return c.remix * 4 + c.challenge * 3 + c.comment * 2 + c.save;
+  }
+
+  /* ---------- view routing ---------- */
+
+  function moveGlide(tab) {
+    var glide = $("cmModeGlide");
+    glide.style.width = tab.offsetWidth + "px";
+    glide.style.transform = "translateX(" + (tab.offsetLeft - 3) + "px)";
+  }
+
+  /* ---------- mode + view integration ----------
+
+     Hash grammar for the merged app: #/workspace switches to the chat
+     shell (its own state and hash idiom are untouched), #chat=<id> stays
+     entirely workspace owned, everything else is Community. #/g/<id> is the
+     generation detail. The mode is a body class because the workspace chrome
+     hides with pure CSS. */
+  function currentMode() {
+    return document.body.classList.contains("community-mode") ? "community" : "workspace";
+  }
+
+  function setModeTab(isWorkspace) {
+    $("cmTabCommunity").classList.toggle("active", !isWorkspace);
+    $("cmTabWorkspace").classList.toggle("active", isWorkspace);
+    $("cmTabCommunity").setAttribute("aria-selected", String(!isWorkspace));
+    $("cmTabWorkspace").setAttribute("aria-selected", String(isWorkspace));
+    moveGlide(isWorkspace ? $("cmTabWorkspace") : $("cmTabCommunity"));
+  }
+
+  function showMode(mode) {
+    var isCommunity = mode === "community";
+    /* while the chat is mid stream the workspace is just hidden, never torn
+       down; same for the community views when the user switches away */
+    document.body.classList.toggle("community-mode", isCommunity);
+    $("wsContent").hidden = isCommunity;
+    $("cmMain").hidden = !isCommunity;
+    setModeTab(!isCommunity);
+  }
+
+  function route() {
+    var hash = location.hash || "#/";
+    if (hash === "#/workspace" || hash.indexOf("#chat=") === 0) {
+      showMode("workspace");
+      return;
+    }
+    var feedView = $("cmFeedView");
+    var detailView = $("cmDetailView");
+    if (hash.indexOf("#/g/") === 0) {
+      var id = hash.slice(4);
+      var gen = genById(id);
+      if (gen) {
+        expandedThreads.clear(); /* fresh view: all chains start collapsed */
+        renderDetail(gen);
+        showMode("community");
+        feedView.hidden = true;
+        detailView.hidden = false;
+        window.scrollTo(0, 0);
+        return;
+      }
+    }
+    renderFeed();
+    showMode("community");
+    feedView.hidden = false;
+    detailView.hidden = true;
+  }
+
+  /* ---------- card rendering ---------- */
+
+  function badge(gen, icon, label, extraClass) {
+    return '<span class="gen-badge' + (extraClass ? " " + extraClass : "") + '">' +
+      '<i data-lucide="' + icon + '"></i>' + esc(label) + "</span>";
+  }
+
+  function lineageLabel(gen) {
+    if (!gen.parentId) return "";
+    var parent = genById(gen.parentId);
+    var who = parent ? parent.creator.handle : "a deleted generation";
+    var verb = gen.kind === "challenge" ? "Challenging" : "Remixed from";
+    var icon = gen.kind === "challenge" ? "swords" : "repeat-2";
+    return '<div class="gen-lineage"><i data-lucide="' + icon + '"></i><span>' +
+      esc(verb) + " " + esc(who) + "</span></div>";
+  }
+
+  function actionRow(gen, detail) {
+    var lockedByOther = gen.locked && !gen.own;
+    var lockTitle = gen.locked ? "Locked by creator" : "";
+    var disAttr = lockedByOther ? ' disabled title="' + lockTitle + '" aria-disabled="true"' : "";
+    var c = gen.counts;
+    var html = '<div class="gen-actions">';
+    html += '<button class="gen-act" data-act="remix"' + disAttr + ' aria-label="Remix this generation" title="Remix">' +
+      '<i data-lucide="repeat-2"></i><span class="act-cnt">' + c.remix + "</span></button>";
+    html += '<button class="gen-act" data-act="challenge"' + disAttr + ' aria-label="Challenge this generation" title="Challenge">' +
+      '<i data-lucide="swords"></i><span class="act-cnt">' + c.challenge + "</span></button>";
+    html += '<button class="gen-act" data-act="discuss" aria-label="Discuss this generation" title="Discuss">' +
+      '<i data-lucide="message-circle"></i><span class="act-cnt">' + c.comment + "</span></button>";
+    html += '<button class="gen-act' + (gen.saved ? " on" : "") + '" data-act="save" aria-label="Save this generation" aria-pressed="' + gen.saved + '" title="Save">' +
+      '<i data-lucide="bookmark"></i><span class="act-cnt">' + c.save + "</span></button>";
+    html += '<span class="gen-act-spacer"></span>';
+    if (gen.visibility === "private") {
+      html += '<span class="gen-visibility-note"><i data-lucide="eye-off"></i>Only you</span>';
+    }
+    if (gen.own) {
+      html += '<button class="gen-act' + (gen.locked ? " on" : "") + '" data-act="lock" aria-label="' +
+        (gen.locked ? "Unlock this generation" : "Lock this generation") + '" aria-pressed="' + gen.locked + '" title="' +
+        (gen.locked ? "Unlock" : "Lock") + '">' +
+        '<i data-lucide="' + (gen.locked ? "lock" : "lock-open") + '"></i></button>';
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function responseBlock(gen, detail) {
+    if (gen.status === "failed") {
+      return '<div class="gen-resp"><div class="gen-resp-label"><i data-lucide="sparkles"></i>BOTOCRACY</div>' +
+        '<p class="gen-error">' + esc(gen.errorText || "The generation was interrupted before it finished.") + "</p>" +
+        '<button class="gen-retry" data-act="retry"><i data-lucide="refresh-cw"></i>Retry generation</button></div>';
+    }
+    var body = rich(gen.response);
+    var isLong = !detail && gen.status === "complete" && gen.response.length > 320;
+    var streaming = gen.status === "streaming";
+    return '<div class="gen-resp">' +
+      '<div class="gen-resp-label"><i data-lucide="sparkles"></i>BOTOCRACY</div>' +
+      '<div class="gen-resp-body' + (isLong ? " clamped" : "") + '" data-resp="' + gen.id + '">' +
+      (streaming && gen.response === "" ? '<span class="gen-thinking">@bot is thinking</span>' : "") +
+      body +
+      (streaming ? '<span class="gen-cursor"></span>' : "") +
+      "</div>" +
+      (isLong ? '<button class="gen-expand" data-act="expand">Show more</button>' : "") +
+      "</div>";
+  }
+
+  function buildCard(gen, detail) {
+    var article = document.createElement("article");
+    article.className = "gen" + (gen.status === "streaming" ? " streaming" : "");
+    article.dataset.id = gen.id;
+
+    var badges = "";
+    if (gen.locked) badges += badge(gen, "lock", "Locked", "locked");
+    if (gen.visibility === "private") badges += badge(gen, "eye-off", "Private");
+
+    article.innerHTML =
+      '<header class="gen-head">' +
+        '<span class="avatar gen-avatar">' + esc(gen.creator.name.charAt(0).toUpperCase()) + "</span>" +
+        '<div class="gen-id">' +
+          '<span class="gen-name">' + esc(gen.creator.name) + "</span>" +
+          '<span class="gen-handle">' + esc(gen.creator.handle) + "</span>" +
+          '<span class="gen-time">' + esc(timeAgo(gen.createdAt)) + "</span>" +
+          badges +
+        "</div>" +
+      "</header>" +
+      lineageLabel(gen) +
+      '<div class="gen-body">' +
+        '<p class="gen-prompt"><span class="gen-at">@bot</span>' + esc(gen.prompt) + "</p>" +
+        responseBlock(gen, detail) +
+        actionRow(gen, detail) +
+      "</div>";
+    return article;
+  }
+
+  function refreshIcons() {
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
+  }
+
+  function replaceCard(gen) {
+    var existing = document.querySelector('article.gen[data-id="' + gen.id + '"]');
+    if (!existing) return;
+    var detail = !!existing.closest("#view-detail");
+    var fresh = buildCard(gen, detail);
+    existing.replaceWith(fresh);
+    refreshIcons();
+  }
+
+  /* ---------- feed ---------- */
+
+  /* One deterministic ranking, no filter UI. Streaming gens pin on top so
+     the posting user watches their generation land. Freshly merged arrivals
+     (via the pill or pull to refresh) pin exactly once below those so new
+     posts surface where the reader looks first, then steady state is pure
+     engagement: viral means it earned remixes, challenges, discussion and
+     saves, recency only breaks ties. */
+  function visibleGenerations() {
+    var list = state.generations.filter(function (gen) {
+      return gen.visibility === "public" || gen.own;
+    });
+    list.sort(function (a, b) {
+      var pa = a.status === "streaming" ? 1 : 0;
+      var pb = b.status === "streaming" ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      var fa = a.freshPinned ? 1 : 0;
+      var fb = b.freshPinned ? 1 : 0;
+      if (fa !== fb) return fb - fa;
+      if (fa && fb) return b.createdAt - a.createdAt;
+      return score(b) - score(a) || b.createdAt - a.createdAt;
+    });
+    return list;
+  }
+
+  /* Infinite scroll: PAGE_SIZE cards at a time so the platform never loads
+     the whole corpus at once. Triggering follows the NearSpace feed: an
+     IntersectionObserver sentinel with a bottom rootMargin starts the fetch
+     before the user arrives, a raw scroll fallback covers mobile browsers
+     that skip observer callbacks, and one timer ref means rapid scrolling
+     can never stack parallel page loads. */
+  var PAGE_SIZE = 8;
+  var feedShown = 0;
+  var loadTimer = null;
+
+  function syncFeedTail(total) {
+    var loader = $("cmFeedLoader");
+    var end = $("cmFeedEnd");
+    loader.hidden = true;
+    end.hidden = !(feedShown >= total && total > PAGE_SIZE);
+  }
+
+  function appendFeedPage() {
+    var all = visibleGenerations();
+    var list = $("cmFeedList");
+    all.slice(feedShown, feedShown + PAGE_SIZE).forEach(function (gen) {
+      list.appendChild(buildCard(gen, false));
+    });
+    feedShown = Math.min(feedShown + PAGE_SIZE, all.length);
+    syncFeedTail(all.length);
+    refreshIcons();
+  }
+
+  function loadMoreFeed() {
+    var total = visibleGenerations().length;
+    if (loadTimer || feedShown >= total) return;
+    $("cmFeedLoader").hidden = false;
+    loadTimer = setTimeout(function () {
+      loadTimer = null;
+      $("cmFeedLoader").hidden = true;
+      appendFeedPage();
+      /* Still shorter than the viewport (tall screens): keep fetching so the
+         page always fills before the user scrolls. The sentinel observer
+         will not refire here because its intersection state never changed. */
+      fillViewport();
+    }, 700); /* deliberate latency so the fetch is felt, like a real backend */
+  }
+
+  /* Near the bottom of the page, or the page is shorter than the viewport:
+     fetch the next slice. Only while the feed itself is on screen. */
+  function fillViewport() {
+    if (currentMode() !== "community" || $("cmFeedView").hidden) return;
+    var nearBottom = window.innerHeight + window.scrollY >=
+      document.documentElement.scrollHeight - 320;
+    if (nearBottom) loadMoreFeed();
+  }
+
+  function renderFeed() {
+    $("cmFeedList").innerHTML = "";
+    feedShown = 0;
+    clearTimeout(loadTimer);
+    loadTimer = null;
+    appendFeedPage();
+    $("cmFeedEmpty").hidden = visibleGenerations().length > 0;
+    fillViewport();
+  }
+
+  /* ---------- detail ---------- */
+
+  function renderDetail(gen) {
+    var detail = $("cmDetail");
+    detail.innerHTML = "";
+    expandedThreads.clear(); /* fresh view: all chains start collapsed */
+    var back = document.createElement("div");
+    back.className = "detail-back";
+    back.innerHTML = '<button class="icon-btn" id="backBtn" aria-label="Back to Community"><i data-lucide="arrow-left"></i></button>' +
+      '<span class="detail-back-title">Generation</span>';
+    detail.appendChild(back);
+    back.querySelector("#backBtn").addEventListener("click", function () {
+      location.hash = "#/";
+    });
+
+    detail.appendChild(buildCard(gen, true));
+
+    var comments = commentsFor(gen.id);
+    var section = document.createElement("div");
+    section.className = "comments";
+    section.innerHTML = '<div class="comments-title">DISCUSSION · ' + comments.length + "</div>";
+    var listEl = document.createElement("div");
+    listEl.id = "cmCommentList";
+    section.appendChild(listEl);
+    renderThread(gen, listEl);
+
+    var box = document.createElement("div");
+    box.className = "comment-box";
+    box.innerHTML =
+      '<div class="remix-ctx comment-ctx" id="cmCommentCtx" hidden>' +
+        '<i data-lucide="corner-down-right" class="remix-ctx-icon"></i>' +
+        '<div class="remix-ctx-text">' +
+          '<span class="remix-ctx-label" id="cmCommentCtxLabel"></span>' +
+          '<button class="remix-ctx-clear" id="cmCommentCtxClear" aria-label="Cancel reply"><i data-lucide="x"></i></button>' +
+        "</div>" +
+      "</div>" +
+      '<div class="composer" id="commentComposer">' +
+        '<textarea id="cmCommentInput" rows="1" maxlength="2000" placeholder="Add to the discussion" aria-label="Add to the discussion"></textarea>' +
+        '<div class="composer-row">' +
+          '<div class="composer-spacer"></div>' +
+          '<button class="send-btn" id="cmCommentSend" aria-label="Post comment" disabled><i data-lucide="arrow-up"></i></button>' +
+        "</div>" +
+      "</div>";
+    section.appendChild(box);
+    detail.appendChild(section);
+    refreshIcons();
+    wireCommentBox(gen, listEl);
+  }
+
+  /* Which comment the composer is currently replying to; replies highlight
+     their branch while it is targeted. Per page load, no persistence. */
+  var replyingTo = null;
+
+  function commentRow(c, row, onPath) {
+    var el = document.createElement("div");
+    el.className = "trow" + (onPath.has(c.id) ? " trow--on-path" : "");
+    el.dataset.depth = row.depth;
+
+    var rails = "";
+    row.guides.forEach(function (g) {
+      rails += '<span class="trail' + (g ? " trail--line" : "") + '" aria-hidden="true"></span>';
+    });
+    var elbow = row.depth > 0
+      ? '<span class="telbow' + (row.isLast ? " telbow--last" : "") + '" aria-hidden="true"></span>'
+      : "";
+
+    var kidCount = countDescendants(c); /* total replies under this comment */
+
+    el.innerHTML =
+      rails + elbow +
+      '<div class="trow-main">' +
+        '<div class="comment' + (row.depth > 0 ? " comment--reply" : "") + '" data-reply-id="' + c.id + '">' +
+          '<span class="avatar avatar-sm">' + esc(c.creator.name.charAt(0).toUpperCase()) + "</span>" +
+          '<div class="comment-main">' +
+            '<div class="comment-id">' +
+              '<span class="comment-name">' + esc(c.creator.name) + "</span>" +
+              '<span class="comment-handle">' + esc(c.creator.handle) + "</span>" +
+              '<span class="comment-time">' + esc(timeAgo(c.createdAt)) + "</span>" +
+            "</div>" +
+            '<p class="comment-text">' +
+              (c.replyingToName ? '<span class="comment-mention">' + esc("@" + c.replyingToName) + "</span> " : "") +
+              esc(c.text) +
+            "</p>" +
+            '<div class="comment-ops">' +
+              '<button class="comment-reply-btn" data-reply="' + c.id + '">' +
+                '<i data-lucide="corner-down-right"></i><span>Reply</span>' +
+              "</button>" +
+              (kidCount > 0
+                ? '<button class="comment-replies-btn" data-expand="' + c.id + '" aria-expanded="' + String(expandedThreads.has(c.id)) + '">' +
+                    '<i data-lucide="message-square"></i><span>' + kidCount + (kidCount === 1 ? " reply" : " replies") + "</span>" +
+                  "</button>"
+                : "") +
+            "</div>" +
+          "</div>" +
+        "</div>" +
+      "</div>";
+    return el;
+  }
+
+  /* Replies sit behind a count chip beside the Reply button, Twitter style:
+     "3 replies" tells you what is underneath, tapping it reveals that
+     comment's tree with the connector lines, tapping again hides it. One
+     ops row per comment, never a reply-looking row twice. expandedThreads
+     holds every comment id whose children are currently revealed. */
+  var expandedThreads = new Set();
+
+  function countDescendants(node) {
+    var n = 0;
+    (node.replies || []).forEach(function (kid) { n += 1 + countDescendants(kid); });
+    return n;
+  }
+
+  /* One tap on the count chip shows the full comment tree under that comment:
+     emitTree only ever stops at unexpanded comments, while emitAll walks an
+     expanded subtree to its leaves so nothing hides behind a second tap.
+     Guides carry the ancestor rail decisions for the connector lines. */
+  function emitTree(node, depth, guides, isLast, out) {
+    out.push({ node: node, depth: depth, guides: guides.slice(0, MAX_REPLY_DEPTH), isLast: isLast });
+    if (!expandedThreads.has(node.id)) return;
+    emitAll(node, depth, guides, isLast, out);
+  }
+
+  function emitAll(node, depth, guides, isLast, out) {
+    var kids = node.replies || [];
+    var childGuides = depth === 0 ? [] : guides.concat([!isLast]);
+    kids.forEach(function (kid, i) {
+      out.push({ node: kid, depth: depth + 1, guides: childGuides.slice(0, MAX_REPLY_DEPTH), isLast: i === kids.length - 1 });
+      emitAll(kid, depth + 1, childGuides, i === kids.length - 1, out);
+    });
+  }
+
+  function renderThread(gen, listEl) {
+    if (!listEl) listEl = $("cmCommentList");
+    if (!listEl) return;
+    var comments = commentsFor(gen.id);
+    listEl.innerHTML = "";
+    if (comments.length === 0) {
+      listEl.innerHTML = '<div class="comments-empty">No discussion yet. The sharpest take usually goes first.</div>';
+      return;
+    }
+    var onPath = replyingTo ? pathToRoot(comments, replyingTo.id) : new Set();
+    var rows = [];
+    buildCommentTree(comments).forEach(function (root) {
+      emitTree(root, 0, [], true, rows);
+    });
+    rows.forEach(function (row) {
+      listEl.appendChild(commentRow(row.node, row, onPath));
+    });
+    refreshIcons();
+  }
+
+  function wireCommentBox(gen, listEl) {
+    var input = $("cmCommentInput");
+    var send = $("cmCommentSend");
+    var ctxBar = $("cmCommentCtx");
+    var ctxLabel = $("cmCommentCtxLabel");
+    replyingTo = null;
+    if (ctxBar) { ctxBar.hidden = true; }
+
+    function sync() { send.disabled = input.value.trim().length === 0; autogrow(input); }
+    input.addEventListener("input", sync);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); post(); }
+      if (e.key === "Escape" && replyingTo) { clearReply(); }
+    });
+    send.addEventListener("click", post);
+
+    /* Reply and reply-count expander run off one delegated listener so
+       re-renders never rebind. */
+    listEl.addEventListener("click", function (e) {
+      var expandBtn = e.target.closest("[data-expand]");
+      if (expandBtn) {
+        var rid = expandBtn.getAttribute("data-expand");
+        if (expandedThreads.has(rid)) expandedThreads.delete(rid);
+        else expandedThreads.add(rid);
+        renderThread(gen, listEl);
+        return;
+      }
+      var replyBtn = e.target.closest("[data-reply]");
+      if (replyBtn) {
+        var target = null;
+        commentsFor(gen.id).forEach(function (c) { if (c.id === replyBtn.dataset.reply) target = c; });
+        if (target) startReply(target);
+      }
+    });
+
+    if (ctxBar) {
+      $("cmCommentCtxClear").addEventListener("click", clearReply);
+    }
+
+    function startReply(target) {
+      replyingTo = target;
+      if (ctxBar) {
+        ctxLabel.innerHTML = "<strong>Replying to " + esc(target.creator.handle) + "</strong> · " + esc(target.text);
+        ctxBar.hidden = false;
+      }
+      input.focus();
+      renderThread(gen, listEl); /* repaints the branch highlight */
+    }
+
+    function clearReply() {
+      replyingTo = null;
+      if (ctxBar) ctxBar.hidden = true;
+      renderThread(gen, listEl);
+    }
+
+    function post() {
+      var text = input.value.trim();
+      if (!text) return;
+      var parentId = replyingTo ? replyingTo.id : null;
+      /* Depth cap: replying to a comment already at MAX_REPLY_DEPTH flattens
+         the new comment onto the level above (a sibling), YouTube style. The
+         mention keeps the true addressee visible in the text. */
+      if (replyingTo) {
+        var depthOfTarget = pathToRoot(commentsFor(gen.id), replyingTo.id).size - 1;
+        if (depthOfTarget >= MAX_REPLY_DEPTH && replyingTo.parentId) {
+          parentId = replyingTo.parentId;
+        }
+      }
+      state.comments.push({
+        id: uid(), genId: gen.id, own: true, creator: YOU,
+        text: text,
+        parentId: parentId,
+        replyingToName: replyingTo ? replyingTo.creator.name : null,
+        createdAt: Date.now()
+      });
+      /* A fresh reply must be visible: reveal every ancestor in its chain
+         (each level gates its own children), plus the reply target itself. */
+      if (replyingTo) {
+        pathToRoot(commentsFor(gen.id), replyingTo.id).forEach(function (id) {
+          expandedThreads.add(id);
+        });
+        expandedThreads.add(replyingTo.id);
+      }
+      gen.counts.comment += 1;
+      persist();
+      input.value = "";
+      replyingTo = null;
+      if (ctxBar) ctxBar.hidden = true;
+      sync();
+      renderThread(gen, listEl);
+      replaceCard(gen);
+      updateDiscussionTitle(gen);
+    }
+  }
+
+  function updateDiscussionTitle(gen) {
+    var title = document.querySelector(".comments-title");
+    if (title) title.textContent = "DISCUSSION · " + commentsFor(gen.id).length;
+  }
+
+  /* ---------- new arrivals: poll, pill, pull to refresh ----------
+
+     Production shape: GET /feed?after=<cursor> on an interval. Here the demo
+     backend "receives" posts on a timer from a rotating pool. Arrivals enter
+     state invisibly with freshPinned set, pendingGens tracks them, and only
+     the pill tap or a pull to refresh merges them into the visible feed, so
+     the timeline never shifts under the reader's thumb mid scroll. */
+
+  var pendingGens = [];
+  var pollCount = 0;
+
+  var ARRIVAL_POOL = [
+    { creator: { name: "Kamsi", handle: "@kamsi" },
+      prompt: "Review this product spec like a hostile VP of Engineering.",
+      response: "The spec assumes the migration is free. It is not.\n\nHidden costs you did not budget: dual writes during the cutover, backfill of 40 million rows, and a rollback plan that currently says hope.\n\nFix the spec by adding a kill switch per tenant and a definition of done that includes deleting the old path, not just shipping the new one." },
+    { creator: { name: "Ada", handle: "@ada" },
+      prompt: "Plan a school fee savings wallet for market traders.",
+      response: "Daily micro deposits beat monthly targets because cash arrives daily.\n\nDesign: agent float at the stall, USSD fallback for the days the app is out of data, and fees locked at term start so school resumption never negotiates.\n\nThe feature that retains: a visible countdown to the term, not an interest rate." },
+    { creator: { name: "Miles", handle: "@miles" },
+      prompt: "Write 3 subject lines for a launch email about offline sync.",
+      response: "1. Your app finally works in an elevator.\n2. Data finished? Nothing changed.\n3. We shipped the thing you rage quit over.\n\nPick 2 for the send. It is true, it fits the preview text, and the people who churned over sync will open it on principle." },
+    { creator: { name: "Zainab", handle: "@zainab" },
+      prompt: "Interview questions that reveal if a startup actually ships.",
+      response: "1. Tell me about the last thing you deleted. Vacant stares mean hoarding.\n2. What shipped last Tuesday? Any answer older than a sprint is a process smell.\n3. Who can say no to a feature? If the answer is nobody, nothing ships on purpose." },
+    { creator: { name: "Tobi", handle: "@tobi" },
+      prompt: "Summarize Nigeria's data protection act for a two person SaaS.",
+      response: "You need consent before collection, a reason for every field you store, and a way to delete on request.\n\nThe practical floor: a privacy page a human can read, export and delete endpoints that actually work, and no analytics on data you cannot justify.\n\nIt is less law homework, more table manners with a budget line." },
+    { creator: { name: "Dami", handle: "@dami" },
+      prompt: "Turn these churn survey answers into a retention roadmap.",
+      response: "Group the answers by when users gave up, not why they said they left.\n\nDay 1 churn is onboarding, week 2 is missing habit, month 2 is price realization. One fix per window, shipped in that order.\n\nIgnore the loudest write in. The median abandoned session tells the truer story." }
+  ];
+
+  function simulateIncoming() {
+    if (state.generations.length >= 90) return; /* demo corpus cap */
+    var template = ARRIVAL_POOL[pollCount % ARRIVAL_POOL.length];
+    pollCount += 1;
+    var gen = {
+      id: uid(),
+      own: false,
+      creator: template.creator,
+      prompt: template.prompt,
+      response: template.response,
+      status: "complete", kind: "original", parentId: null, rootId: null,
+      locked: false, visibility: "public", saved: false,
+      createdAt: Date.now(),
+      counts: { remix: 0, challenge: 0, comment: 0, save: 0 },
+      freshPinned: true /* rides to the top exactly once, on merge */
+    };
+    gen.rootId = gen.id;
+    state.generations.push(gen);
+    pendingGens.push(gen);
+    persist();
+    syncPill();
+  }
+
+  /* First poll soon enough to be felt in a demo, then a relaxed heartbeat. */
+  function schedulePoll() {
+    var delay = pollCount === 0 ? 28000 : 45000 + Math.floor(Math.random() * 45000);
+    setTimeout(function () {
+      simulateIncoming();
+      schedulePoll();
+    }, delay);
+  }
+
+  function mergeFresh() {
+    pendingGens.length = 0;
+    state.generations.forEach(function (gen) { gen.freshPinned = false; });
+    persist();
+    $("cmNewPostsPill").hidden = true;
+  }
+
+  function syncPill() {
+    if ($("cmFeedView").hidden) return;
+    if (pendingGens.length === 0) return;
+    /* overlapping initial avatars for up to 3 distinct pending authors,
+       newest first, Twitter style */
+    var seen = {};
+    var avas = "";
+    var count = 0;
+    for (var i = pendingGens.length - 1; i >= 0 && count < 3; i--) {
+      var name = pendingGens[i].creator.name;
+      if (seen[name]) continue;
+      seen[name] = true;
+      count += 1;
+      avas += '<span class="npp-ava">' + esc(name.charAt(0).toUpperCase()) + "</span>";
+    }
+    $("cmNppAvas").innerHTML = avas;
+    $("cmNewPostsPill").hidden = false;
+  }
+
+  function initPill() {
+    $("cmNewPostsPill").addEventListener("click", function () {
+      renderFeed(); /* freshPinned gens land on top in this render */
+      mergeFresh();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+
+  function initPullRefresh() {
+    var ind = $("cmPullRefresh");
+    var arrow = $("cmPullArrow");
+    var spin = $("cmPullSpin");
+    var startY = 0, dist = 0, active = false, refreshing = false;
+    var TRIGGER = 72; /* dampened px; the raw pull is about 160px */
+
+    function place(px) { ind.style.transform = "translate(-50%, " + px + "px)"; }
+    function hide() {
+      ind.classList.add("is-settling");
+      place(-80);
+      setTimeout(function () { ind.hidden = true; ind.classList.remove("is-settling"); }, 220);
+    }
+
+    document.addEventListener("touchstart", function (e) {
+      if (refreshing || $("cmFeedView").hidden || window.scrollY > 0) return;
+      var t = e.target;
+      if (t && t.closest && t.closest("#cmComposerDock")) return;
+      if (e.touches.length !== 1) return;
+      startY = e.touches[0].clientY;
+      active = true;
+      dist = 0;
+    }, { passive: true });
+
+    document.addEventListener("touchmove", function (e) {
+      if (!active || refreshing) return;
+      dist = e.touches[0].clientY - startY;
+      if (dist <= 0 || window.scrollY > 0) {
+        if (!ind.hidden) hide();
+        dist = 0;
+        return;
+      }
+      var d = Math.min(96, dist * 0.45); /* rubber band damping */
+      ind.hidden = false;
+      arrow.style.transform = "rotate(" + Math.min(180, (d / TRIGGER) * 180) + "deg)";
+      place(d - 56);
+    }, { passive: true });
+
+    document.addEventListener("touchend", function () {
+      if (!active) return;
+      active = false;
+      if (refreshing) return;
+      if (dist * 0.45 >= TRIGGER) refresh();
+      else if (!ind.hidden) hide();
+      dist = 0;
+    });
+
+    function refresh() {
+      refreshing = true;
+      spin.hidden = false;
+      arrow.hidden = true;
+      ind.classList.add("is-settling");
+      place(8); /* hold as a spinner while the reload runs */
+      setTimeout(function () {
+        renderFeed();
+        mergeFresh();
+        refreshing = false;
+        spin.hidden = true;
+        arrow.hidden = false;
+        arrow.style.transform = "";
+        hide();
+      }, 700);
+    }
+  }
+
+  /* Debug handle for previews and the smoke tests. */
+  window.SLOPIFY_DEBUG = {
+    simulateIncoming: simulateIncoming,
+    pendingCount: function () { return pendingGens.length; }
+  };
+
+  /* ---------- composer ---------- */
+
+  var composeCtx = null; /* { mode: "remix" | "challenge", parentId } */
+
+  function autogrow(textarea) {
+    textarea.style.height = "auto";
+    textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
+  }
+
+  function syncSend() {
+    $("cmSendBtn").disabled = streamingNow || $("cmInput").value.trim().length === 0;
+  }
+
+  function setContext(mode, gen) {
+    composeCtx = { mode: mode, parentId: gen.id };
+    $("cmRemixCtx").hidden = false;
+    var verb = mode === "challenge" ? "Challenging" : "Remixing";
+    $("cmRemixCtxLabel").innerHTML =
+      "<strong>" + verb + " " + esc(gen.creator.handle) + "</strong> · " + esc(gen.prompt);
+    $("cmRemixCtx").querySelector(".remix-ctx-icon").setAttribute("data-lucide", mode === "challenge" ? "swords" : "repeat-2");
+    refreshIcons();
+    var input = $("cmInput");
+    input.value = gen.prompt;
+    autogrow(input);
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    syncSend();
+  }
+
+  function clearContext() {
+    composeCtx = null;
+    $("cmRemixCtx").hidden = true;
+  }
+
+  function parsePrompt(raw) {
+    var text = raw.trim();
+    var m = text.match(/^@bot\s*/i);
+    if (m) text = text.slice(m[0].length);
+    return text.trim();
+  }
+
+  function sendGeneration() {
+    if (streamingNow) return;
+    var input = $("cmInput");
+    var prompt = parsePrompt(input.value);
+    if (!prompt) { input.value = ""; syncSend(); return; }
+
+    var kind = "original";
+    var parentId = null;
+    var rootId = null;
+    if (composeCtx) {
+      var parent = genById(composeCtx.parentId);
+      if (parent) {
+        kind = composeCtx.mode;
+        parentId = parent.id;
+        rootId = parent.rootId || parent.id;
+        if (kind === "remix") parent.counts.remix += 1;
+        if (kind === "challenge") parent.counts.challenge += 1;
+        replaceCard(parent);
+      }
+    }
+
+    var gen = {
+      id: uid(),
+      own: true,
+      creator: YOU,
+      prompt: prompt,
+      response: "",
+      status: "streaming",
+      kind: kind,
+      parentId: parentId,
+      rootId: rootId,
+      locked: false,
+      visibility: state.visibility,
+      saved: false,
+      createdAt: Date.now(),
+      counts: { remix: 0, challenge: 0, comment: 0, save: 0 }
+    };
+    state.generations.push(gen);
+    persist();
+
+    input.value = "";
+    autogrow(input);
+    clearContext();
+    renderFeed();
+    streamGeneration(gen);
+  }
+
+  /* Demo engine: deterministic canned responses shaped by the prompt.
+     Production swaps this for the Botocracy provider layer over SSE. */
+  function replyFor(gen) {
+    var p = gen.prompt.toLowerCase();
+    var out = "";
+    if (gen.kind === "remix") {
+      out += "Tighter version of the original ask.\n\n";
+    } else if (gen.kind === "challenge") {
+      out += "Same task. Different approach.\n\n";
+    }
+    if (/(business|startup|idea|venture|side hustle|make money)/.test(p)) {
+      out += "1. **Pick the most complained-about workflow in your circle.** Complaints are free market research. Build the smallest tool that makes one of them stop.\n\n2. **Sell the result, not the software.** A fixed price outcome converts better than a feature list.\n\n3. **Use a channel you already have.** Your first ten customers should come from people who already reply to your messages.\n\n4. **Charge early.** A paid pilot is the only validation that survives contact with reality.\n\n5. **Keep operations manual until they hurt.** Automation before volume is procrastination in a costume.";
+    } else if (/(explain|why|how does|how do|what is)/.test(p)) {
+      out += "Short version: the visible symptom is usually a coordination problem wearing a costume.\n\n**First**, name the actors and what each one optimizes for. Once incentives are on the table, the confusing behavior stops being confusing.\n\n**Second**, find the constraint that everything queues behind. Fixing anything upstream or downstream of that constraint does nothing until the constraint moves.\n\n**Third**, ask what feedback loop keeps the current state stable. States that persist are being maintained by something, and it is rarely the thing getting blamed in public.";
+    } else if (/(code|function|script|python|javascript|debug|bug)/.test(p)) {
+      out += "Before writing any code, do three things.\n\n1. **Reproduce the behavior on the smallest input.** If you cannot trigger it on demand, you cannot verify the fix.\n\n2. **State the invariant that is being violated.** Most bugs are a broken assumption that was never written down.\n\n3. **Fix at the layer that owns the invariant.** Patching the caller works today and returns as a stranger tomorrow.\n\nShare the failing snippet and I will walk through it line by line.";
+    } else {
+      out += "Working take, stated plainly.\n\n**The strong version of this ask** has a concrete user, a moment where the pain shows up, and a cost when nothing happens. Sharpen all three and the answer usually falls out on its own.\n\n**Where people get stuck** is treating the generation as the finish line. The value is in the next action: remix it with a harder constraint, or challenge it with a better frame, and see what survives.\n\nThat is the whole game here. Your move.";
+    }
+    return out;
+  }
+
+  function streamGeneration(gen) {
+    streamingNow = true;
+    syncSend();
+    var full = replyFor(gen);
+    var pos = 0;
+    var lastSave = 0;
+
+    function node() {
+      return document.querySelector('[data-resp="' + gen.id + '"]');
+    }
+
+    if (reducedMotion) {
+      gen.response = full;
+      finish();
+      return;
+    }
+
+    var timer = setInterval(function () {
+      pos = Math.min(full.length, pos + 3 + Math.floor(Math.random() * 4));
+      gen.response = full.slice(0, pos);
+      var el = node();
+      if (el) {
+        el.innerHTML = rich(gen.response) + '<span class="gen-cursor"></span>';
+      }
+      var now = Date.now();
+      if (now - lastSave > 700) { lastSave = now; persist(); }
+      if (pos >= full.length) {
+        clearInterval(timer);
+        finish();
+      }
+    }, 28);
+
+    function finish() {
+      gen.status = "complete";
+      gen.response = full;
+      persist();
+      streamingNow = false;
+      syncSend();
+      replaceCard(gen);
+      if (gen.visibility === "public") {
+        /* published state is implicit: it sits in the public feed now */
+      }
+    }
+  }
+
+  function retryGeneration(gen) {
+    if (streamingNow) return;
+    gen.status = "streaming";
+    gen.response = "";
+    gen.errorText = null;
+    persist();
+    replaceCard(gen);
+    streamGeneration(gen);
+  }
+
+  /* ---------- card actions ---------- */
+
+  function onCardAction(e) {
+    var btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    var card = e.target.closest("article.gen");
+    if (!card) return;
+    var gen = genById(card.dataset.id);
+    if (!gen) return;
+    var act = btn.dataset.act;
+    if (btn.disabled) return;
+    e.stopPropagation();
+
+    if (act === "save") {
+      gen.saved = !gen.saved;
+      gen.counts.save += gen.saved ? 1 : -1;
+      persist();
+      replaceCard(gen);
+      return;
+    }
+    if (act === "lock" && gen.own) {
+      gen.locked = !gen.locked;
+      persist();
+      replaceCard(gen);
+      return;
+    }
+    if (act === "remix" || act === "challenge") {
+      if (gen.locked) return;
+      location.hash = "#/";
+      setContext(act, gen);
+      return;
+    }
+    if (act === "discuss") {
+      location.hash = "#/g/" + gen.id;
+      return;
+    }
+    if (act === "expand") {
+      var body = card.querySelector(".gen-resp-body");
+      if (body) {
+        body.classList.toggle("clamped");
+        btn.textContent = body.classList.contains("clamped") ? "Show more" : "Show less";
+      }
+      return;
+    }
+    if (act === "retry") {
+      retryGeneration(gen);
+      return;
+    }
+  }
+
+  document.addEventListener("click", onCardAction);
+
+  document.addEventListener("click", function (e) {
+    var card = e.target.closest("article.gen");
+    if (!card) return;
+    if (e.target.closest("[data-act]") || e.target.closest("a")) return;
+    var gen = genById(card.dataset.id);
+    if (!gen || gen.status === "streaming") return;
+    if ((location.hash || "").indexOf("#/g/" + gen.id) === 0) return;
+    location.hash = "#/g/" + gen.id;
+  });
+
+  /* ---------- wiring ---------- */
+
+  function initComposer() {
+    var input = $("cmInput");
+    input.addEventListener("input", function () { autogrow(input); syncSend(); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendGeneration();
+      }
+    });
+    $("cmSendBtn").addEventListener("click", sendGeneration);
+    $("cmRemixCtxClear").addEventListener("click", clearContext);
+
+    $("cmVisBtn").addEventListener("click", function () {
+      state.visibility = state.visibility === "public" ? "private" : "public";
+      persist();
+      syncVisBtn();
+    });
+    syncVisBtn();
+  }
+
+  function syncVisBtn() {
+    var btn = $("cmVisBtn");
+    var isPublic = state.visibility === "public";
+    btn.innerHTML = '<i data-lucide="' + (isPublic ? "globe" : "eye-off") + '"></i>';
+    btn.setAttribute("aria-pressed", String(!isPublic));
+    var label = "Visibility: " + (isPublic ? "Public" : "Private");
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    refreshIcons();
+  }
+
+  function initModeSeg() {
+    $("cmTabCommunity").addEventListener("click", function () {
+      if (location.hash === "#/" || location.hash === "") {
+        route(); /* already there: pull the feed view forward */
+      } else {
+        location.hash = "#/";
+      }
+    });
+    $("cmTabWorkspace").addEventListener("click", function () {
+      location.hash = "#/workspace";
+    });
+    window.addEventListener("resize", function () {
+      moveGlide(currentMode() === "workspace" ? $("cmTabWorkspace") : $("cmTabCommunity"));
+    });
+  }
+
+  function init() {
+    initComposer();
+    initModeSeg();
+    initPill();
+    initPullRefresh();
+    schedulePoll();
+    var sentinel = $("cmFeedSentinel");
+    if (sentinel && "IntersectionObserver" in window) {
+      new IntersectionObserver(function (entries) {
+        if ($("cmFeedView").hidden) return;
+        for (var i = 0; i < entries.length; i++) {
+          if (entries[i].isIntersecting) { loadMoreFeed(); break; }
+        }
+      }, { rootMargin: "0px 0px 480px" }).observe(sentinel);
+    }
+    window.addEventListener("scroll", fillViewport, { passive: true });
+    window.addEventListener("hashchange", route);
+    route();
+    route();
+    requestAnimationFrame(function () {
+      moveGlide(currentMode() === "workspace" ? $("cmTabWorkspace") : $("cmTabCommunity"));
+    });
+    refreshIcons();
+  }
+
+  init();
+})();

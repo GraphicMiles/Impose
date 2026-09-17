@@ -1,7 +1,7 @@
 {
-  "name": "Impose",
-  "short_name": "Impose",
-  "description": "Bring your own key and chat with any provider.",
+  "name": "Botocracy",
+  "short_name": "Botocracy",
+  "description": "in bots we trust",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
