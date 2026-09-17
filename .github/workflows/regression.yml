@@ -18,7 +18,14 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Install relay dependencies
-        run: python -m pip install -r backend/requirements.txt -r backend/relay/requirements.txt
+        # pytest is a test-only dependency and deliberately not in the
+        # runtime requirements, which are what ships to the relay host.
+        # It was missing here entirely, so the relay step failed with "No
+        # module named pytest" on every run and the two steps after it
+        # never executed.
+        run: |
+          python -m pip install -r backend/requirements.txt -r backend/relay/requirements.txt
+          python -m pip install pytest
       - name: Static build is current
         run: python3 build_inline.py --check
       - name: Agent suites
