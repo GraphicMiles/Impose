@@ -46,9 +46,8 @@ body.community-mode .backdrop { display: none !important; }
   --feed-measure: 660px;
 }
 
-/* Fixed overlay offsets (new posts pill, pull to refresh) live at the end
-   of this file: topbar + modebar = ~108px, so both overlays park just under
-   it. They must follow the base rules below or the cascade drops them. */
+/* Fixed overlays (new posts pill, pull to refresh) park under the 60px
+   header via their base rules above. */
 
 @keyframes blink { 50% { opacity: 0; } }
 
@@ -795,35 +794,35 @@ body.community-mode .backdrop { display: none !important; }
   .gen-head .avatar { width: 28px; height: 28px; font-size: 13px; }
 }
 
+
 /* ==========================================================================
-   Slim generation composer: the dock was two stacked rows (field, then a
-   full row of buttons) plus a disclaimer - far too tall on phones. The
-   controls join the field on one row via display: contents, so the markup
-   and the autogrow behaviour stay untouched. Scoped to the cm dock only;
-   the workspace chat composer is unchanged.
+   Single-row header: the Community | Workspace switch used to stack as a
+   second row under the topbar, doubling the header height. It now sits
+   centered inside the 60px topbar row; pointer-events pass through the bar
+   itself so side buttons stay tappable even on tight widths. The divider
+   that used to live under the modebar moves up to the topbar edge.
    ========================================================================== */
 
-.cm-composer-dock { padding: 8px 12px max(8px, env(safe-area-inset-bottom)); }
+.topbar { position: relative; border-bottom: 1px solid var(--border-soft); }
 
-.cm-composer-dock .composer {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 4px 4px 4px 16px;
+.modebar {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 60px;
+  padding: 0;
+  border-bottom: none;
+  background: transparent;
+  pointer-events: none;
 }
+.modebar .modeseg { pointer-events: auto; }
 
-.cm-composer-dock .composer textarea {
-  flex: 1;
-  min-width: 0;
-  padding: 9px 0 7px;
+/* Narrow widths: keep the workspace side clusters clear of the switch. */
+@media (max-width: 560px) {
+  #shareBtn span { display: none; }
+  #shareBtn { padding: 0 8px; }
+  #modelBtn { max-width: 96px; }
+  #modelName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .modeseg-tab { padding: 6px 10px; }
 }
-
-.cm-composer-dock .composer .composer-row { display: contents; }
-
-.cm-composer-dock .composer .composer-spacer { display: none; }
-
-.cm-composer-dock .disclaimer { margin: 6px 0 0; font-size: 11px; }
-
-/* Fixed overlays park below topbar (60px) + modebar (~48px). */
-.cm-scope .new-posts-pill { top: 110px; }
-.cm-scope .pull-refresh { top: 106px; }
