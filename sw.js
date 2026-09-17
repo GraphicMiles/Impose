@@ -26,6 +26,7 @@ var CORE = [
   "./config.js",
   "./ui-core.js",
   "./access.js",
+  "./debug-bus.js",
   "./app.js",
   "./avatars.js",
   "./styles.css",
@@ -53,6 +54,7 @@ var CORE = [
 var PRECACHE = [
   "./",
   "./index.html",
+  "./debug-bus.js",
   "./app.js",
   "./avatars.js",
   "./styles.css",
