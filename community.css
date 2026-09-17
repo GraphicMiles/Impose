@@ -144,10 +144,8 @@ body.community-mode .backdrop { display: none !important; }
   cursor: pointer;
 }
 
-.cm-scope button:focus-visible, .cm-scope a:focus-visible, .cm-scope textarea:focus-visible {
-  outline: 2px solid rgba(138, 180, 255, 0.72);
-  outline-offset: 2px;
-}
+/* House rule: no focus rings or outlines in Community either. */
+
 
 .cm-scope .sr-only {
   position: absolute !important;

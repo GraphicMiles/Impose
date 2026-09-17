@@ -27,10 +27,7 @@ html[data-theme="dark"] {
      10 controls, 12 cards and pops, 16 sheets, pill for tags. */
   --r-1: 4px; --r-2: 6px; --r-3: 8px; --r-4: 10px; --r-5: 12px; --r-6: 16px; --r-pill: 999px;
   /* Layer scale, locked: content 1, chrome 12, dock 40, debug 55-60,
-     pops 85-86, modals 90-95, toasts 100-120, grain 300. */
-  --z-grain: 300;
-  --ring: 0 0 0 2px var(--bg), 0 0 0 4px rgba(138, 180, 255, 0.72);
-  --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 64px rgba(8, 9, 12, 0.55);
+     pops 85-86, modals 90-95, toasts 100-120. */
 
   --bg: #202124;
   --sidebar: #16171a;
@@ -97,17 +94,7 @@ body {
 h1, h2, h3 { font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; text-wrap: balance; }
 p, li { text-wrap: pretty; }
 
-/* Film grain: fixed, inert, above every layer; breaks the digital flat. */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-grain);
-  pointer-events: none;
-  opacity: 0.03;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 160px 160px;
-}
+/* Film grain overlay removed: it read as random noise artifacts over every layer. */
 
 button {
   font: inherit;
@@ -123,17 +110,15 @@ input, textarea {
   color: inherit;
 }
 
+/* House rule: no focus rings or outlines anywhere. Inputs keep their
+   border/surface cue, buttons keep their :active press feedback. */
 :focus, :focus-visible { outline: none; }
-/* One visible keyboard ring everywhere, offset by the surface beneath. */
-button:focus-visible,
-[role="button"]:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
-[tabindex]:focus-visible {
-  box-shadow: var(--ring);
+button:focus, [role="button"]:focus,
+button:focus-visible, [role="button"]:focus-visible,
+a:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+  box-shadow: none;
 }
+
 
 [hidden] { display: none !important; }
 
@@ -700,7 +685,6 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
   max-width: calc(100vw - 24px);
   background: var(--pop);
   border: 1px solid var(--border);
-  box-shadow: var(--shadow-pop);
   border-radius: 12px;
   padding: 6px;
   opacity: 0;
@@ -1342,19 +1326,7 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
   color: var(--text);
 }
 
-/* Input bars take focus without the ring; their border cue stays. */
-input:focus-visible,
-textarea:focus-visible {
-  outline: none;
-}
-
-/* The chat composer keeps its border cue only: no ring around the field box. */
-.composer:has(textarea:focus-visible) {
-  box-shadow: none;
-}
-.composer textarea:focus-visible {
-  box-shadow: none;
-}
+/* Inputs take focus without any ring; their border cue stays. */
 
 /* Dictation in progress. */
 .icon-btn.recording {
@@ -1878,7 +1850,6 @@ html.reduce-motion .img-tile img { transition: opacity 150ms ease; }
   max-width: 100%;
   max-height: 72vh;
   border-radius: 12px;
-  box-shadow: var(--shadow-pop);
   background: var(--press);
 }
 .imgbox-cap {
@@ -2025,5 +1996,5 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 .file-list{display:grid;gap:10px;margin:14px 0}.file-card{display:grid;grid-template-columns:46px minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:color-mix(in srgb,var(--panel) 90%,transparent)}
 .file-glyph{width:46px;height:52px;border-radius:10px;display:grid;place-items:center;position:relative;background:var(--soft);color:var(--muted)}.file-glyph svg{width:25px;height:25px}.file-glyph span{position:absolute;bottom:3px;font-size:8px;font-weight:800;letter-spacing:.04em}.file-image{color:#2f9c69}.file-audio{color:#a56de2}.file-video{color:#e16d6d}.file-pdf{color:#dd4d4d}.file-text{color:#4f83d1}.file-archive{color:#b17b31}
 .file-info{min-width:0;display:flex;flex-direction:column;gap:3px}.file-info strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.file-info>span{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-info a{display:inline-flex;align-items:center;gap:4px;width:max-content;color:var(--muted);font-size:11px;text-decoration:none}.file-info a:hover{color:var(--text)}.file-info a svg{width:12px;height:12px}.file-actions{display:flex;gap:7px}.file-actions .btn{white-space:nowrap}.file-actions .btn.busy{opacity:.65}
-.filebox{position:fixed;inset:0;z-index:10050;background:rgba(5,7,10,.76);display:grid;place-items:center;padding:18px;backdrop-filter:blur(8px)}.filebox-panel{width:min(980px,100%);height:min(760px,90vh);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.38);overflow:hidden}.filebox-head{height:54px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px;border-bottom:1px solid var(--line)}.filebox-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.filebox-body{flex:1;min-height:0;display:grid;place-items:center;overflow:auto;background:var(--bg)}.filebox-loading{display:flex;align-items:center;gap:10px;color:var(--muted)}.file-media-preview{max-width:100%;max-height:100%;object-fit:contain}.file-av-preview{width:min(800px,94%);max-height:90%}.file-pdf-preview{width:100%;height:100%;border:0;background:#fff}.file-text-preview{align-self:stretch;justify-self:stretch;min-height:100%;box-sizing:border-box;margin:0;padding:22px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--text)}.file-fallback{max-width:480px;padding:32px;text-align:center;color:var(--muted)}.file-fallback>svg{width:42px;height:42px}.file-fallback h3{color:var(--text);margin:12px 0 6px}.file-fallback p{margin:0 0 18px;line-height:1.55}
+.filebox{position:fixed;inset:0;z-index:10050;background:rgba(5,7,10,.76);display:grid;place-items:center;padding:18px;backdrop-filter:blur(8px)}.filebox-panel{width:min(980px,100%);height:min(760px,90vh);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden}.filebox-head{height:54px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px;border-bottom:1px solid var(--line)}.filebox-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.filebox-body{flex:1;min-height:0;display:grid;place-items:center;overflow:auto;background:var(--bg)}.filebox-loading{display:flex;align-items:center;gap:10px;color:var(--muted)}.file-media-preview{max-width:100%;max-height:100%;object-fit:contain}.file-av-preview{width:min(800px,94%);max-height:90%}.file-pdf-preview{width:100%;height:100%;border:0;background:#fff}.file-text-preview{align-self:stretch;justify-self:stretch;min-height:100%;box-sizing:border-box;margin:0;padding:22px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--text)}.file-fallback{max-width:480px;padding:32px;text-align:center;color:var(--muted)}.file-fallback>svg{width:42px;height:42px}.file-fallback h3{color:var(--text);margin:12px 0 6px}.file-fallback p{margin:0 0 18px;line-height:1.55}
 @media(max-width:640px){.file-card{grid-template-columns:42px minmax(0,1fr)}.file-glyph{width:42px;height:48px}.file-actions{grid-column:1/-1}.file-actions .btn{flex:1;justify-content:center}.filebox{padding:0}.filebox-panel{height:100%;border-radius:0;border:0}.file-text-preview{padding:16px}}

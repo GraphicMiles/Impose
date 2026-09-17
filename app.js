@@ -349,6 +349,11 @@
     debugLog.forEach(function (e) { if (e.level === "error") errors++; });
     var tab = $("debugTab");
     tab.classList.toggle("bad", errors > 0);
+    /* The tab stays off the screen while everything is fine; it appears
+       only once something fails, so the log is reachable when it matters. */
+    var panel = $("debugPanel");
+    var panelOpen = !panel.hidden && panel.classList.contains("open");
+    tab.hidden = errors === 0 && !panelOpen;
     var count = $("debugTabCount");
     count.hidden = errors === 0;
     count.textContent = errors > 99 ? "99" : String(errors);
