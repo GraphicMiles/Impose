@@ -167,6 +167,9 @@ try {
           <!-- Failed to load is a distinct state from empty. An empty feed
                invites you to post; a failed one has to admit it does not
                know what is there and offer the way out. -->
+          <div class="outbox-note" id="cmOutbox" hidden role="status">
+            <i data-lucide="clock"></i><span class="outbox-label"></span>
+          </div>
           <div class="feed-error" id="cmFeedError" hidden role="alert">
             <p class="feed-error-msg" id="cmFeedErrorMsg">We could not load the feed.</p>
             <button class="btn" id="cmFeedRetry" type="button">
