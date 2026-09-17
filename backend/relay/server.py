@@ -58,6 +58,8 @@ from relay.search import SearchFailed, engine_search
 from relay.images import ImagesFailed, engine_images
 from relay.videos import VideosFailed, engine_videos
 from relay.files import discover_files
+from relay import otp as otp_codes
+from relay.mailer import MailFailed, send_code, configured as mailer_configured
 from relay.source_intelligence import CATALOG
 
 BASE_DIR = Path(os.environ.get("CP_DIR", str(Path(__file__).resolve().parent)))
@@ -1030,6 +1032,97 @@ async def file_proxy(request: Request):
     headers = {"Content-Disposition": f'{mode}; filename="{filename}"',
                "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=60"}
     return Response(content=content, media_type=ctype, headers=headers)
+
+
+# --------------------------------------------------------------------------- #
+# email one-time codes
+#
+# These two are the only endpoints that run before a user exists, so they
+# cannot sit behind CONTROL_KEY the way the rest of the surface does. What
+# protects them instead:
+#
+#   - per-IP and per-address rate limits, the address limit being the one
+#     that matters because an attacker rotating IPs still cannot flood one
+#     person's inbox
+#   - the code itself is minted and checked in relay.otp, hashed at rest
+#   - responses never reveal whether an address has an account
+#
+# Verification here proves control of an inbox. It does not create a
+# session; Supabase does that, and it does it against its own records. A
+# caller who fakes a 200 from this endpoint still has no token.
+# --------------------------------------------------------------------------- #
+
+
+def _otp_email(data: dict) -> str:
+    email = str(data.get("email", "")).strip().lower()
+    if not email or len(email) > 254 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(status_code=400, detail="a valid email address is required")
+    return email
+
+
+@app.post("/v1/auth/otp/request")
+async def otp_request(request: Request):
+    ip = _client_ip(request)
+    # Per IP: stops one host enumerating many addresses.
+    if _rate_hit("otpip", ip, 12, 3600.0):
+        raise HTTPException(status_code=429, detail="too many code requests; try again later")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+
+    email = _otp_email(data)
+    try:
+        purpose = otp_codes.normalize_purpose(data.get("purpose"))
+    except otp_codes.OtpError as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
+
+    # Per address: the limit that actually protects a person. Someone
+    # rotating IPs still cannot use us to mailbomb one inbox.
+    if _rate_hit("otpaddr", email, 6, 3600.0):
+        raise HTTPException(status_code=429, detail="too many codes sent to this address; try again later")
+
+    issued = otp_codes.issue(email, purpose)
+
+    # Reused means we are inside the resend cooldown and a live code is
+    # already in their inbox. Sending a second one would invalidate the
+    # first and confuse them.
+    if not issued["reused"]:
+        try:
+            await send_code(email, issued["code"], purpose, otp_codes.CODE_TTL_SECONDS)
+        except MailFailed as exc:
+            print(f"[otp] delivery failed for {email}: {exc}")
+            # The account may already exist at this point. Say the delivery
+            # failed, not that the request was invalid, so the client can
+            # offer a resend rather than a dead end.
+            raise HTTPException(status_code=502, detail="could not send the email just now; try again shortly")
+
+    return {
+        "ok": True,
+        "resend_in": issued["resend_in"],
+        "expires_in": otp_codes.CODE_TTL_SECONDS,
+        "delivery": "email" if mailer_configured() else "console",
+    }
+
+
+@app.post("/v1/auth/otp/verify")
+async def otp_verify(request: Request):
+    ip = _client_ip(request)
+    if _rate_hit("otpverifyip", ip, 40, 3600.0):
+        raise HTTPException(status_code=429, detail="too many attempts; try again later")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+
+    email = _otp_email(data)
+    try:
+        purpose = otp_codes.normalize_purpose(data.get("purpose"))
+        otp_codes.verify(email, purpose, data.get("code"))
+    except otp_codes.OtpError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message)
+
+    return {"ok": True, "email": email, "purpose": purpose}
 
 
 @app.post("/v1/fetch")
