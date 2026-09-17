@@ -745,6 +745,25 @@
     if (hash.indexOf("#/g/") === 0) {
       var id = hash.slice(4);
       var gen = genById(id);
+
+      /* A deep link is often the first thing this browser has ever seen:
+         shared from another device, reopened from history, or arriving
+         from search. The cache is empty then, and answering "this post
+         does not exist" for a post that plainly does is the worst kind of
+         dead end, because the reader has no way to tell our ignorance
+         from a deletion.
+
+         So fetch it, and fetch its thread, before deciding. */
+      if (!gen && liveOnline()) {
+        renderDetailLoading();
+        showMode("community");
+        setDetailChrome(true);
+        feedView.hidden = true;
+        detailView.hidden = false;
+        setGenDock(false);
+        hydrateDetail(id);
+        return;
+      }
       /* A link to a deleted post is a real destination with a real answer,
          not a reason to silently dump the reader on the home feed. Same
          for an id that never existed: both get the missing state, which
@@ -762,6 +781,11 @@
       if (gen) {
         expandedThreads.clear(); /* fresh view: all chains start collapsed */
         renderDetail(gen);
+        /* Comments live on the server, and the cache holds only what this
+           browser has already seen. Without this the thread rendered
+           empty for anyone arriving fresh, which read as "no comments"
+           rather than "not loaded yet". */
+        hydrateThread(id);
         showMode("community");
         setDetailChrome(true);
         feedView.hidden = true;
@@ -782,6 +806,60 @@
     feedView.hidden = false;
     detailView.hidden = true;
     setGenDock(true);
+  }
+
+  /* flow.txt 10: an async destination needs a loading state of its own.
+     Landing on a blank detail page while a fetch runs is indistinguishable
+     from a broken one. */
+  function renderDetailLoading() {
+    var detail = $("cmDetail");
+    detail.innerHTML = '<div class="detail-loading"><span class="spinner"></span>' +
+      "<p>Loading this post</p></div>";
+    refreshIcons();
+  }
+
+  /* Fetch a post this browser has never seen, then its thread. Only then
+     is "missing" an honest answer. */
+  function hydrateDetail(id) {
+    BotoData.generation(id).then(function (out) {
+      if (location.hash !== "#/g/" + id) return; /* the reader moved on */
+      if (!out.ok) {
+        var detail = $("cmDetail");
+        detail.innerHTML = '<div class="detail-loading"><p>' + esc(out.error) + "</p>" +
+          '<button class="btn" id="cmDetailRetry" type="button">Try again</button></div>';
+        var retry = $("cmDetailRetry");
+        if (retry) retry.addEventListener("click", function () { hydrateDetail(id); });
+        refreshIcons();
+        return;
+      }
+      if (!out.data || out.data.deleted) { renderMissing(!!(out.data && out.data.deleted)); return; }
+      absorb([out.data]);
+      persist();
+      expandedThreads.clear();
+      renderDetail(out.data);
+      hydrateThread(id);
+    });
+  }
+
+  /* Merge the server's thread into the cache and repaint. Local pending
+     comments are kept: they are not on the server yet and dropping them
+     would make a queued reply vanish while it waits to send. */
+  function hydrateThread(genId) {
+    if (!liveOnline()) return;
+    BotoData.thread(genId).then(function (out) {
+      if (!out.ok) return;
+      if (location.hash !== "#/g/" + genId) return;
+      var keep = state.comments.filter(function (c) {
+        return c.genId !== genId || c.pending;
+      });
+      state.comments = keep.concat(out.data.filter(function (row) {
+        return !keep.some(function (c) { return c.id === row.id; });
+      }));
+      syncCommentCount(genId);
+      persist();
+      var gen = genById(genId);
+      if (gen && location.hash === "#/g/" + genId) renderDetail(gen);
+    });
   }
 
   /* The missing state for #/g/<id>. wasDeleted distinguishes "the author
@@ -2032,8 +2110,16 @@
         kind = composeCtx.mode;
         parentId = parent.id;
         rootId = parent.rootId || parent.id;
-        if (kind === "remix") parent.counts.remix += 1;
-        if (kind === "challenge") parent.counts.challenge += 1;
+        /* No local increment. The server derives remix_count and
+           challenge_count from the rows that actually exist, and a client
+           that adds one itself is claiming a remix the database may never
+           receive: queue the write offline and the card reads 1 while
+           Postgres says 0.
+
+           Removing it alone was not enough either: the card then sat at 0
+           while the database said 1, which is the same lie inverted. The
+           parent is refetched once the child lands, so the number on the
+           card is always one the server actually holds. */
         replaceCard(parent);
       }
     }
@@ -2108,7 +2194,11 @@
          fires, and by then it may already be the server's value: the
          lookup then matched nothing and the optimistic row was left
          pending forever, rendering as a ghost card beside the real one. */
-      onDone: function (row) { adoptServerRow(key, row); },
+      onDone: function (row) {
+        adoptServerRow(key, row);
+        /* The parent's derived counts moved when this child landed. */
+        if (row.parentId) refreshOne(row.parentId);
+      },
       onFail: function (out) { markFailed(key, out.error); }
     });
     BotoData.drain();
@@ -2118,6 +2208,22 @@
   /* The local id was a placeholder. Everything pointing at it has to move
      to the real one in the same breath, or a comment written while the
      post was in flight would be orphaned. */
+  /* Pulls one post's current state back from the server and repaints it.
+     Used after a write that changes a row this client does not own the
+     truth for, such as a remix bumping its parent's count. */
+  function refreshOne(genId) {
+    if (!genId || !liveOnline()) return;
+    BotoData.generation(genId).then(function (out) {
+      if (!out.ok || !out.data) return;
+      var idx = -1;
+      state.generations.forEach(function (g, i) { if (g.id === genId) idx = i; });
+      if (idx === -1) return;
+      state.generations[idx] = out.data;
+      persist();
+      replaceCard(out.data);
+    });
+  }
+
   function adoptServerRow(localId, row) {
     /* Drop the placeholder first, then insert the server row. Doing it in
        that order makes the outcome identical whether the local row is
@@ -2632,7 +2738,10 @@
          goes through these. Same path, whether the write was queued a
          second ago or a session ago. */
       BotoData.setJobHandler("generation",
-        function (row, job) { adoptServerRow(job.localId || job.key, row); },
+        function (row, job) {
+          adoptServerRow(job.localId || job.key, row);
+          if (row.parentId) refreshOne(row.parentId);
+        },
         function (out, job) { markFailed(job.localId || job.key, out.error); });
       BotoData.setJobHandler("comment",
         function (row, job) { adoptServerComment(job.localId || job.key, row); },

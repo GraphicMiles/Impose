@@ -715,6 +715,38 @@ test("a replaced row cannot be resurrected from disk", function () {
   ok(/retire\(localId\)/.test(view), "reconciliation retires the placeholder");
 });
 
+test("a deep link works on a browser that has never seen the post", function () {
+  /* Found in the pre-build audit: route() decided "this post does not
+     exist" from the local cache alone, so a shared link opened on a fresh
+     device denied a post that plainly existed. The reader had no way to
+     tell our ignorance from a deletion. */
+  var view = read("community.js");
+  ok(view.indexOf("function hydrateDetail") !== -1,
+    "an unknown id is fetched before it is declared missing");
+  ok(view.indexOf("function hydrateThread") !== -1,
+    "and its comments are fetched, not assumed to be cached");
+  ok(view.indexOf("function renderDetailLoading") !== -1,
+    "with a loading state, because a blank panel reads as broken");
+  ok(/location\.hash !== "#\/g\/" \+ id/.test(view),
+    "a late response for a page the reader has left is discarded");
+  ok(/c\.genId !== genId \|\| c\.pending/.test(view),
+    "merging the server thread keeps queued local comments");
+});
+
+test("lineage counts come from the server, never from the client", function () {
+  /* Also from the audit: counts.remix += 1 survived the cutover. Queue a
+     remix offline and the card read 1 while Postgres said 0. Removing the
+     increment alone inverted the lie, so the parent is refetched once the
+     child lands. */
+  var view = read("community.js");
+  ok(view.indexOf("counts.remix +=") === -1 && view.indexOf("counts.challenge +=") === -1,
+    "no client-side lineage increment");
+  ok(view.indexOf("function refreshOne") !== -1,
+    "the parent is refetched after a child is written");
+  ok((view.match(/refreshOne\(row\.parentId\)/g) || []).length === 2,
+    "on both the fresh write path and the one resumed after a reload");
+});
+
 test("one module owns the server, so a swap is not twenty-one edits", function () {
   /* community.js renders. It asks community-data.js for data and never
      touches the SDK itself, which is the difference between changing a
@@ -872,8 +904,13 @@ test("the community top fade has no hard edge", function () {
 test("an unanswered post invites, it does not show an empty thread", function () {
   /* X-style: zero comments is not a list with nothing in it. No heading
      counting to zero, no composer sitting open demanding input. */
-  var r = communityJs.indexOf("function renderDetail");
-  var body = communityJs.slice(r, r + 3000);
+  /* Anchored on the thread section rather than on renderDetail: helpers
+     were later added between the two and a fixed-size window from the
+     function name stopped reaching the markup it was meant to check. A
+     slice that silently drifts off its target passes for the wrong
+     reason, which is worse than failing. */
+  var r = communityJs.indexOf("section.innerHTML = comments.length");
+  var body = communityJs.slice(r - 600, r + 2400);
   ok(body.indexOf("comments.length\n      ? '<div class=\"comments-title\">") !== -1 ||
      /comments\.length[\s\S]{0,40}comments-title/.test(body),
     "the DISCUSSION heading is conditional on there being a discussion");

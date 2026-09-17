@@ -1306,3 +1306,18 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .gen-pending { background: var(--bg-2); color: var(--text-3); }
 .cm-scope .gen-pending .lucide { width: 12px; height: 12px; }
 .cm-scope .gen-failed { background: var(--danger-soft); color: var(--danger); }
+
+/* Detail page while its post is being fetched. A deep link often arrives
+   on a browser with an empty cache, and a blank panel reads as broken
+   rather than pending. */
+.cm-scope .detail-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 64px 24px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.cm-scope .detail-loading p { margin: 0; max-width: 34ch; line-height: 1.5; }
