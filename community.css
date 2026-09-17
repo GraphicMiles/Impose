@@ -858,30 +858,58 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .comment-reply-btn:active { transform: scale(0.95); background: var(--press); }
 
-/* Reply count chip: never its own row, always beside Reply. Tapping reveals
-   the comment's tree; the lit state means its replies are currently shown. */
+/* The sub-thread disclosure. Deliberately NOT a second button-looking
+   control next to Reply: no icon, no chip, just a quiet link-weight toggle
+   that names its own state, so the row has one obvious action (Reply) and
+   one obvious disclosure. */
 
-.cm-scope .comment-replies-btn {
+.cm-scope .comment-thread-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  min-height: 34px;
   padding: 4px 8px;
   border-radius: var(--r-2);
   font-size: 13px;
-  font-weight: 600;
-  color: var(--link);
+  font-weight: 500;
+  color: var(--text-3);
+  transition: background-color 140ms ease, color 140ms ease, transform 160ms var(--ease-out);
+}
+
+.cm-scope .comment-thread-toggle:active { transform: scale(0.97); }
+
+@media (hover: hover) {
+  .cm-scope .comment-thread-toggle:hover { background: var(--hover); color: var(--text); }
+}
+
+.cm-scope .comment-thread-toggle[aria-expanded="true"] { color: var(--text-2); }
+
+/* Pushes the kebab to the far edge, away from the actions the user taps to
+   read. */
+.cm-scope .comment-ops-end { margin-left: auto; }
+
+.cm-scope .comment-kebab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-2);
+  color: var(--text-3);
   transition: background-color 140ms ease, color 140ms ease;
 }
 
-.cm-scope .comment-replies-btn { transition: background-color 140ms ease, color 140ms ease, transform 160ms var(--ease-out); }
-.cm-scope .comment-replies-btn:active { transform: scale(0.95); }
-.cm-scope .comment-replies-btn .lucide { width: 14px; height: 14px; }
-
-.cm-scope .comment-replies-btn[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.cm-scope .comment-kebab .lucide,
+.cm-scope .comment-kebab i[data-lucide] { width: 16px; height: 16px; }
 
 @media (hover: hover) {
-.cm-scope .comment-replies-btn:hover { background: var(--hover); color: var(--text); }
+  .cm-scope .comment-kebab:hover { background: var(--hover); color: var(--text); }
 }
+
+.cm-scope .comment-kebab[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+
+/* The menu is mounted on body, so it is outside .cm-scope and must not be
+   scoped here. Only the width differs from the app's standard popover. */
+.comment-menu { min-width: 170px; }
 
 /* ---------- composer (the workspace composer, ported) ---------- */
 
@@ -1139,31 +1167,6 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .gen-act-danger:focus-visible {
   color: var(--danger);
   border-color: var(--danger);
-}
-
-.cm-scope .comment-del-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: none;
-  border: none;
-  padding: 4px 6px;
-  border-radius: 6px;
-  color: var(--text-3);
-  font-size: 12px;
-  cursor: pointer;
-  transition: color 140ms ease, background 140ms ease;
-}
-
-.cm-scope .comment-del-btn:hover,
-.cm-scope .comment-del-btn:focus-visible {
-  color: var(--danger);
-  background: var(--hover);
-}
-
-.cm-scope .comment-del-btn i {
-  width: 13px;
-  height: 13px;
 }
 
 /* Tombstone row: same box as a live comment so the rails and elbow still

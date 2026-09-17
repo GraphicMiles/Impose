@@ -582,38 +582,39 @@ test("a generation page shows no second, higher-level navigation", function () {
     "the back header is now the top chrome, so it owns the notch inset");
 });
 
-test("reading replies never hijacks the composer", function () {
-  /* The regression this replaces: the count chip also carried data-reply, so
-     opening a thread to READ aimed the composer at a comment the user never
-     chose to answer and shoved a reply bar in their face. Reading and
-     writing are separate intents; one tap must never mean both. */
+test("a comment row has one reply action and no exposed delete", function () {
+  /* Two controls that both look like reply ("Reply" beside a "2 replies"
+     chip) read as the same action twice. And delete does not belong in a
+     row the user taps to move around the thread. */
   var i = communityJs.indexOf('class="comment-ops"');
-  var ops = communityJs.slice(i, communityJs.indexOf("comment-del-btn", i));
-  /* Isolate the chip's own attribute expression: it must choose expand OR
-     reply, never emit both onto the one element. */
-  var chip = ops.slice(ops.indexOf("'<button class=\"comment-reply-btn'"));
-  chip = chip.slice(0, chip.indexOf("</button>"));
-  ok(/\? 'data-expand="/.test(chip) && /: 'data-reply="/.test(chip),
-    "the chip picks one intent by kidCount, it does not carry both");
-  ok(chip.indexOf('data-expand="' + "' + c.id + '" + '" aria-expanded') !== -1,
-    "with replies it expands");
+  var ops = communityJs.slice(i, communityJs.indexOf('"</div>" +', i));
+  ok((ops.match(/data-reply="/g) || []).length === 1, "exactly one reply control");
+  ok(ops.indexOf("comment-thread-toggle") !== -1,
+    "the reply count is a disclosure toggle, not a second button");
+  ok(ops.indexOf('"Hide replies"') !== -1, "and it names its own state");
+  ok(ops.indexOf("comment-del-btn") === -1, "delete is not in the row");
+  ok(ops.indexOf("data-cmenu") !== -1, "it sits behind a kebab instead");
+});
+
+test("reading replies never hijacks the composer", function () {
+  /* Expanding is a read: it must not aim the composer at a comment the
+     user never chose to answer. */
   var h = communityJs.indexOf('e.target.closest("[data-expand]")');
   var handler = communityJs.slice(h, h + 1200);
-  ok(handler.indexOf("hasAttribute(\"data-reply\")") === -1,
+  ok(handler.indexOf('hasAttribute("data-reply")') === -1,
     "the expand branch must not fall through into the reply branch");
   ok(/renderThread\(gen, listEl\);\s*return;/.test(handler),
     "expanding renders and returns, full stop");
 });
 
-test("a comment with replies still offers a reply, once opened", function () {
-  /* Removing the fusion must not strand the user: answering a parent stays
-     reachable, just not forced on them while they are only reading. */
-  var i = communityJs.indexOf('class="comment-ops"');
-  var ops = communityJs.slice(i, communityJs.indexOf("comment-del-btn", i));
-  ok(ops.indexOf("kidCount > 0 && expandedThreads.has(c.id)") !== -1,
-    "an open parent gets a trailing Reply");
-  ok(ops.indexOf('data-reply="' + "' + c.id + '" + '"') !== -1,
-    "and it aims at that comment");
+test("the comment kebab menu cannot outlive what it points at", function () {
+  ok(communityJs.indexOf("function openCommentMenu") !== -1, "the menu exists");
+  ok(communityJs.indexOf("commentMenuEl.className = \"pop pop-sm comment-menu\"") !== -1,
+    "it reuses the app's popover styling rather than inventing one");
+  var r = communityJs.indexOf("function renderThread");
+  ok(communityJs.slice(r, r + 400).indexOf("closeCommentMenu()") !== -1,
+    "a thread repaint replaces the kebab, so the floating menu must close with it");
+  ok(communityJs.indexOf('e.key === "Escape" && commentMenuFor') !== -1, "Escape dismisses");
 });
 
 test("expanding moves the whole subtree it reveals", function () {

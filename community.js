@@ -1265,6 +1265,84 @@
     wireCommentBox(gen, listEl);
   }
 
+  /* ---------- per-comment kebab menu ----------
+     Delete is destructive and permanent-looking, so it does not sit in the
+     row the reader taps to move around the thread. It lives one level down,
+     behind the kebab, reusing the app's .pop popover styling.
+
+     One menu element is reused for every comment rather than rendering a
+     menu per row: the thread re-renders constantly and a menu owned by a
+     row would be destroyed underneath the user mid-interaction. */
+  var commentMenuEl = null;
+  var commentMenuFor = null;
+  var commentMenuTrigger = null;
+
+  function closeCommentMenu() {
+    if (commentMenuTrigger) commentMenuTrigger.setAttribute("aria-expanded", "false");
+    if (commentMenuEl) { commentMenuEl.classList.remove("open"); commentMenuEl.hidden = true; }
+    commentMenuFor = null;
+    commentMenuTrigger = null;
+  }
+
+  function openCommentMenu(trigger, commentId) {
+    if (!commentMenuEl) {
+      commentMenuEl = document.createElement("div");
+      commentMenuEl.className = "pop pop-sm comment-menu";
+      commentMenuEl.setAttribute("role", "menu");
+      commentMenuEl.hidden = true;
+      /* The menu is mounted on body, outside the thread's delegated
+         listener, so it owns its own click handling. */
+      commentMenuEl.addEventListener("click", function (ev) {
+        var item = ev.target.closest("[data-del]");
+        if (!item) return;
+        var id = item.getAttribute("data-del");
+        closeCommentMenu();
+        if (replyingTo && replyingTo.id === id) clearReplyTarget(true);
+        deleteComment(id);
+      });
+      document.body.appendChild(commentMenuEl);
+    }
+    /* Tapping the same kebab again closes it. */
+    if (commentMenuFor === commentId && !commentMenuEl.hidden) { closeCommentMenu(); return; }
+    closeCommentMenu();
+
+    commentMenuFor = commentId;
+    commentMenuTrigger = trigger;
+    trigger.setAttribute("aria-expanded", "true");
+    commentMenuEl.innerHTML =
+      '<button class="pop-item danger" role="menuitem" data-del="' + commentId + '">' +
+        '<i data-lucide="trash-2"></i><span>Delete</span>' +
+      "</button>";
+    commentMenuEl.hidden = false;
+    refreshIcons();
+
+    /* Anchor to the kebab, flipping up or left when the viewport would clip
+       it. position:fixed, so these are viewport coordinates. */
+    var r = trigger.getBoundingClientRect();
+    var mw = commentMenuEl.offsetWidth || 190;
+    var mh = commentMenuEl.offsetHeight || 44;
+    var left = Math.min(r.right - mw, window.innerWidth - mw - 8);
+    var top = r.bottom + 6;
+    if (top + mh > window.innerHeight - 8) top = r.top - mh - 6;
+    commentMenuEl.style.left = Math.max(8, left) + "px";
+    commentMenuEl.style.top = Math.max(8, top) + "px";
+    commentMenuEl.style.setProperty("--origin", "top right");
+    /* Next frame so the transition runs from the collapsed state. */
+    requestAnimationFrame(function () { commentMenuEl.classList.add("open"); });
+  }
+
+  /* Any tap outside, any scroll, or Escape dismisses it. Capture phase so a
+     re-render cannot swallow the event first. */
+  document.addEventListener("click", function (e) {
+    if (!commentMenuFor) return;
+    if (e.target.closest(".comment-menu") || e.target.closest("[data-cmenu]")) return;
+    closeCommentMenu();
+  }, true);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && commentMenuFor) closeCommentMenu();
+  });
+  window.addEventListener("scroll", function () { if (commentMenuFor) closeCommentMenu(); }, true);
+
   /* Which comment the composer is currently replying to; replies highlight
      their branch while it is targeted. Per page load, no persistence. */
   var replyingTo = null;
@@ -1343,40 +1421,36 @@
               esc(c.text) +
             "</p>" +
             '<div class="comment-ops">' +
-              /* ONE control per comment, but reading and writing are not the
-                 same intent and must never be fused. An earlier version made
-                 the count chip also aim the composer, so opening a thread to
-                 READ shoved a reply bar in the user's face and silently
-                 targeted a comment they never chose to answer.
+              /* Row grammar, fixed. There is exactly ONE reply control per
+                 comment and it always says Reply, so a row never shows two
+                 things that look like the same action. The reply count is
+                 not a button competing with it: it is the disclosure for the
+                 sub-thread, styled as a quiet toggle, and it reads
+                 "2 replies" / "Hide replies" so its job is obvious.
 
-                 So: when a comment has replies the button's job is to open
-                 them, and nothing else. Replying to that comment is offered
-                 once its thread is open, as a quiet trailing action inside
-                 the branch it belongs to. A childless comment has nothing to
-                 open, so its single button is Reply. Exactly one button
-                 either way, and a tap never means two things. */
-              '<button class="comment-reply-btn' + (kidCount > 0 ? " comment-reply-btn--thread" : "") +
-                '" ' +
-                (kidCount > 0
-                  ? 'data-expand="' + c.id + '" aria-expanded="' + String(expandedThreads.has(c.id)) + '"'
-                  : 'data-reply="' + c.id + '"') + ">" +
-                (kidCount > 0
-                  ? '<i data-lucide="message-square"></i><span>' + kidCount + (kidCount === 1 ? " reply" : " replies") + "</span>"
-                  : '<i data-lucide="corner-down-right"></i><span>Reply</span>') +
+                 Destructive actions do not sit in a row the user taps to
+                 read. Delete lives behind the kebab, one level down, where
+                 it cannot be hit by accident. */
+              '<button class="comment-reply-btn" data-reply="' + c.id + '">' +
+                '<i data-lucide="corner-down-right"></i><span>Reply</span>' +
               "</button>" +
-              /* Answering a comment that has replies is offered only once its
-                 thread is open. Collapsed, the row is for reading and shows
-                 one button; open, the user is already inside the branch and
-                 a reply is a natural next step rather than an interruption. */
-              (kidCount > 0 && expandedThreads.has(c.id)
-                ? '<button class="comment-reply-btn" data-reply="' + c.id + '">' +
-                    '<i data-lucide="corner-down-right"></i><span>Reply</span>' +
+              (kidCount > 0
+                ? '<button class="comment-thread-toggle" data-expand="' + c.id +
+                    '" aria-expanded="' + String(expandedThreads.has(c.id)) + '">' +
+                    "<span>" +
+                      (expandedThreads.has(c.id)
+                        ? "Hide replies"
+                        : kidCount + (kidCount === 1 ? " reply" : " replies")) +
+                    "</span>" +
                   "</button>"
                 : "") +
               (c.own
-                ? '<button class="comment-del-btn" data-del="' + c.id + '" aria-label="Delete comment" title="Delete comment">' +
-                    '<i data-lucide="trash-2"></i><span>Delete</span>' +
-                  "</button>"
+                ? '<span class="comment-ops-end">' +
+                    '<button class="comment-kebab" data-cmenu="' + c.id +
+                      '" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">' +
+                      '<i data-lucide="ellipsis"></i>' +
+                    "</button>" +
+                  "</span>"
                 : "") +
             "</div>" +
           "</div>" +
@@ -1445,6 +1519,9 @@
   function renderThread(gen, listEl) {
     if (!listEl) listEl = $("cmCommentList");
     if (!listEl) return;
+    /* The kebab that anchors the menu is about to be replaced, so a menu
+       left open would float detached next to nothing. */
+    closeCommentMenu();
     var comments = commentsFor(gen.id);
     listEl.innerHTML = "";
     if (comments.length === 0) {
@@ -1512,11 +1589,18 @@
         renderThread(gen, listEl);
         return;
       }
+      /* Kebab: opens the one-item menu that owns Delete. */
+      var kebab = e.target.closest("[data-cmenu]");
+      if (kebab) {
+        openCommentMenu(kebab, kebab.getAttribute("data-cmenu"));
+        return;
+      }
       var delBtn = e.target.closest("[data-del]");
       if (delBtn) {
         /* If the composer is aimed at the comment being deleted, drop the
            target first: replying to a tombstone is not a real state. */
         var delId = delBtn.getAttribute("data-del");
+        closeCommentMenu();
         if (replyingTo && replyingTo.id === delId) clearReply();
         deleteComment(delId);
         return;
