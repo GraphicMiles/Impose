@@ -2833,39 +2833,19 @@ body.community-mode .backdrop { display: none !important; }
 
 
 /* ==========================================================================
-   Single-row header: the Community | Workspace switch used to stack as a
-   second row under the topbar, doubling the header height. It now sits
-   centered inside the 60px topbar row; pointer-events pass through the bar
-   itself so side buttons stay tappable even on tight widths. The divider
-   that used to live under the modebar moves up to the topbar edge.
+   Header layout: the Community | Workspace switch keeps its own slim row
+   under the topbar. Centering it inside the 60px topbar was tried and
+   reverted: the switch is ~200px wide and the side clusters ~130px each,
+   so on phones it collided with the model button and clipped the "Demo"
+   label (and blocked those buttons' taps). The base .modebar rule at the
+   top of this file owns the layout; nothing overrides it.
    ========================================================================== */
 
-.topbar { position: relative; border-bottom: 1px solid var(--border-soft); }
-
-.modebar {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  height: 60px;
-  /* Center the switch vertically: without this the default flex stretch
-     grows the segmented control to the full 60px header height. */
-  align-items: center;
-  padding: 0;
-  border-bottom: none;
-  background: transparent;
-  pointer-events: none;
-}
-.modebar .modeseg { pointer-events: auto; }
-
-/* Narrow widths: keep the workspace side clusters clear of the switch. */
-@media (max-width: 560px) {
-  #shareBtn span { display: none; }
-  #shareBtn { padding: 0 8px; }
-  #modelBtn { max-width: 96px; }
-  #modelName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .modeseg-tab { padding: 6px 10px; }
-}
+/* Fixed overlay offsets (new posts pill, pull to refresh): the header is
+   topbar (60px) + modebar (~41px), so both overlays park just under it.
+   They must follow the base rules above or the cascade drops them. */
+.cm-scope .new-posts-pill { top: 110px; }
+.cm-scope .pull-refresh { top: 106px; }
 
 </style>
 <style>
@@ -12142,6 +12122,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   /* ---------- composer ---------- */
 
   function autogrow() {
+    /* A textarea inside a hidden subtree measures scrollHeight 0, so growing
+       here would pin a 0px inline height (the squashed single-row composer
+       after switching tabs). Leave the natural height until it can be
+       measured; mode switches and input events re-run this once visible. */
+    if (!input.getClientRects().length) { input.style.height = ""; return; }
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 200) + "px";
   }
@@ -14114,6 +14099,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   window.addEventListener("resize", function () {
     if (openPop) hidePop(true);
+    /* Rotations and mode switches change whether/how the composer measures;
+       the guard inside autogrow keeps this safe while hidden. */
+    autogrow();
   });
 
   /* ---------- conversation memory ---------- */
@@ -15018,6 +15006,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     $("wsContent").hidden = isCommunity;
     $("cmMain").hidden = !isCommunity;
     setModeTab(!isCommunity);
+    /* The newly shown composer may carry a stale inline height from time
+       spent hidden (no input events fire then). A synthetic input event
+       reruns its own autogrow + send sync once it can be measured. */
+    var shownInput = isCommunity ? $("cmInput") : $("input");
+    if (shownInput && shownInput.value) shownInput.dispatchEvent(new Event("input"));
   }
 
   function route() {
@@ -15665,6 +15658,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   var composeCtx = null; /* { mode: "remix" | "challenge", parentId } */
 
   function autogrow(textarea) {
+    /* Same guard as the workspace composer: a hidden textarea measures 0 and
+       would get pinned to a 0px inline height. Leave the natural height. */
+    if (!textarea.getClientRects().length) { textarea.style.height = ""; return; }
     textarea.style.height = "auto";
     textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
   }
@@ -15933,6 +15929,8 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
     window.addEventListener("resize", function () {
       moveGlide(currentMode() === "workspace" ? $("cmTabWorkspace") : $("cmTabCommunity"));
+      var cmInput = $("cmInput");
+      if (cmInput) autogrow(cmInput);
     });
   }
 

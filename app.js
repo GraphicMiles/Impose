@@ -5531,6 +5531,11 @@
   /* ---------- composer ---------- */
 
   function autogrow() {
+    /* A textarea inside a hidden subtree measures scrollHeight 0, so growing
+       here would pin a 0px inline height (the squashed single-row composer
+       after switching tabs). Leave the natural height until it can be
+       measured; mode switches and input events re-run this once visible. */
+    if (!input.getClientRects().length) { input.style.height = ""; return; }
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 200) + "px";
   }
@@ -7503,6 +7508,9 @@
 
   window.addEventListener("resize", function () {
     if (openPop) hidePop(true);
+    /* Rotations and mode switches change whether/how the composer measures;
+       the guard inside autogrow keeps this safe while hidden. */
+    autogrow();
   });
 
   /* ---------- conversation memory ---------- */

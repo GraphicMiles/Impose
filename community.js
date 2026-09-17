@@ -401,6 +401,11 @@
     $("wsContent").hidden = isCommunity;
     $("cmMain").hidden = !isCommunity;
     setModeTab(!isCommunity);
+    /* The newly shown composer may carry a stale inline height from time
+       spent hidden (no input events fire then). A synthetic input event
+       reruns its own autogrow + send sync once it can be measured. */
+    var shownInput = isCommunity ? $("cmInput") : $("input");
+    if (shownInput && shownInput.value) shownInput.dispatchEvent(new Event("input"));
   }
 
   function route() {
@@ -1048,6 +1053,9 @@
   var composeCtx = null; /* { mode: "remix" | "challenge", parentId } */
 
   function autogrow(textarea) {
+    /* Same guard as the workspace composer: a hidden textarea measures 0 and
+       would get pinned to a 0px inline height. Leave the natural height. */
+    if (!textarea.getClientRects().length) { textarea.style.height = ""; return; }
     textarea.style.height = "auto";
     textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
   }
@@ -1316,6 +1324,8 @@
     });
     window.addEventListener("resize", function () {
       moveGlide(currentMode() === "workspace" ? $("cmTabWorkspace") : $("cmTabCommunity"));
+      var cmInput = $("cmInput");
+      if (cmInput) autogrow(cmInput);
     });
   }
 

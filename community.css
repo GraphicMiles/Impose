@@ -798,36 +798,16 @@ body.community-mode .backdrop { display: none !important; }
 
 
 /* ==========================================================================
-   Single-row header: the Community | Workspace switch used to stack as a
-   second row under the topbar, doubling the header height. It now sits
-   centered inside the 60px topbar row; pointer-events pass through the bar
-   itself so side buttons stay tappable even on tight widths. The divider
-   that used to live under the modebar moves up to the topbar edge.
+   Header layout: the Community | Workspace switch keeps its own slim row
+   under the topbar. Centering it inside the 60px topbar was tried and
+   reverted: the switch is ~200px wide and the side clusters ~130px each,
+   so on phones it collided with the model button and clipped the "Demo"
+   label (and blocked those buttons' taps). The base .modebar rule at the
+   top of this file owns the layout; nothing overrides it.
    ========================================================================== */
 
-.topbar { position: relative; border-bottom: 1px solid var(--border-soft); }
-
-.modebar {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  height: 60px;
-  /* Center the switch vertically: without this the default flex stretch
-     grows the segmented control to the full 60px header height. */
-  align-items: center;
-  padding: 0;
-  border-bottom: none;
-  background: transparent;
-  pointer-events: none;
-}
-.modebar .modeseg { pointer-events: auto; }
-
-/* Narrow widths: keep the workspace side clusters clear of the switch. */
-@media (max-width: 560px) {
-  #shareBtn span { display: none; }
-  #shareBtn { padding: 0 8px; }
-  #modelBtn { max-width: 96px; }
-  #modelName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .modeseg-tab { padding: 6px 10px; }
-}
+/* Fixed overlay offsets (new posts pill, pull to refresh): the header is
+   topbar (60px) + modebar (~41px), so both overlays park just under it.
+   They must follow the base rules above or the cascade drops them. */
+.cm-scope .new-posts-pill { top: 110px; }
+.cm-scope .pull-refresh { top: 106px; }
