@@ -106,6 +106,29 @@ async def _lifespan(_app):
             print(f"[relay] gateway: {GATEWAY_URL or 'UNSET'} | "
                   f"auth: {'enabled' if CONTROL_KEY else 'DISABLED'} | "
                   f"wake_studio: {WAKE_STUDIO}", flush=True)
+
+            # Accounts need three things and silently refuse without them.
+            # A user found this by filling in a signup form and getting
+            # "accounts are not configured on the server", which is a
+            # deployment gap discovered in the worst possible place. Say it
+            # at boot, in the logs, where it is cheap to notice and name
+            # exactly which variable is missing.
+            missing = [name for name in
+                       ("SUPABASE_URL", "SUPABASE_SERVICE_KEY", "OTP_PEPPER")
+                       if not os.environ.get(name, "").strip()]
+            if missing:
+                print("[relay] ACCOUNTS DISABLED, missing: " + ", ".join(missing) +
+                      " -- signup, sign-in and password reset will answer 503"
+                      " until these are set.", flush=True)
+            elif not (os.environ.get("SENDLIB_API_KEY", "").strip()
+                      and os.environ.get("SENDLIB_FROM", "").strip()):
+                # Both are needed together; one alone falls back to console
+                # mode, which looks like it works and emails nobody.
+                print("[relay] accounts ON, but SENDLIB_API_KEY/SENDLIB_FROM are"
+                      " incomplete: codes will be printed to this log, not"
+                      " emailed.", flush=True)
+            else:
+                print("[relay] accounts: ready", flush=True)
             if IDLE_MONITOR and WAKE_STUDIO:
                 threading.Thread(target=_idle_loop, daemon=True).start()
                 print(f"[relay] idle monitor every {IDLE_CHECK_MINUTES}m "

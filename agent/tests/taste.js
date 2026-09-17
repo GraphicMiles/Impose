@@ -620,6 +620,32 @@ test("reading replies never hijacks the composer", function () {
     "expanding renders and returns, full stop");
 });
 
+test("a server misconfiguration is not shown to the user as their problem", function () {
+  /* Reported from production: signing up answered 503 "accounts are not
+     configured on the server", and that string was rendered verbatim
+     under the email field. True, unactionable, and it reads as though the
+     person typed something wrong. text.txt 10. */
+  var client = read("auth-client.js");
+  ok(client.indexOf("function humanizeRelay") !== -1,
+    "relay detail strings are translated before they reach a form");
+  ok(/new Error\(humanizeRelay\(res\.status, data\.detail\)\)/.test(client),
+    "and the translation is actually on the path, not merely defined");
+  ok(/on us, not you/.test(client),
+    "a deployment gap is named as ours, so nobody retypes a correct password");
+  ok(/err\.detail = data\.detail/.test(client),
+    "and the original text is kept on the error for the debug log");
+
+  /* The deeper fix: the relay should say this at boot, not leave it to be
+     discovered by someone filling in a form. */
+  var server = read("backend/relay/server.py");
+  ok(server.indexOf("ACCOUNTS DISABLED, missing:") !== -1,
+    "the relay names the missing variables at startup");
+  ok(/SUPABASE_URL", "SUPABASE_SERVICE_KEY", "OTP_PEPPER"/.test(server),
+    "all three that accounts depend on");
+  ok(server.indexOf("codes will be printed to this log, not") !== -1,
+    "and warns when Sendlib is half configured, which silently emails nobody");
+});
+
 test("the service worker version tracks the files it caches", function () {
   /* The debug panel fix shipped correct and invisible: the origin served
      the new app.js and styles.css, and every returning visitor kept the
@@ -633,11 +659,21 @@ test("the service worker version tracks the files it caches", function () {
   var m = sw.match(/var CACHE = "impose-shell-v(\d+)"/);
   ok(!!m, "the cache name carries a version");
 
+  /* Derived from sw.js rather than hand-listed. A hand-written list covered
+     8 of the 31 code assets the worker actually precaches, so a change to
+     auth-client.js or public.js would have shipped behind a stale cache
+     exactly like the debug panel did. The list that matters is the one the
+     worker uses. */
   var crypto = require("crypto");
-  var watched = ["app.js", "community.js", "community-data.js", "debug-bus.js",
-                 "styles.css", "community.css", "ui-core.js", "index.html"];
+  var watched = (sw.match(/"\.\/[A-Za-z0-9._/-]+\.(?:js|css|html)"/g) || [])
+    .map(function (m) { return m.slice(3, -1); })
+    .filter(function (f) { return f.indexOf(".min.") === -1; })
+    .sort()
+    .filter(function (f, i, a) { return a.indexOf(f) === i; });
+  ok(watched.length > 20, "the fingerprint covers the whole precache list, not a sample");
+
   var h = crypto.createHash("sha256");
-  watched.forEach(function (f) { h.update(read(f)); });
+  watched.forEach(function (f) { if (exists(f)) h.update(read(f)); });
   var digest = h.digest("hex").slice(0, 12);
 
   var stamp = sw.match(/precache-fingerprint: ([0-9a-f]{12})/);

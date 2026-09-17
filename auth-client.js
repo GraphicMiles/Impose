@@ -75,6 +75,42 @@
     return raw;
   }
 
+  /* The relay's detail strings are written for whoever reads the logs, not
+     for the person staring at a signup form. "accounts are not configured
+     on the server" is true, unactionable, and reads as though the user did
+     something wrong.
+
+     text.txt 10: say what happened and what to do next, and keep the
+     technical wording in the log where the debug panel already records it. */
+  function humanizeRelay(status, detail) {
+    var d = String(detail || "").toLowerCase();
+
+    if (status === 503 || d.indexOf("not configured") !== -1) {
+      /* A deployment gap, not a user error. Naming it as ours stops
+         someone retyping a correct password five times. */
+      return "Accounts are not switched on yet. This is on us, not you. " +
+             "Try again shortly.";
+    }
+    if (status === 502 || d.indexOf("could not send") !== -1) {
+      return "We could not send the email just now. Try again in a moment.";
+    }
+    if (status === 429) {
+      return "Too many attempts. Wait a minute and try again.";
+    }
+    if (status === 409 || d.indexOf("already has an account") !== -1) {
+      return "That address already has an account. Try signing in.";
+    }
+    if (d.indexOf("no longer available") !== -1 || d.indexOf("expired") !== -1) {
+      return detail;
+    }
+    if (status >= 500) {
+      return "Something went wrong on our side. Try again in a moment.";
+    }
+    /* 4xx that is genuinely about the input: the relay already words
+       those for a person. */
+    return detail || "That did not work. Try again.";
+  }
+
   function postJson(path, body) {
     var base = relayBase();
     if (!base) return Promise.reject(new Error("Verification is not configured yet."));
@@ -85,8 +121,9 @@
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (!res.ok) {
-          var err = new Error(data.detail || "That did not work. Try again.");
+          var err = new Error(humanizeRelay(res.status, data.detail));
           err.status = res.status;
+          err.detail = data.detail || "";
           throw err;
         }
         return data;
