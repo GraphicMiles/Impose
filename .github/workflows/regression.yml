@@ -28,6 +28,7 @@ jobs:
           node agent/tests/lifecycle.js
           node agent/tests/orchestrator.js
           node agent/tests/audit-regressions.js
+          node agent/tests/taste.js
       - name: Relay contract suites
         run: PYTHONPATH=backend python3 -m pytest backend -q
       - name: Audit scenario matrix (6360 scenarios)

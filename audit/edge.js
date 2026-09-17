@@ -1,4 +1,4 @@
-/* Category: edge — 5000 seeded edge-case prompts, ambiguous follow-ups,
+/* Category: edge, 5000 seeded edge-case prompts, ambiguous follow-ups,
    unforeseen requests, hostile interpreter outputs, execution failures and
    persistence corruption, driven through the real orchestrator primitives.
    Deterministic: same seed, same 5000 scenarios, same verdicts. */

@@ -3,7 +3,7 @@
    renders the gate, but the grant itself is authoritative server-side: the
    workspace_grants table is RLS-protected and every future workspace-bound
    API call re-checks ownership/access on the server. This module can never
-   be the security boundary — only the UX for it (system-design rule: the
+   be the security boundary, only the UX for it (system-design rule: the
    client is untrusted).
 
    Talks to Supabase over plain REST (PostgREST + GoTrue): no SDK, matching

@@ -6,19 +6,21 @@
 <title>Data & Security · Botocracy</title>
 <meta name="description" content="A technical overview of where Botocracy data is stored, when it leaves the browser, and available security controls.">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#212121">
+<meta name="theme-color" content="#202124">
 <link rel="canonical" href="https://impose-web.onrender.com/data-security">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="stylesheet" href="./fonts.css">
 <link rel="stylesheet" href="./public.css">
 </head>
 <body data-page="data-security">
+<a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header"><div class="header-inner">
 <a class="site-brand" href="./index.html"><img src="./icon-192.png" alt="" width="31" height="31"><span>Botocracy</span></a>
 <nav class="desktop-nav" aria-label="Main navigation"><a class="nav-link" href="./about">About</a><a class="nav-link" href="./privacy">Privacy</a><a class="nav-link" href="./terms">Terms</a><a class="nav-link" href="./data-security" aria-current="page">Data & Security</a></nav>
 <a class="header-cta" href="./index.html"><i data-lucide="message-square"></i><span>Open app</span></a>
 <button class="menu-btn" id="menuBtn" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="mobileNav"><i data-lucide="menu"></i></button>
 </div><nav class="mobile-nav" id="mobileNav" aria-label="Mobile navigation" hidden><a class="nav-link" href="./about">About</a><a class="nav-link" href="./privacy">Privacy</a><a class="nav-link" href="./terms">Terms</a><a class="nav-link" href="./data-security" aria-current="page">Data & Security</a><a class="nav-link" href="./contact">Contact</a><a class="nav-link" href="./acceptable-use">Acceptable Use</a></nav></header>
-<main class="public-main">
+<main class="public-main" id="main">
 <section class="page-hero"><p class="page-kicker">Trust center</p><h1>Know where your data goes.</h1><p class="lede">Botocracy is local-first, not local-only. This page maps browser storage, direct providers, relay tools, analytics, exports, and the controls attached to each path.</p><p class="page-meta"><span>Last reviewed 14 September 2026</span></p></section>
 <div class="content-layout"><aside class="toc" aria-label="On this page"><p class="toc-label">On this page</p><a href="#map">Data map</a><a href="#browser">Browser storage</a><a href="#providers">Model providers</a><a href="#relay">Relay and search</a><a href="#analytics">Analytics and hosting</a><a href="#exports">Exports</a><a href="#controls">Controls</a><a href="#limits">Security limits</a></aside><article class="prose">
 <section id="map"><h2>Data-flow summary</h2><table class="data-table"><thead><tr><th>Feature</th><th>Where data goes</th><th>Typical data</th></tr></thead><tbody><tr><td>Local workspace</td><td>Your browser storage</td><td>Chats, settings, keys, prompts, memories, queues</td></tr><tr><td>Direct model request</td><td>Your selected provider</td><td>Prompt, relevant history, instructions, attachments, provider key</td></tr><tr><td>Relay model request</td><td>Configured relay, then provider or gateway</td><td>Destination, headers and credentials, request body, response</td></tr><tr><td>Web and image search</td><td>Botocracy relay, then search sources</td><td>Query, IP rate-limit data, returned results</td></tr><tr><td>Page reading</td><td>Botocracy relay, then requested site</td><td>URL and extracted page content</td></tr><tr><td>Site analytics</td><td>Cloudflare and hosting infrastructure</td><td>Technical request, device, page, performance, and security metadata</td></tr></tbody></table></section>

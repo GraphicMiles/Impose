@@ -2,10 +2,10 @@
 :root,
 html[data-theme="dark"] {
   --ease-out: cubic-bezier(.23, 1, .32, 1);
-  --bg: #212121;
-  --sidebar: #171717;
-  --surface: #2f2f2f;
-  --surface-2: #292929;
+  --bg: #202124;
+  --sidebar: #16171a;
+  --surface: #2b2c30;
+  --surface-2: #26272b;
   --text: #ececec;
   --text-2: #b6b6b6;
   --text-3: #8f8f8f;
@@ -17,6 +17,9 @@ html[data-theme="dark"] {
   --accent-fg: #0d0d0d;
   --ok: #7ee2a8;
   --warn: #e0a63f;
+  --danger: #f25656;
+  --font-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ease-spring: cubic-bezier(.34, 1.4, .64, 1);
 }
 * { -webkit-tap-highlight-color: rgba(0,0,0,0); }
 html { scroll-behavior: smooth; }
@@ -25,7 +28,7 @@ body {
   min-height: 100dvh;
   color: var(--text);
   background: var(--bg);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-ui);
   font-size: 15px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
@@ -83,7 +86,7 @@ i[data-lucide] { display: inline-flex; width: 20px; height: 20px; flex: none; }
 .data-table th, .data-table td { padding: 12px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border-soft); }
 .data-table th { color: var(--text); font-weight: 600; }
 .data-table td { color: var(--text-2); }
-.card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 56px 0 76px; }
+.card-grid { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 56px 0 76px; }
 .info-card { min-height: 190px; padding: 20px; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 14px; }
 .info-card > .lucide, .info-card > i[data-lucide] { width: 20px; height: 20px; color: var(--text-2); }
 .info-card h2, .info-card h3 { margin: 38px 0 7px; font-size: 16px; letter-spacing: -.015em; }
@@ -111,7 +114,6 @@ i[data-lucide] { display: inline-flex; width: 20px; height: 20px; flex: none; }
   .header-cta { margin-left: 0; }
   .content-layout { grid-template-columns: 1fr; gap: 0; }
   .toc { display: none; }
-  .card-grid { grid-template-columns: 1fr; }
   .info-card { min-height: 0; }
   .info-card h2, .info-card h3 { margin-top: 24px; }
 }
@@ -143,3 +145,130 @@ i[data-lucide] { display: inline-flex; width: 20px; height: 20px; flex: none; }
 .header-cta,
 .contact-action { border: 0; }
 .menu-btn { background: var(--hover); }
+
+/* ---------- taste pass ----------
+   Applied from the taste-skill redesign protocol against the audit it asks
+   for. Each rule below answers a specific finding, noted inline. Nothing
+   here changes markup semantics or behaviour: it is type, surface, state,
+   and layout only. */
+
+/* Finding: no skip link. Keyboard users had to tab the whole nav on every
+   legal page. The house rule bans focus rings, so this link is invisible
+   until focused and then becomes a real, visible control. */
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: 10px;
+  z-index: 40;
+  padding: 9px 13px;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-160%);
+  transition: transform 180ms var(--ease-out);
+}
+.skip-link:focus { transform: translateY(0); }
+
+/* Finding: only 400/600 in use, and headline tracking was uniform.
+   Display sizes get tighter tracking, small labels get positive tracking. */
+.page-hero h1 { text-wrap: balance; }
+.page-hero .lede { text-wrap: pretty; max-width: 62ch; }
+.prose p, .prose li { max-width: 68ch; }
+.prose h2 { font-weight: 650; }
+
+/* Finding: numbers in tables and meta rows rendered proportional, so
+   columns jittered between rows. */
+.data-table, .page-meta, .info-card .stat { font-variant-numeric: tabular-nums; }
+
+/* Finding: three equal card columns is the single most generic layout in
+   the audit. The grid is now asymmetric: the first card spans two columns
+   and leads, the other two sit beside it. It collapses to one column on
+   mobile exactly as before. */
+@media (min-width: 851px) {
+  .card-grid {
+    grid-template-columns: 1.55fr 1fr;
+    grid-auto-rows: 1fr;
+    gap: 14px;
+  }
+  /* The lead tile holds the full height of the column beside it, so the two
+     supporting cards stack against it and no row is left half empty. */
+  .card-grid > .info-card:first-child {
+    grid-row: span 2;
+    display: flex;
+    flex-direction: column;
+    padding: 26px;
+  }
+  /* The icon holds the top, the title and body sit together at the bottom.
+     Spreading all three apart left the title stranded in dead space. */
+  .card-grid > .info-card:first-child h2,
+  .card-grid > .info-card:first-child h3 {
+    margin: auto 0 8px;
+    font-size: 22px;
+    letter-spacing: -.028em;
+  }
+  .card-grid > .info-card:first-child p { font-size: 15px; max-width: 42ch; }
+  /* The supporting tiles are shorter than the lead, so their icon-to-title
+     gap closes up rather than inheriting the tall single-card rhythm. */
+  .card-grid > .info-card:not(:first-child) { min-height: 0; }
+  .card-grid > .info-card:not(:first-child) h2,
+  .card-grid > .info-card:not(:first-child) h3 { margin-top: 26px; }
+}
+
+/* Finding: cards were border plus fill plus uniform radius, with no state
+   at all. Radius now varies by nesting depth, and the surface responds. */
+.info-card,
+.contact-card { border-radius: 16px; transition: background-color 160ms ease, border-color 160ms ease; }
+@media (hover: hover) and (pointer: fine) {
+  .info-card:hover { background: var(--surface); border-color: var(--border); }
+}
+
+/* Finding: no pressed feedback on nav links, and no active-page cue in the
+   footer. Both are real navigation, so both get real states. */
+.nav-link:active { transform: scale(.97); }
+.nav-link { transition: color 140ms ease, background-color 140ms ease, transform 160ms var(--ease-out); }
+.footer-links a[aria-current="page"] { color: var(--text); }
+
+/* Finding: the table of contents had no indication of the section in view,
+   so on long legal pages the reader lost their place. public.js sets this. */
+.toc a[aria-current="true"] { color: var(--text); }
+
+/* Finding: flat sections with no depth. One ambient wash, tinted from the
+   page background rather than a purple AI gradient, sitting behind the
+   hero only. Cheap, static, no layout cost. */
+.page-hero {
+  position: relative;
+  isolation: isolate;
+}
+.page-hero::before {
+  content: "";
+  position: absolute;
+  inset: -20% -30% 0 -30%;
+  z-index: -1;
+  background: radial-gradient(60% 70% at 22% 0%, rgba(255, 255, 255, .055), transparent 70%);
+  pointer-events: none;
+}
+
+/* Finding: no 404 page existed at all, so a mistyped legal URL dead-ended
+   on the host's default page. The route now lands somewhere branded with a
+   way back (flow rule: no dead ends). */
+.notfound { padding: clamp(80px, 14vw, 160px) 0 clamp(70px, 10vw, 120px); }
+.notfound .code { margin: 0 0 14px; color: var(--text-3); font-size: 13px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
+.notfound h1 { max-width: 16ch; margin: 0; font-size: clamp(38px, 6.5vw, 64px); line-height: 1.02; letter-spacing: -.05em; font-weight: 600; text-wrap: balance; }
+.notfound p { max-width: 56ch; margin: 20px 0 0; color: var(--text-2); font-size: clamp(16px, 2vw, 18px); }
+.notfound-actions { margin: 30px 0 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.notfound-actions .contact-action.secondary { color: var(--text); background: var(--surface-2); border: 1px solid var(--border-soft); }
+@media (hover: hover) and (pointer: fine) {
+  .notfound-actions .contact-action.secondary:hover { background: var(--surface); }
+}
+.notfound-links { margin: 46px 0 0; padding: 22px 0 0; border-top: 1px solid var(--border-soft); }
+.notfound-links h2 { margin: 0 0 12px; color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.notfound-links ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 2px 24px; }
+.notfound-links a { display: block; padding: 7px 0; color: var(--text-2); text-decoration: none; font-size: 14px; transition: color 140ms ease; }
+@media (hover: hover) and (pointer: fine) { .notfound-links a:hover { color: var(--text); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .skip-link, .nav-link, .info-card { transition: none; }
+}
