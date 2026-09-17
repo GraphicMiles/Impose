@@ -110,7 +110,13 @@
 
   /* Creates the account, then asks for a code. Order matters: if the
      address is already taken we want to say so before an email goes out,
-     and Supabase is the only thing that knows. */
+     and Supabase is the only thing that knows.
+
+     Requires "Confirm email" to be OFF in the Supabase dashboard
+     (Authentication, Sign In / Providers, Email). Left on, Supabase sends
+     its own confirmation link and the user receives two emails for one
+     signup: an unbranded link from Supabase and our code from Sendlib.
+     Verification is ours to own, so Supabase's copy is the one that goes. */
   function signUp(email, password) {
     return supabase().auth.signUp({ email: email, password: password })
       .then(function (res) {
