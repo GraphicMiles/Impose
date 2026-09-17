@@ -121,7 +121,30 @@
     return supabase().auth.signUp({ email: email, password: password })
       .then(function (res) {
         if (res.error) throw new Error(humanize(res.error));
-        return requestCode(email, "signup").then(function (out) { return out; });
+
+        /* Supabase returns a session only when it is not waiting on its own
+           confirmation link. No session means "Confirm email" is still on,
+           and the two systems are now fighting: Supabase has emailed a link
+           and will refuse sign-in until it is clicked, while we are about to
+           email a code that cannot satisfy it.
+
+           Detected here rather than left to fail later, because the failure
+           without this check is a dead end: the code arrives, it verifies,
+           and sign-in then rejects the account for a reason the screen never
+           mentions. Better to name the real cause once. */
+        var session = res.data && res.data.session;
+        var user = res.data && res.data.user;
+        if (!session && user && !user.email_confirmed_at) {
+          var err = new Error(
+            "Accounts are half configured: email confirmation is still on in " +
+            "Supabase, so sign-in will be blocked even after you enter a code. " +
+            "Turn off Confirm email in Authentication, Sign In / Providers, Email."
+          );
+          err.code = "confirm_email_enabled";
+          throw err;
+        }
+
+        return requestCode(email, "signup");
       });
   }
 
