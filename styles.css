@@ -442,7 +442,12 @@ body:not(.nav-open) .sidebar-inner {
 .composer-block { width: 100%; }
 
 .composer {
-  background: var(--composer);
+  /* Glass surface: 80% opacity over a backdrop blur, so content sliding
+     underneath reads through faintly instead of the bar being a solid
+     block of colour. */
+  background: color-mix(in srgb, var(--composer) 80%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
   border: 1px solid var(--border-soft);
   border-radius: 28px;
   padding: 10px 10px 8px 20px;

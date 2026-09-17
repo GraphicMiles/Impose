@@ -28,21 +28,22 @@
   pointer-events: none; /* the fade zone lets taps reach the feed below */
 }
 
-/* The blurred gradient itself: solid behind the switch, fading to nothing
-   so outgoing posts dissolve instead of stopping at a hard bar edge. */
+/* The blurred glass itself: a faint tint over a backdrop blur, dissolving
+   to nothing at its bottom edge so outgoing posts smear and fade through
+   it instead of stopping at a hard bar edge. */
 .modebar::before {
   content: "";
   position: absolute;
   inset: 0;
   background: linear-gradient(
     180deg,
-    var(--bg) 0%,
-    color-mix(in srgb, var(--bg) 60%, transparent) 100%
+    color-mix(in srgb, var(--bg) 72%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 28%, transparent) 100%
   );
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
-  mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  -webkit-mask-image: linear-gradient(180deg, #000 40%, transparent 96%);
+  mask-image: linear-gradient(180deg, #000 40%, transparent 96%);
 }
 
 .modebar .modeseg { pointer-events: auto; }
@@ -126,7 +127,10 @@ body:not(.community-mode) .modebar { display: none; }
   align-items: center;
   gap: 8px;
   padding: 8px 14px 8px 10px;
-  background: var(--link);
+  /* Same glass as the composers: 80% blue over a backdrop blur. */
+  background: color-mix(in srgb, var(--link) 80%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   color: #0d0d0d;
   border-radius: var(--r-pill);
   font-size: 13px;
