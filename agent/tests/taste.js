@@ -607,8 +607,22 @@ test("reading replies never hijacks the composer", function () {
     "expanding renders and returns, full stop");
 });
 
+test("delete lives in exactly one place per object", function () {
+  /* A kebab that duplicates a button still on the row is worse than either
+     alone: two controls for one destructive action. */
+  ok(communityJs.indexOf('data-act="delete"') === -1,
+    "the post's exposed delete button must be gone, not merely hidden");
+  ok(communityJs.indexOf("gen-act-danger") === -1, "and its styling hook with it");
+  ok(communityJs.indexOf("comment-del-btn") === -1, "same for the comment's inline delete");
+  ok(communityJs.indexOf('data-act="menu"') !== -1, "the post gets a kebab");
+  ok(communityJs.indexOf("data-cmenu") !== -1, "the comment keeps its own");
+  /* Both routed through the one menu, so they cannot drift apart. */
+  ok((communityJs.match(/openKebabMenu\(/g) || []).length >= 3,
+    "one menu implementation serves both, plus its definition");
+});
+
 test("the comment kebab menu cannot outlive what it points at", function () {
-  ok(communityJs.indexOf("function openCommentMenu") !== -1, "the menu exists");
+  ok(communityJs.indexOf("function openKebabMenu") !== -1, "the menu exists");
   ok(communityJs.indexOf("commentMenuEl.className = \"pop pop-sm comment-menu\"") !== -1,
     "it reuses the app's popover styling rather than inventing one");
   var r = communityJs.indexOf("function renderThread");

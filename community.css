@@ -1163,11 +1163,10 @@ body:not(.community-mode) .modebar { display: none; }
    and a tombstone is deliberately quiet: it holds a slot in the thread so
    replies keep their parent, and says nothing else. */
 
-.cm-scope .gen-act-danger:hover,
-.cm-scope .gen-act-danger:focus-visible {
-  color: var(--danger);
-  border-color: var(--danger);
-}
+/* The post's kebab. Sits after the spacer at the far right, away from the
+   counts, and carries no number so it does not read as another metric. */
+.cm-scope .gen-kebab .act-cnt { display: none; }
+.cm-scope .gen-kebab[aria-expanded="true"] { background: var(--hover); color: var(--text); }
 
 /* Tombstone row: same box as a live comment so the rails and elbow still
    line up, but no avatar, no identity, and no reply affordance. */

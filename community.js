@@ -1014,10 +1014,12 @@
         (gen.locked ? "Unlock" : "Lock") + '">' +
         '<i data-lucide="' + (gen.locked ? "lock" : "lock-open") + '"></i></button>';
       /* Own content only, and never mid-stream: a streaming post has a
-         writer still appending to it. */
+         writer still appending to it. Delete sits behind the kebab for the
+         same reason it does on a comment: it is destructive and does not
+         belong in the row of counts the reader taps to browse. */
       if (gen.status !== "streaming") {
-        html += '<button class="gen-act gen-act-danger" data-act="delete" aria-label="Delete post" title="Delete post">' +
-          '<i data-lucide="trash-2"></i></button>';
+        html += '<button class="gen-act gen-kebab" data-act="menu" aria-label="More actions" ' +
+          'aria-haspopup="menu" aria-expanded="false"><i data-lucide="ellipsis"></i></button>';
       }
     }
     html += "</div>";
@@ -1276,15 +1278,19 @@
   var commentMenuEl = null;
   var commentMenuFor = null;
   var commentMenuTrigger = null;
+  var commentMenuOnPick = null;
 
   function closeCommentMenu() {
     if (commentMenuTrigger) commentMenuTrigger.setAttribute("aria-expanded", "false");
     if (commentMenuEl) { commentMenuEl.classList.remove("open"); commentMenuEl.hidden = true; }
     commentMenuFor = null;
     commentMenuTrigger = null;
+    commentMenuOnPick = null;
   }
 
-  function openCommentMenu(trigger, commentId) {
+  /* items: [{ act, label, icon, danger }]. onPick(act) runs after the menu
+     closes, so a handler is free to re-render the row that owned it. */
+  function openKebabMenu(trigger, key, items, onPick) {
     if (!commentMenuEl) {
       commentMenuEl = document.createElement("div");
       commentMenuEl.className = "pop pop-sm comment-menu";
@@ -1293,26 +1299,29 @@
       /* The menu is mounted on body, outside the thread's delegated
          listener, so it owns its own click handling. */
       commentMenuEl.addEventListener("click", function (ev) {
-        var item = ev.target.closest("[data-del]");
+        var item = ev.target.closest("[data-mact]");
         if (!item) return;
-        var id = item.getAttribute("data-del");
+        var act = item.getAttribute("data-mact");
+        var pick = commentMenuOnPick;
         closeCommentMenu();
-        if (replyingTo && replyingTo.id === id) clearReplyTarget(true);
-        deleteComment(id);
+        if (pick) pick(act);
       });
       document.body.appendChild(commentMenuEl);
     }
     /* Tapping the same kebab again closes it. */
-    if (commentMenuFor === commentId && !commentMenuEl.hidden) { closeCommentMenu(); return; }
+    if (commentMenuFor === key && !commentMenuEl.hidden) { closeCommentMenu(); return; }
     closeCommentMenu();
 
-    commentMenuFor = commentId;
+    commentMenuFor = key;
     commentMenuTrigger = trigger;
+    commentMenuOnPick = onPick;
     trigger.setAttribute("aria-expanded", "true");
-    commentMenuEl.innerHTML =
-      '<button class="pop-item danger" role="menuitem" data-del="' + commentId + '">' +
-        '<i data-lucide="trash-2"></i><span>Delete</span>' +
+    commentMenuEl.innerHTML = items.map(function (it) {
+      return '<button class="pop-item' + (it.danger ? " danger" : "") +
+        '" role="menuitem" data-mact="' + it.act + '">' +
+        '<i data-lucide="' + it.icon + '"></i><span>' + esc(it.label) + "</span>" +
       "</button>";
+    }).join("");
     commentMenuEl.hidden = false;
     refreshIcons();
 
@@ -1592,7 +1601,14 @@
       /* Kebab: opens the one-item menu that owns Delete. */
       var kebab = e.target.closest("[data-cmenu]");
       if (kebab) {
-        openCommentMenu(kebab, kebab.getAttribute("data-cmenu"));
+        var cid = kebab.getAttribute("data-cmenu");
+        openKebabMenu(kebab, "c:" + cid,
+          [{ act: "delete", label: "Delete", icon: "trash-2", danger: true }],
+          function (act) {
+            if (act !== "delete") return;
+            if (replyingTo && replyingTo.id === cid) clearReplyTarget(true);
+            deleteComment(cid);
+          });
         return;
       }
       var delBtn = e.target.closest("[data-del]");
@@ -2175,8 +2191,12 @@
       replaceCard(gen);
       return;
     }
-    if (act === "delete") {
-      deleteGeneration(gen.id);
+    if (act === "menu") {
+      openKebabMenu(btn, "g:" + gen.id,
+        [{ act: "delete", label: "Delete post", icon: "trash-2", danger: true }],
+        function (picked) {
+          if (picked === "delete") deleteGeneration(gen.id);
+        });
       return;
     }
     if (act === "lock" && gen.own) {
