@@ -31,6 +31,17 @@ jobs:
           node agent/tests/taste.js
       - name: Relay contract suites
         run: PYTHONPATH=backend python3 -m pytest backend -q
+      - name: Database schema assertions
+        # RLS is the authorization layer, so a policy that silently denies
+        # or silently permits is a security bug that review does not catch.
+        # One of these caught a name-capture where p.id = remix_of resolved
+        # to p.id = p.remix_of and refused every legitimate remix.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql
+          sudo systemctl stop postgresql || true
+          chmod +x supabase/tests/run.sh
+          ./supabase/tests/run.sh
       - name: Audit scenario matrix (6360 scenarios)
         run: |
           node audit/run.js

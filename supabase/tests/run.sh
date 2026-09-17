@@ -16,9 +16,20 @@ PGDATA="${PGDATA:-/tmp/impose-schema-test}"
 PGPORT="${PGPORT:-5433}"
 PGHOST=/tmp
 
+# Find the server binaries. They are not on PATH by default on Debian and
+# Ubuntu (only the client is), and a machine can carry several versions, so
+# take the highest rather than whatever the glob happens to yield first.
 if ! command -v initdb >/dev/null 2>&1; then
-  PGBIN="$(echo /usr/lib/postgresql/*/bin | tr ' ' '\n' | tail -1)"
-  [ -x "$PGBIN/initdb" ] || { echo "postgres binaries not found" >&2; exit 2; }
+  PGBIN=""
+  for d in $(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V); do
+    [ -x "$d/initdb" ] && PGBIN="$d"
+  done
+  if [ -z "$PGBIN" ]; then
+    echo "postgres server binaries not found." >&2
+    echo "  Debian/Ubuntu:  sudo apt-get install -y postgresql" >&2
+    echo "  macOS:          brew install postgresql@17" >&2
+    exit 2
+  fi
   export PATH="$PGBIN:$PATH"
 fi
 
@@ -63,14 +74,22 @@ grant select, insert, update, delete on public.generations, public.comments to a
 grant select, insert, delete on public.saves to authenticated;
 SQL
 
+# Run once, keep the real exit status, and show the output. Running it a
+# second time to recover the status (the obvious fix for a pipeline eating
+# it) is wrong: the assertions insert fixture rows, so the rerun hits
+# unique violations on a dirty database and reports failure on a suite
+# that actually passed.
+set +e
 command psql -h "$PGHOST" -p "$PGPORT" -U postgres -v ON_ERROR_STOP=1 \
-  -f "$ROOT/supabase/tests/schema_test.sql" 2>&1 |
-  grep -E "PASS|FAIL|ERROR|All schema" || true
+  -f "$ROOT/supabase/tests/schema_test.sql" >"$PGDATA/test.out" 2>&1
+STATUS=$?
+set -e
 
-# psql exits 3 on ON_ERROR_STOP; the pipeline above swallows it, so re-run
-# quietly to get a real exit code for CI.
-if command psql -h "$PGHOST" -p "$PGPORT" -U postgres -v ON_ERROR_STOP=1 \
-     -f "$ROOT/supabase/tests/schema_test.sql" >/dev/null 2>&1; then
-  exit 0
+grep -E "PASS|FAIL|ERROR|All schema" "$PGDATA/test.out" | sed 's/^psql:[^ ]* //' || true
+
+if [ "$STATUS" -ne 0 ]; then
+  echo ""
+  echo "schema assertions FAILED (psql exit $STATUS)"
+  exit 1
 fi
-exit 1
+exit 0
