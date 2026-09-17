@@ -21,6 +21,9 @@ harness = (ROOT / "agent" / "harness.js").read_text(encoding="utf-8")
 features = (ROOT / "agent" / "features.js").read_text(encoding="utf-8")
 app = (ROOT / "app.js").read_text(encoding="utf-8")
 community_js = (ROOT / "community.js").read_text(encoding="utf-8")
+config_js = (ROOT / "config.js").read_text(encoding="utf-8")
+ui_core_js = (ROOT / "ui-core.js").read_text(encoding="utf-8")
+access_js = (ROOT / "access.js").read_text(encoding="utf-8")
 
 for name, blob in (("styles.css", css), ("community.css", community_css), ("agent/trace.css", trace_css),
                    ("lucide.min.js", lucide), ("anime.min.js", anime), ("agent/trace.js", trace_js),
@@ -72,6 +75,21 @@ html = html.replace(
 html = html.replace(
     '<script src="./agent/features.js"></script>',
     "<script>\n" + features + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./config.js"></script>',
+    "<script>\n" + config_js + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./ui-core.js"></script>',
+    "<script>\n" + ui_core_js + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./access.js"></script>',
+    "<script>\n" + access_js + "\n</script>",
     1,
 )
 html = html.replace(

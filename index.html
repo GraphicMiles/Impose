@@ -681,6 +681,38 @@ try {
   </div>
 </div>
 
+<!-- Access gate: Community is open, Workspace is waitlist-granted.
+     Rendered on demand; never blocks Community. -->
+<div class="overlay center" id="accessModal" hidden>
+  <div class="sheet access-sheet" role="dialog" aria-modal="true" aria-labelledby="accessTitle">
+    <div class="onboard-intro">
+      <div class="onboard-badge"><i data-lucide="lock"></i></div>
+      <div class="onboard-copy">
+        <h2 id="accessTitle">Workspace is in private beta</h2>
+        <p class="onboard-sub">The Community feed is open. The Workspace — your own chat surface with saved history, files, and providers — unlocks for the waitlist a few at a time.</p>
+      </div>
+    </div>
+    <form id="waitlistForm" novalidate>
+      <label class="field-label" for="waitlistEmail">Email</label>
+      <div class="wl-row">
+        <input class="text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" required>
+        <button class="btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
+      </div>
+      <p class="wl-note" id="waitlistNote">You keep your place even if you switch devices — it's tied to this email.</p>
+    </form>
+    <div id="waitlistDone" hidden>
+      <div class="wl-done">
+        <i data-lucide="check"></i>
+        <div>
+          <strong>You're on the list.</strong>
+          <span id="waitlistPosition">We'll email you when your seat opens.</span>
+        </div>
+      </div>
+    </div>
+    <button class="btn wl-continue" id="accessContinue">Keep browsing Community</button>
+  </div>
+</div>
+
 <button id="debugTab" class="debug-tab" title="Open the debug log" aria-label="Open the debug log" hidden>
   <i data-lucide="bug"></i>
   <span class="debug-tab-count" id="debugTabCount" hidden></span>
@@ -749,6 +781,9 @@ try {
 <script src="./agent/orchestrator.js"></script>
 <script src="./agent/harness.js"></script>
 <script src="./agent/features.js"></script>
+<script src="./config.js"></script>
+<script src="./ui-core.js"></script>
+<script src="./access.js"></script>
 <script src="./app.js"></script>
 <script src="./community.js"></script>
 </body>

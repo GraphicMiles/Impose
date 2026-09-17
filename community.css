@@ -867,3 +867,27 @@ body:not(.community-mode) .modebar { display: none; }
    cascade drops them. */
 .cm-scope .new-posts-pill { top: calc(72px + env(safe-area-inset-top)); }
 .cm-scope .pull-refresh { top: calc(70px + env(safe-area-inset-top)); }
+
+/* ---------- workspace access sheet (waitlist) ---------- */
+
+.access-sheet { width: min(420px, 100%); }
+
+.wl-row { display: flex; gap: 8px; margin-top: 6px; }
+.wl-row .text-input { flex: 1; min-width: 0; }
+.wl-row .btn { flex: none; white-space: nowrap; }
+
+.field-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin: 14px 0 2px; }
+
+.wl-note { margin: 10px 0 0; font-size: 12.5px; color: var(--text-3); line-height: 1.5; }
+
+.wl-done { display: flex; gap: 12px; align-items: flex-start; margin: 16px 0 4px; }
+.wl-done .lucide, .wl-done i[data-lucide] { width: 22px; height: 22px; color: var(--ok); flex: none; margin-top: 2px; }
+.wl-done strong { display: block; font-size: 15px; }
+.wl-done span { display: block; font-size: 13px; color: var(--text-2); margin-top: 3px; line-height: 1.5; }
+
+.wl-continue { width: 100%; margin-top: 16px; }
+
+@media (max-width: 480px) {
+  .wl-row { flex-direction: column; }
+  .wl-row .btn { width: 100%; }
+}

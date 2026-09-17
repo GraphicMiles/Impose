@@ -2903,6 +2903,30 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .new-posts-pill { top: calc(72px + env(safe-area-inset-top)); }
 .cm-scope .pull-refresh { top: calc(70px + env(safe-area-inset-top)); }
 
+/* ---------- workspace access sheet (waitlist) ---------- */
+
+.access-sheet { width: min(420px, 100%); }
+
+.wl-row { display: flex; gap: 8px; margin-top: 6px; }
+.wl-row .text-input { flex: 1; min-width: 0; }
+.wl-row .btn { flex: none; white-space: nowrap; }
+
+.field-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin: 14px 0 2px; }
+
+.wl-note { margin: 10px 0 0; font-size: 12.5px; color: var(--text-3); line-height: 1.5; }
+
+.wl-done { display: flex; gap: 12px; align-items: flex-start; margin: 16px 0 4px; }
+.wl-done .lucide, .wl-done i[data-lucide] { width: 22px; height: 22px; color: var(--ok); flex: none; margin-top: 2px; }
+.wl-done strong { display: block; font-size: 15px; }
+.wl-done span { display: block; font-size: 13px; color: var(--text-2); margin-top: 3px; line-height: 1.5; }
+
+.wl-continue { width: 100%; margin-top: 16px; }
+
+@media (max-width: 480px) {
+  .wl-row { flex-direction: column; }
+  .wl-row .btn { width: 100%; }
+}
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -4066,6 +4090,38 @@ try {
       </div>
       <p class="pane-note">On macOS use Cmd where it says Ctrl.</p>
     </div>
+  </div>
+</div>
+
+<!-- Access gate: Community is open, Workspace is waitlist-granted.
+     Rendered on demand; never blocks Community. -->
+<div class="overlay center" id="accessModal" hidden>
+  <div class="sheet access-sheet" role="dialog" aria-modal="true" aria-labelledby="accessTitle">
+    <div class="onboard-intro">
+      <div class="onboard-badge"><i data-lucide="lock"></i></div>
+      <div class="onboard-copy">
+        <h2 id="accessTitle">Workspace is in private beta</h2>
+        <p class="onboard-sub">The Community feed is open. The Workspace — your own chat surface with saved history, files, and providers — unlocks for the waitlist a few at a time.</p>
+      </div>
+    </div>
+    <form id="waitlistForm" novalidate>
+      <label class="field-label" for="waitlistEmail">Email</label>
+      <div class="wl-row">
+        <input class="text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" required>
+        <button class="btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
+      </div>
+      <p class="wl-note" id="waitlistNote">You keep your place even if you switch devices — it's tied to this email.</p>
+    </form>
+    <div id="waitlistDone" hidden>
+      <div class="wl-done">
+        <i data-lucide="check"></i>
+        <div>
+          <strong>You're on the list.</strong>
+          <span id="waitlistPosition">We'll email you when your seat opens.</span>
+        </div>
+      </div>
+    </div>
+    <button class="btn wl-continue" id="accessContinue">Keep browsing Community</button>
   </div>
 </div>
 
@@ -6653,6 +6709,254 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
 </script>
 <script>
+/* Deployment configuration. Values here are safe to commit: the Supabase
+   anon key is a public identifier gated by Row Level Security, not a
+   secret. Access stays "open" (full local demo, no backend) until the
+   Supabase project is wired; then flip ACCESS_MODE to "enforce". */
+window.BotoConfig = {
+  SUPABASE_URL: "",
+  SUPABASE_ANON_KEY: "",
+  /* "open": Community and Workspace both available (development/demo).
+     "enforce": Community open to everyone, Workspace behind the
+     waitlist grant (production). */
+  ACCESS_MODE: "open"
+};
+
+</script>
+<script>
+/* BotoUI: the shared interaction kernel.
+   One canonical implementation of the behaviors both surfaces use, so the
+   workspace (app.js) and Community (community.js) can never drift into
+   clashing copies of the same logic.
+
+   Test contract: app.js keeps native escapeHtml/sanitizeUrl because the
+   regression suite lifts those functions out of app.js source text and
+   executes them in a bare VM. Everything else delegates here. */
+(function () {
+  "use strict";
+
+  /* Autogrow a textarea to its content, capped. Shared by the workspace
+     composer, the community composer, and every reply box. */
+  function autogrow(ta, max) {
+    if (!ta) return;
+    /* A hidden textarea measures 0 and would be pinned to a 0px height
+       (the collapsed-composer regression). Leave the natural height. */
+    if (!ta.getClientRects().length) { ta.style.height = ""; return; }
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, max || 200) + "px";
+  }
+
+  /* Escape a string for HTML interpolation. */
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  /* The composer send-pair contract: a send button is enabled exactly when
+     its textarea has trimmable content and the surface is not streaming. */
+  function syncSend(input, sendBtn, busy) {
+    if (!input || !sendBtn) return;
+    sendBtn.disabled = !!busy || input.value.trim().length === 0;
+  }
+
+  /* Re-render lucide icons inside a subtree (or the document). */
+  function refreshIcons(rootEl) {
+    if (window.lucide && window.lucide.createIcons) {
+      window.lucide.createIcons(rootEl ? { nameAttr: "data-lucide", attrs: {}, root: rootEl } : undefined);
+    }
+  }
+
+  /* Compact relative time for feed rows: 42s, 7m, 3h, 5d, then a date. */
+  function relativeTime(ts) {
+    var d = typeof ts === "number" ? ts : Date.parse(ts);
+    if (isNaN(d)) return "";
+    var s = Math.max(0, Math.round((Date.now() - d) / 1000));
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m";
+    if (s < 86400) return Math.floor(s / 3600) + "h";
+    if (s < 7 * 86400) return Math.floor(s / 86400) + "d";
+    try { return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
+    catch (e) { return ""; }
+  }
+
+  window.BotoUI = {
+    autogrow: autogrow,
+    escapeHtml: escapeHtml,
+    syncSend: syncSend,
+    refreshIcons: refreshIcons,
+    relativeTime: relativeTime
+  };
+})();
+
+</script>
+<script>
+/* BotoAccess: who may enter the Workspace.
+   Community is open to everyone; the Workspace is grant-gated. The client
+   renders the gate, but the grant itself is authoritative server-side: the
+   workspace_grants table is RLS-protected and every future workspace-bound
+   API call re-checks ownership/access on the server. This module can never
+   be the security boundary — only the UX for it (system-design rule: the
+   client is untrusted).
+
+   Talks to Supabase over plain REST (PostgREST + GoTrue): no SDK, matching
+   the repo's zero-dependency approach.
+
+   States: unknown -> checking -> granted | waitlisted | anonymous
+   Failure mode: any network error degrades to the cached grant, or
+   "checking" -> denied-with-retry. It never silently unlocks. */
+(function () {
+  "use strict";
+
+  var GRANT_KEY = "impose.access.v1";
+  var GRANT_TTL = 10 * 60 * 1000; /* trust a cached grant for 10 minutes */
+  var state = "unknown";
+  var stateFor = ""; /* mode `state` was computed under; guards a runtime flip */
+  var grantCache = null;
+  var listeners = [];
+
+  function configured() {
+    return !!(window.BotoConfig && window.BotoConfig.SUPABASE_URL && window.BotoConfig.SUPABASE_ANON_KEY);
+  }
+
+  function enforce() {
+    /* Fail-closed: "enforce" gates even if the backend is not yet wired
+       (nobody has a grant then); wire Supabase before flipping the mode. */
+    return window.BotoConfig.ACCESS_MODE === "enforce";
+  }
+
+  function readCache() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(GRANT_KEY) || "null");
+      if (raw && raw.at && Date.now() - raw.at < GRANT_TTL) return raw;
+    } catch (e) { /* fall through */ }
+    return null;
+  }
+
+  function writeCache(grant) {
+    try { localStorage.setItem(GRANT_KEY, JSON.stringify(grant)); } catch (e) { /* private mode */ }
+  }
+
+  function headers(extra) {
+    var h = {
+      "apikey": window.BotoConfig.SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + window.BotoConfig.SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    };
+    if (extra) for (var k in extra) h[k] = extra[k];
+    return h;
+  }
+
+  /* The signed-in user's token, if any. */
+  function accessToken() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k.indexOf("sb-") === 0 && k.indexOf("-auth-token") > -1) {
+          var v = JSON.parse(localStorage.getItem(k));
+          if (v && v.access_token && v.user) return v.access_token;
+        }
+      }
+    } catch (e) { /* fall through */ }
+    return null;
+  }
+
+  function authedHeaders() {
+    var tok = accessToken();
+    if (!tok) return null;
+    return headers({ "Authorization": "Bearer " + tok });
+  }
+
+  /* Ask the server for the truth: one RPC returns the caller's grant. */
+  function refresh() {
+    if (!enforce()) {
+      state = "granted";
+      stateFor = "open";
+      return Promise.resolve({ status: "granted", mode: "open" });
+    }
+    stateFor = "enforce";
+    var h = authedHeaders();
+    if (!h) {
+      state = "anonymous";
+      grantCache = { status: "anonymous", at: Date.now() };
+      writeCache(grantCache);
+      notify();
+      return Promise.resolve(grantCache);
+    }
+    return fetch(window.BotoConfig.SUPABASE_URL + "/rest/v1/rpc/my_workspace_access", {
+      method: "POST", headers: h, body: "{}"
+    }).then(function (r) {
+      if (!r.ok) throw new Error("access check failed: " + r.status);
+      return r.json();
+    }).then(function (grant) {
+      /* The RPC returns exactly one typed verdict; nothing else is trusted. */
+      state = grant && grant.can_use_workspace ? "granted" : "waitlisted";
+      grantCache = { status: state, email: grant.email || "", position: grant.waitlist_position || null, at: Date.now() };
+      writeCache(grantCache);
+      notify();
+      return grantCache;
+    }).catch(function () {
+      /* Degraded: keep the last known grant; a stale MEMBER stays in,
+         everyone else stays out. Never fail open. */
+      var cached = readCache();
+      if (cached && cached.status === "granted") { state = "granted"; notify(); return cached; }
+      state = "unknown";
+      notify();
+      return { status: "unknown" };
+    });
+  }
+
+  /* Idempotent join: the waitlist table has a unique email, so a retry or
+     double-tap returns the same row (position included) instead of
+     creating a duplicate. Rate limiting lives at the gateway (see the
+     operations plan); the unique constraint is the last line of defense. */
+  function joinWaitlist(email) {
+    if (!enforce()) return Promise.resolve({ status: "granted", mode: "open" });
+    var clean = String(email || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+      return Promise.reject(new Error("Enter a valid email address."));
+    }
+    return fetch(window.BotoConfig.SUPABASE_URL + "/rest/v1/rpc/join_waitlist", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ p_email: clean })
+    }).then(function (r) {
+      if (r.status === 429) throw new Error("Too many attempts. Try again in a minute.");
+      if (!r.ok) throw new Error("Could not join the waitlist. Try again.");
+      return r.json();
+    }).then(function (res) {
+      grantCache = { status: "waitlisted", email: clean, position: res && res.position || null, at: Date.now() };
+      writeCache(grantCache);
+      state = "waitlisted";
+      notify();
+      return grantCache;
+    });
+  }
+
+  function canUseWorkspace() {
+    if (!enforce()) return true;
+    if (state === "granted" && stateFor === "enforce") return true;
+    var cached = readCache();
+    return !!(cached && cached.status === "granted");
+  }
+
+  function onChange(fn) { listeners.push(fn); }
+  function notify() { listeners.forEach(function (fn) { try { fn(state, grantCache); } catch (e) {} }); }
+
+  function getStatus() { return { state: state, grant: grantCache, enforce: enforce() }; }
+
+  window.BotoAccess = {
+    init: refresh,
+    refresh: refresh,
+    joinWaitlist: joinWaitlist,
+    canUseWorkspace: canUseWorkspace,
+    getStatus: getStatus,
+    onChange: onChange
+  };
+})();
+
+</script>
+<script>
 /* Botocracy chat client. Bring your own key: providers speak OpenAI style,
    Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
@@ -8854,6 +9158,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     setTimeout(function () {
       if (!el.classList.contains("open")) el.hidden = true;
     }, delay);
+  }
+
+  /* Kernel bridge: community.js reuses these instead of a second modal impl. */
+  if (window.BotoUI) {
+    BotoUI.openModal = openModal;
+    BotoUI.closeModal = closeModal;
   }
 
   /* ---------- chat list ---------- */
@@ -12196,14 +12506,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   /* ---------- composer ---------- */
 
+  /* Delegates to the shared kernel (ui-core.js): one autogrow for both
+     surfaces, so the hidden-measure guard can never drift between them. */
   function autogrow() {
-    /* A textarea inside a hidden subtree measures scrollHeight 0, so growing
-       here would pin a 0px inline height (the squashed single-row composer
-       after switching tabs). Leave the natural height until it can be
-       measured; mode switches and input events re-run this once visible. */
-    if (!input.getClientRects().length) { input.style.height = ""; return; }
-    input.style.height = "auto";
-    input.style.height = Math.min(input.scrollHeight, 200) + "px";
+    if (window.BotoUI) BotoUI.autogrow(input, 200);
   }
 
   function updateTokEst() {
@@ -14726,10 +15032,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   function $(id) { return document.getElementById(id); }
 
+  /* Shared kernel: identical escaping to the workspace. */
   function esc(value) {
-    return String(value == null ? "" : value)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    return window.BotoUI ? BotoUI.escapeHtml(value) : String(value == null ? "" : value);
   }
 
   function rich(value) {
@@ -15118,6 +15423,15 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   function route() {
     var hash = location.hash || "#/";
     if (hash === "#/workspace" || hash.indexOf("#chat=") === 0) {
+      if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
+        /* Community is open; the Workspace is grant-gated. Land the user in
+           Community and show the waitlist sheet. The grant itself is checked
+           server-side (RLS); this is the UX for that gate, not the gate. */
+        if (hash !== "#/") history.replaceState(null, "", location.pathname + location.search + "#/");
+        showMode("community");
+        if (window.BotoAccess && !BotoAccess.canUseWorkspace()) openAccessSheet();
+        return;
+      }
       showMode("workspace");
       return;
     }
@@ -15235,8 +15549,9 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return article;
   }
 
+  /* Shared kernel: identical icon refresh to the workspace. */
   function refreshIcons() {
-    if (window.lucide && lucide.createIcons) lucide.createIcons();
+    if (window.BotoUI) BotoUI.refreshIcons();
   }
 
   function replaceCard(gen) {
@@ -16027,6 +16342,10 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       }
     });
     $("cmTabWorkspace").addEventListener("click", function () {
+      if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
+        openAccessSheet();
+        return;
+      }
       location.hash = "#/workspace";
     });
     window.addEventListener("resize", function () {
@@ -16036,7 +16355,74 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
   }
 
+  /* ---------- workspace access gate (waitlist) ---------- */
+
+  var accessSheetOpen = false;
+
+  function openAccessSheet() {
+    var m = $("accessModal");
+    if (!m || accessSheetOpen) return;
+    accessSheetOpen = true;
+    if (window.BotoUI && BotoUI.openModal) BotoUI.openModal(m);
+    else m.hidden = false;
+    var st = window.BotoAccess ? BotoAccess.getStatus() : { grant: null };
+    if (st.grant && st.grant.status === "waitlisted") showWaitlistDone(st.grant);
+    var email = $("waitlistEmail");
+    if (email) setTimeout(function () { email.focus(); }, 120);
+    refreshIcons();
+  }
+
+  function closeAccessSheet() {
+    var m = $("accessModal");
+    if (!m) return;
+    accessSheetOpen = false;
+    if (window.BotoUI && BotoUI.closeModal) BotoUI.closeModal(m);
+    else { m.classList.remove("open"); m.hidden = true; }
+  }
+
+  function showWaitlistDone(grant) {
+    $("waitlistForm").hidden = true;
+    $("waitlistDone").hidden = false;
+    var pos = $("waitlistPosition");
+    if (pos && grant && grant.position) {
+      pos.textContent = "You are number " + grant.position + " in line. We'll email you when your seat opens.";
+    }
+    refreshIcons();
+  }
+
+  function initAccessGate() {
+    if (!window.BotoAccess) return;
+    BotoAccess.init();
+    /* a grant that lands while the sheet is open unlocks out of it */
+    BotoAccess.onChange(function () {
+      if (accessSheetOpen && BotoAccess.canUseWorkspace()) closeAccessSheet();
+    });
+    var form = $("waitlistForm");
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var btn = $("waitlistJoin");
+      var email = $("waitlistEmail").value;
+      btn.disabled = true;
+      BotoAccess.joinWaitlist(email).then(function (grant) {
+        if (grant && grant.status === "granted") closeAccessSheet();
+        else showWaitlistDone(grant);
+      }).catch(function (err) {
+        var note = $("waitlistNote");
+        note.textContent = err && err.message ? err.message : "Could not join. Try again.";
+      }).finally(function () { btn.disabled = false; });
+    });
+    $("accessContinue").addEventListener("click", closeAccessSheet);
+    mClickListener();
+  }
+
+  function mClickListener() {
+    $("accessModal").addEventListener("click", function (e) {
+      if (e.target === this) closeAccessSheet();
+    });
+  }
+
   function init() {
+    initAccessGate();
     initComposer();
     initModeSeg();
     initPill();

@@ -2201,6 +2201,12 @@
     }, delay);
   }
 
+  /* Kernel bridge: community.js reuses these instead of a second modal impl. */
+  if (window.BotoUI) {
+    BotoUI.openModal = openModal;
+    BotoUI.closeModal = closeModal;
+  }
+
   /* ---------- chat list ---------- */
 
   var groupsEl = $("chatGroups");
@@ -5541,14 +5547,10 @@
 
   /* ---------- composer ---------- */
 
+  /* Delegates to the shared kernel (ui-core.js): one autogrow for both
+     surfaces, so the hidden-measure guard can never drift between them. */
   function autogrow() {
-    /* A textarea inside a hidden subtree measures scrollHeight 0, so growing
-       here would pin a 0px inline height (the squashed single-row composer
-       after switching tabs). Leave the natural height until it can be
-       measured; mode switches and input events re-run this once visible. */
-    if (!input.getClientRects().length) { input.style.height = ""; return; }
-    input.style.height = "auto";
-    input.style.height = Math.min(input.scrollHeight, 200) + "px";
+    if (window.BotoUI) BotoUI.autogrow(input, 200);
   }
 
   function updateTokEst() {

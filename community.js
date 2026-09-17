@@ -24,10 +24,9 @@
 
   function $(id) { return document.getElementById(id); }
 
+  /* Shared kernel: identical escaping to the workspace. */
   function esc(value) {
-    return String(value == null ? "" : value)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    return window.BotoUI ? BotoUI.escapeHtml(value) : String(value == null ? "" : value);
   }
 
   function rich(value) {
@@ -416,6 +415,15 @@
   function route() {
     var hash = location.hash || "#/";
     if (hash === "#/workspace" || hash.indexOf("#chat=") === 0) {
+      if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
+        /* Community is open; the Workspace is grant-gated. Land the user in
+           Community and show the waitlist sheet. The grant itself is checked
+           server-side (RLS); this is the UX for that gate, not the gate. */
+        if (hash !== "#/") history.replaceState(null, "", location.pathname + location.search + "#/");
+        showMode("community");
+        if (window.BotoAccess && !BotoAccess.canUseWorkspace()) openAccessSheet();
+        return;
+      }
       showMode("workspace");
       return;
     }
@@ -533,8 +541,9 @@
     return article;
   }
 
+  /* Shared kernel: identical icon refresh to the workspace. */
   function refreshIcons() {
-    if (window.lucide && lucide.createIcons) lucide.createIcons();
+    if (window.BotoUI) BotoUI.refreshIcons();
   }
 
   function replaceCard(gen) {
@@ -1325,6 +1334,10 @@
       }
     });
     $("cmTabWorkspace").addEventListener("click", function () {
+      if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
+        openAccessSheet();
+        return;
+      }
       location.hash = "#/workspace";
     });
     window.addEventListener("resize", function () {
@@ -1334,7 +1347,74 @@
     });
   }
 
+  /* ---------- workspace access gate (waitlist) ---------- */
+
+  var accessSheetOpen = false;
+
+  function openAccessSheet() {
+    var m = $("accessModal");
+    if (!m || accessSheetOpen) return;
+    accessSheetOpen = true;
+    if (window.BotoUI && BotoUI.openModal) BotoUI.openModal(m);
+    else m.hidden = false;
+    var st = window.BotoAccess ? BotoAccess.getStatus() : { grant: null };
+    if (st.grant && st.grant.status === "waitlisted") showWaitlistDone(st.grant);
+    var email = $("waitlistEmail");
+    if (email) setTimeout(function () { email.focus(); }, 120);
+    refreshIcons();
+  }
+
+  function closeAccessSheet() {
+    var m = $("accessModal");
+    if (!m) return;
+    accessSheetOpen = false;
+    if (window.BotoUI && BotoUI.closeModal) BotoUI.closeModal(m);
+    else { m.classList.remove("open"); m.hidden = true; }
+  }
+
+  function showWaitlistDone(grant) {
+    $("waitlistForm").hidden = true;
+    $("waitlistDone").hidden = false;
+    var pos = $("waitlistPosition");
+    if (pos && grant && grant.position) {
+      pos.textContent = "You are number " + grant.position + " in line. We'll email you when your seat opens.";
+    }
+    refreshIcons();
+  }
+
+  function initAccessGate() {
+    if (!window.BotoAccess) return;
+    BotoAccess.init();
+    /* a grant that lands while the sheet is open unlocks out of it */
+    BotoAccess.onChange(function () {
+      if (accessSheetOpen && BotoAccess.canUseWorkspace()) closeAccessSheet();
+    });
+    var form = $("waitlistForm");
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var btn = $("waitlistJoin");
+      var email = $("waitlistEmail").value;
+      btn.disabled = true;
+      BotoAccess.joinWaitlist(email).then(function (grant) {
+        if (grant && grant.status === "granted") closeAccessSheet();
+        else showWaitlistDone(grant);
+      }).catch(function (err) {
+        var note = $("waitlistNote");
+        note.textContent = err && err.message ? err.message : "Could not join. Try again.";
+      }).finally(function () { btn.disabled = false; });
+    });
+    $("accessContinue").addEventListener("click", closeAccessSheet);
+    mClickListener();
+  }
+
+  function mClickListener() {
+    $("accessModal").addEventListener("click", function (e) {
+      if (e.target === this) closeAccessSheet();
+    });
+  }
+
   function init() {
+    initAccessGate();
     initComposer();
     initModeSeg();
     initPill();
