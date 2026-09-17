@@ -1222,7 +1222,12 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
   position: fixed;
   right: 0;
   top: 64px;
-  z-index: 85; /* under the modals (90+); the open panel itself is 120 */
+  /* Above everything. A debug surface that a modal, a lightbox or a toast
+     can cover is useless exactly when it is needed, because the thing you
+     are debugging is usually the thing on top. The highest layer in the
+     app is 120 (toasts, citation cards, the image lightbox), so the debug
+     layer sits deliberately clear of it rather than tied with it. */
+  z-index: 2147483000;
   width: 30px;
   padding: 10px 0;
   display: flex;
@@ -1247,7 +1252,7 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 95;
+  z-index: 2147483000;
   height: min(52dvh, 600px);
   background: var(--pop);
   border-top: 1px solid var(--border);

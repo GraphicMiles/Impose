@@ -620,6 +620,34 @@ test("reading replies never hijacks the composer", function () {
     "expanding renders and returns, full stop");
 });
 
+test("the debug log is reachable on every page and nothing covers it", function () {
+  /* It was mounted only in index.html and hid itself until something had
+     already failed, so on the auth and marketing pages the bus recorded
+     faithfully and there was no way to read it: the log existed, the door
+     did not. And plenty of bugs never raise an error. */
+  var bus = read("debug-bus.js");
+  ok(bus.indexOf("function mountPortablePanel") !== -1,
+    "a self-contained panel travels with the bus");
+  ok(bus.indexOf("hostAlreadyHasPanel") !== -1,
+    "and stands down where the full panel exists, so there is never a second button");
+  ["auth.html", "about.html", "contact.html", "privacy.html", "terms.html",
+   "data-security.html", "acceptable-use.html", "404.html"].forEach(function (page) {
+    ok(read(page).indexOf("debug-bus.js") !== -1, page + " loads the bus");
+  });
+
+  var app = read("app.js");
+  ok(/tab\.hidden = panelOpen;/.test(app),
+    "the tab no longer waits for a failure before appearing");
+
+  /* Above every other layer. The app's highest is 120: toasts, citation
+     cards and the lightbox. A debug surface a modal can cover is useless
+     exactly when it is needed. */
+  var css = read("styles.css");
+  ok((css.match(/z-index: 2147483000/g) || []).length === 2,
+    "both the tab and the panel sit above everything else");
+  ok(bus.indexOf("var LAYER = 2147483000") !== -1, "and so does the portable one");
+});
+
 test("the debug log captures without call sites", function () {
   /* The old panel only recorded what someone remembered to call dnote()
      for: 39 hand-placed lines in app.js and none at all in Community. The

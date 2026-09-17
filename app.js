@@ -428,11 +428,17 @@
     all.forEach(function (e) { if (e.level === "error") errors++; });
     var tab = $("debugTab");
     tab.classList.toggle("bad", errors > 0);
-    /* The tab stays off the screen while everything is fine; it appears
-       only once something fails, so the log is reachable when it matters. */
+    /* Always reachable. It used to appear only once something had already
+       failed, which is backwards: you open a debug log to find out why
+       something is behaving oddly, and plenty of bugs never raise an
+       error. Waiting for a failure meant the log was missing in exactly
+       the cases where nothing crashed but the behaviour was still wrong.
+
+       It stays visually quiet until there is something to report, and
+       turns red with a count when there is. */
     var panel = $("debugPanel");
     var panelOpen = !panel.hidden && panel.classList.contains("open");
-    tab.hidden = errors === 0 && !panelOpen && !debugPinned;
+    tab.hidden = panelOpen;
     var count = $("debugTabCount");
     count.hidden = errors === 0;
     count.textContent = errors > 99 ? "99" : String(errors);

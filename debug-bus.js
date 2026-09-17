@@ -349,15 +349,174 @@
     MAX: MAX
   };
 
+  /* ---------- the portable panel ----------
+
+     index.html has a rich panel wired by app.js. Every other page in the
+     product had none, so the bus was recording faithfully on the auth
+     pages, the marketing pages and the 404 and nobody could read it: the
+     log existed and the door did not.
+
+     This is that door, built here so it travels with the bus rather than
+     with the app. It stands down on any page that already has the full
+     panel, so index.html keeps the richer one and there is never a second
+     bug button.
+
+     It is deliberately self-contained: its own markup, its own styles, no
+     dependency on styles.css, because the marketing pages do not load it. */
+
+  var LAYER = 2147483000;
+
+  function hostAlreadyHasPanel() {
+    return !!document.getElementById("debugPanel");
+  }
+
+  function mountPortablePanel() {
+    if (hostAlreadyHasPanel()) return;
+    if (document.getElementById("botoDebugPortable")) return;
+
+    var wrap = document.createElement("div");
+    wrap.id = "botoDebugPortable";
+    wrap.innerHTML =
+      '<button type="button" class="bdp-tab" aria-label="Open the debug log">' +
+        '<span class="bdp-glyph">bug</span><span class="bdp-count" hidden></span>' +
+      "</button>" +
+      '<section class="bdp-panel" hidden aria-label="Debug log">' +
+        '<header class="bdp-head">' +
+          "<strong>Debug log</strong><span class=\"bdp-meta\"></span>" +
+          '<span class="bdp-acts">' +
+            '<button type="button" data-bdp="copy">Copy</button>' +
+            '<button type="button" data-bdp="clear">Clear</button>' +
+            '<button type="button" data-bdp="close">Close</button>' +
+          "</span>" +
+        "</header>" +
+        '<div class="bdp-list"></div>' +
+      "</section>";
+
+    var css = document.createElement("style");
+    /* Every rule is scoped under the wrapper id so it cannot leak into a
+       page it was dropped onto. */
+    css.textContent =
+      "#botoDebugPortable .bdp-tab{position:fixed;right:0;top:64px;z-index:" + LAYER + ";" +
+        "width:34px;height:34px;display:flex;align-items:center;justify-content:center;" +
+        "border:1px solid rgba(255,255,255,.14);border-right:0;border-radius:8px 0 0 8px;" +
+        "background:#1b1c1f;color:#9aa0a6;font:600 9px/1 ui-monospace,Menlo,monospace;" +
+        "text-transform:uppercase;cursor:pointer;padding:0}" +
+      "#botoDebugPortable .bdp-tab.bad{color:#ff6b6b;border-color:#ff6b6b}" +
+      "#botoDebugPortable .bdp-count{position:absolute;top:-6px;left:-8px;min-width:15px;height:15px;" +
+        "border-radius:99px;background:#ff5252;color:#fff;font:600 9px/15px sans-serif;text-align:center}" +
+      "#botoDebugPortable .bdp-panel{position:fixed;left:0;right:0;bottom:0;z-index:" + LAYER + ";" +
+        "height:min(52dvh,560px);background:#141517;border-top:1px solid rgba(255,255,255,.14);" +
+        "display:flex;flex-direction:column;color:#e8eaed;" +
+        "font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}" +
+      "#botoDebugPortable .bdp-head{display:flex;align-items:center;gap:10px;padding:10px 14px;" +
+        "border-bottom:1px solid rgba(255,255,255,.1);font-family:system-ui,sans-serif;font-size:13px}" +
+      "#botoDebugPortable .bdp-meta{color:#9aa0a6;font-size:12px}" +
+      "#botoDebugPortable .bdp-acts{margin-left:auto;display:flex;gap:6px}" +
+      "#botoDebugPortable .bdp-acts button{background:#232427;color:#e8eaed;border:1px solid rgba(255,255,255,.14);" +
+        "border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer;min-height:30px}" +
+      "#botoDebugPortable .bdp-list{flex:1;overflow:auto;padding:8px 10px 20px}" +
+      "#botoDebugPortable .bdp-row{padding:6px 8px;border-radius:7px;margin-bottom:3px;" +
+        "overflow-wrap:anywhere;white-space:pre-wrap}" +
+      "#botoDebugPortable .bdp-row.error{background:rgba(255,82,82,.12);color:#ffb4b4}" +
+      "#botoDebugPortable .bdp-row.warn{background:rgba(255,193,7,.1);color:#ffd97a}" +
+      "#botoDebugPortable .bdp-when{color:#7a8085;margin-right:8px}";
+
+    document.documentElement.appendChild(css);
+    document.body.appendChild(wrap);
+
+    var tab = wrap.querySelector(".bdp-tab");
+    var panelEl = wrap.querySelector(".bdp-panel");
+    var list = wrap.querySelector(".bdp-list");
+    var meta = wrap.querySelector(".bdp-meta");
+    var countEl = wrap.querySelector(".bdp-count");
+
+    function row(e) {
+      var d = document.createElement("div");
+      d.className = "bdp-row " + e.level;
+      /* Clamp the detail. An HTML error page is a legitimate response body
+         and it ran to twenty lines, pushing every other event off screen:
+         the one entry you can see is rarely the one you need. The full
+         text is still in the buffer and in Copy. */
+      var detail = e.detail || "";
+      if (detail.length > 220) detail = detail.slice(0, 220) + "\u2026 [" + detail.length + " chars, full text in Copy]";
+      d.textContent = e.where + "  " + e.what + (detail ? "\n" + detail : "");
+      var when = document.createElement("span");
+      when.className = "bdp-when";
+      when.textContent = clock(e.t);
+      d.insertBefore(when, d.firstChild);
+      return d;
+    }
+
+    function paint() {
+      list.innerHTML = "";
+      entries.slice().reverse().forEach(function (e) { list.appendChild(row(e)); });
+      var n = window.BotoDebug.errorCount();
+      meta.textContent = entries.length + " lines" + (n ? ", " + n + " errors" : "");
+      countEl.hidden = n === 0;
+      countEl.textContent = n > 99 ? "99" : String(n);
+      tab.classList.toggle("bad", n > 0);
+    }
+
+    tab.addEventListener("click", function () {
+      panelEl.hidden = false;
+      tab.hidden = true;
+      paint();
+    });
+
+    wrap.addEventListener("click", function (ev) {
+      var act = ev.target.getAttribute && ev.target.getAttribute("data-bdp");
+      if (!act) return;
+      if (act === "close") { panelEl.hidden = true; tab.hidden = false; return; }
+      if (act === "clear") { window.BotoDebug.clear(); paint(); return; }
+      if (act === "copy") {
+        var text = window.BotoDebug.asText();
+        var done = function () { ev.target.textContent = "Copied"; setTimeout(function () { ev.target.textContent = "Copy"; }, 1200); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, done);
+        } else {
+          var ta = document.createElement("textarea");
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          try { document.execCommand("copy"); } catch (e) {}
+          ta.remove(); done();
+        }
+      }
+    });
+
+    listeners.push(function () { if (!panelEl.hidden) paint(); else {
+      var n = window.BotoDebug.errorCount();
+      countEl.hidden = n === 0;
+      countEl.textContent = n > 99 ? "99" : String(n);
+      tab.classList.toggle("bad", n > 0);
+    } });
+
+    /* Same shortcut as the full panel, so the habit transfers. */
+    document.addEventListener("keydown", function (e) {
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return;
+      if (String(e.key).toLowerCase() !== "d") return;
+      e.preventDefault();
+      if (panelEl.hidden) { panelEl.hidden = false; tab.hidden = true; paint(); }
+      else { panelEl.hidden = true; tab.hidden = false; }
+    });
+
+    paint();
+  }
+
   installErrorCapture();
   installConsoleCapture();
   installFetchCapture();
   installXhrCapture();
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", installInteractionCapture);
-  } else {
+  function onReady() {
     installInteractionCapture();
+    /* Deferred a frame so a host page that builds its own panel late still
+       wins the check. */
+    setTimeout(mountPortablePanel, 0);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", onReady);
+  } else {
+    onReady();
   }
 
   push("info", "app", "Debug bus ready");
