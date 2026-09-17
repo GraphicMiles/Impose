@@ -21,6 +21,11 @@ harness = (ROOT / "agent" / "harness.js").read_text(encoding="utf-8")
 features = (ROOT / "agent" / "features.js").read_text(encoding="utf-8")
 app = (ROOT / "app.js").read_text(encoding="utf-8")
 community_js = (ROOT / "community.js").read_text(encoding="utf-8")
+community_data_js = (ROOT / "community-data.js").read_text(encoding="utf-8")
+# The Supabase SDK. Missed until now, so the single-file build carried a
+# bare <script src> that cannot resolve when the file is opened from disk:
+# Community would load and then fail every server call.
+supabase_js = (ROOT / "supabase.min.js").read_text(encoding="utf-8")
 config_js = (ROOT / "config.js").read_text(encoding="utf-8")
 debug_bus_js = (ROOT / "debug-bus.js").read_text(encoding="utf-8")
 avatars_js = (ROOT / "avatars.js").read_text(encoding="utf-8")
@@ -107,6 +112,16 @@ html = html.replace(
 html = html.replace(
     '<script src="./app.js"></script>',
     "<script>\n" + app + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./supabase.min.js"></script>',
+    "<script>\n" + supabase_js + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./community-data.js"></script>',
+    "<script>\n" + community_data_js + "\n</script>",
     1,
 )
 html = html.replace(

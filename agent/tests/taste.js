@@ -643,6 +643,37 @@ test("nothing credential shaped survives the debug log", function () {
     "redaction is applied at the entry point, not at render time");
 });
 
+test("one module owns the server, so a swap is not twenty-one edits", function () {
+  /* community.js renders. It asks community-data.js for data and never
+     touches the SDK itself, which is the difference between changing a
+     backend and rewriting a feed. */
+  var view = read("community.js");
+  ok(view.indexOf("createClient") === -1, "the view must not build a Supabase client");
+  ok(view.indexOf("supabase.from(") === -1 && view.indexOf(".rpc(") === -1,
+    "the view must not issue queries of its own");
+
+  var data = read("community-data.js");
+  ok(data.indexOf("function feedPage") !== -1, "reads live in the data layer");
+  ok(data.indexOf("p_before_time") !== -1,
+    "the feed pages by cursor: OFFSET shifts under inserts and repeats rows");
+  ok(/newKey|p_key/.test(data), "writes carry an idempotency key");
+});
+
+test("every server call resolves to a state the UI can render", function () {
+  /* flow.txt 10 and 11: no async action without a defined failure, and
+     nothing spins forever. */
+  var data = read("community-data.js");
+  ok(data.indexOf("function withTimeout") !== -1,
+    "a request that never settles is worse than one that fails");
+  ok(/retryable/.test(data), "callers are told whether trying again is worth anything");
+  ok(data.indexOf("You appear to be offline") !== -1, "offline is named, not guessed at");
+  ok(data.indexOf("function shape") !== -1 && data.indexOf("Something went wrong") !== -1,
+    "Postgres codes are translated before they reach a reader");
+  /* text.txt 10: never show raw technical text. */
+  ok(data.indexOf("PGRST") === -1 && data.indexOf("42501") !== -1,
+    "codes are matched on, never displayed");
+});
+
 test("action rows sit on one centre line", function () {
   /* Taste skill 9.C: mathematically perfect padding, no floating elements
      with awkward gaps. Count buttons set their height from a text line box
