@@ -169,8 +169,9 @@ body:not(.community-mode) .modebar { display: none; }
 .modeseg {
   position: relative;
   display: flex;
-  background: var(--bg);
-  border: 1px solid var(--border-soft);
+  /* No outer shell: the switch floats directly on the Community navbar,
+     the active tab's glide pill is the only chrome. Padding stays so the
+     glide offsets (top/left/bottom 3px) keep aligning with the tabs. */
   border-radius: var(--r-pill);
   padding: 3px;
 }
