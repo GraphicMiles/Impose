@@ -535,7 +535,6 @@
     });
     if (arrivals.length) {
       arrivals.forEach(function (g) {
-        if (pendingGens.indexOf(g) === -1) pendingGens.push(g);
         /* Pin so the merge actually surfaces them. The demo poller sets
            freshPinned on the records it invents; arrivals from another tab
            are already-persisted records, so they are pinned for this view
@@ -1108,6 +1107,43 @@
     return gen.status === "streaming" || (gen.status === "failed" && gen.own);
   }
 
+  /* ---------- the feed ----------
+
+     Server-paged. The rows arrive from feed_page in the order Postgres
+     decided and are rendered in that order, which is the part that makes
+     keyset pagination work: a cursor names a position in an ordering, so
+     the client cannot re-sort a page without breaking the next one.
+
+     That retires the local engagement ranking. It could only ever sort the
+     slice already downloaded, so a highly-ranked post on page four stayed
+     on page four and the ordering was a lie told one page at a time.
+     Ranking belongs in the query when it is wanted; until then, newest
+     first is honest and stable.
+
+     Local state still holds what the server sent, because the renderer,
+     the delete flow and the thread all read from it. It is a cache: every
+     value in it came from Postgres and nothing writes to it that has not
+     been through the server first. */
+
+  var PAGE_SIZE = (window.BotoData && BotoData.PAGE_SIZE) || 10;
+  var feedCursor = null;
+  var feedDone = false;
+  var feedLoading = false;
+  var feedFailed = false;
+
+  function liveOnline() {
+    return !!(window.BotoData && BotoData.configured());
+  }
+
+  /* Urgent posts are the author's own streaming or failed ones. They are
+     not in the server feed while they are still local, so they ride on top
+     of whatever page one returned rather than being sorted into it. */
+  function pendingLocal() {
+    return state.generations.filter(function (gen) {
+      return !isDeleted(gen) && (urgent(gen) || gen.pending);
+    }).sort(function (a, b) { return b.createdAt - a.createdAt; });
+  }
+
   function visibleGenerations() {
     var list = state.generations.filter(function (gen) {
       /* A deleted post leaves the feed entirely. It still exists for its
@@ -1117,77 +1153,107 @@
       return gen.visibility === "public" || gen.own;
     });
     list.sort(function (a, b) {
-      /* Streaming and failed posts both pin to the top. Failed is not
-         cosmetic: it is the only state that carries a retry control, and a
-         freshly interrupted post has no engagement, so ranking it normally
-         buried it below the fold on reload and the user could never reach
-         the recovery path for their own post. Only the author's, because
-         nobody else can retry it. */
       var pa = urgent(a) ? 1 : 0;
       var pb = urgent(b) ? 1 : 0;
       if (pa !== pb) return pb - pa;
       var fa = isPinned(a) ? 1 : 0;
       var fb = isPinned(b) ? 1 : 0;
       if (fa !== fb) return fb - fa;
-      if (fa && fb) return b.createdAt - a.createdAt;
-      return score(b) - score(a) || b.createdAt - a.createdAt;
+      return b.createdAt - a.createdAt;
     });
     return list;
   }
 
-  /* Infinite scroll: PAGE_SIZE cards at a time so the platform never loads
-     the whole corpus at once. Triggering follows the NearSpace feed: an
-     IntersectionObserver sentinel with a bottom rootMargin starts the fetch
-     before the user arrives, a raw scroll fallback covers mobile browsers
-     that skip observer callbacks, and one timer ref means rapid scrolling
-     can never stack parallel page loads. */
-  var PAGE_SIZE = 10;
-  var feedShown = 0;
-  var loadTimer = null;
-
-  function syncFeedTail(total) {
-    var loader = $("cmFeedLoader");
+  function syncFeedTail() {
     var end = $("cmFeedEnd");
-    loader.hidden = true;
-    end.hidden = !(feedShown >= total && total > PAGE_SIZE);
+    var shown = $("cmFeedList").children.length;
+    $("cmFeedLoader").hidden = !feedLoading;
+    end.hidden = !(feedDone && shown > PAGE_SIZE);
   }
 
-  function appendFeedPage() {
-    var all = visibleGenerations();
+  /* One place decides which of the four states the feed is in, so two of
+     them can never be on screen together. flow.txt 9: loading, empty,
+     failed and populated are different answers and each needs its own. */
+  function syncFeedState() {
+    var shown = $("cmFeedList").children.length;
+    $("cmFeedError").hidden = !(feedFailed && shown === 0);
+    $("cmFeedEmpty").hidden = !(!feedFailed && !feedLoading && feedDone && shown === 0);
+    syncFeedTail();
+  }
+
+  /* Merge rather than replace: a card already on screen keeps its DOM node
+     and its expansion state, and a re-fetch of page one after a refresh
+     does not duplicate what is already there. */
+  function absorb(items) {
+    var seen = {};
+    state.generations.forEach(function (g, i) { seen[g.id] = i; });
+    items.forEach(function (row) {
+      if (seen[row.id] === undefined) {
+        state.generations.push(row);
+        seen[row.id] = state.generations.length - 1;
+        return;
+      }
+      var existing = state.generations[seen[row.id]];
+      /* The server is canonical, but a post still streaming locally has
+         text the server has not been told about yet. Overwriting it would
+         blank the response mid-answer. */
+      if (existing.status === "streaming" && row.status !== "complete") return;
+      state.generations[seen[row.id]] = row;
+    });
+  }
+
+  function renderKnownFeed() {
     var list = $("cmFeedList");
-    all.slice(feedShown, feedShown + PAGE_SIZE).forEach(function (gen) {
+    list.innerHTML = "";
+    var pending = pendingLocal();
+    var pendingIds = {};
+    pending.forEach(function (gen) {
+      pendingIds[gen.id] = true;
       list.appendChild(buildCard(gen, false));
     });
-    feedShown = Math.min(feedShown + PAGE_SIZE, all.length);
-    syncFeedTail(all.length);
+    feedOrder.forEach(function (id) {
+      if (pendingIds[id]) return;
+      var gen = genById(id);
+      if (!gen || isDeleted(gen)) return;
+      list.appendChild(buildCard(gen, false));
+    });
     refreshIcons();
+    syncFeedState();
   }
+
+  /* The order the server returned, kept separately so re-rendering does
+     not depend on a client sort that would contradict the cursor. */
+  var feedOrder = [];
 
   function loadMoreFeed() {
-    var total = visibleGenerations().length;
-    if (loadTimer || feedShown >= total) return;
-    $("cmFeedLoader").hidden = false;
-    loadTimer = setTimeout(function () {
-      loadTimer = null;
-      $("cmFeedLoader").hidden = true;
-      appendFeedPage();
-      /* Still shorter than the viewport (tall screens): keep fetching so the
-         page always fills before the user scrolls. The sentinel observer
-         will not refire here because its intersection state never changed. */
+    if (feedLoading || feedDone || !liveOnline()) return;
+    feedLoading = true;
+    feedFailed = false;
+    syncFeedState();
+
+    BotoData.feedPage(feedCursor).then(function (out) {
+      feedLoading = false;
+      if (!out.ok) {
+        feedFailed = true;
+        $("cmFeedErrorMsg").textContent = out.error;
+        /* Only offer a retry for something that might work next time.
+           text.txt 11: do not ask someone to try again at a wall. */
+        $("cmFeedRetry").hidden = !out.retryable;
+        syncFeedState();
+        return;
+      }
+      absorb(out.data.items);
+      out.data.items.forEach(function (row) {
+        if (feedOrder.indexOf(row.id) === -1) feedOrder.push(row.id);
+      });
+      feedCursor = out.data.cursor;
+      feedDone = out.data.done;
+      persist();
+      renderKnownFeed();
       fillViewport();
-    }, 700); /* deliberate latency so the fetch is felt, like a real backend */
+    });
   }
 
-  /* Near the bottom of the feed, or the feed is shorter than its own
-     viewport: fetch the next slice. Only while the feed is on screen.
-
-     The measurement has to come from #cmFeedView, which is the element that
-     actually scrolls (overflow-y: auto). Measuring the window instead looked
-     correct but was always true: body is overflow:hidden in community mode,
-     so documentElement.scrollHeight equals innerHeight forever and the
-     "near bottom" test never went false. Each page load then re-triggered
-     the next one and the whole corpus arrived in one burst, which is exactly
-     what paginating is supposed to prevent. */
   function feedScroller() { return $("cmFeedView"); }
 
   function fillViewport() {
@@ -1198,14 +1264,20 @@
     if (nearBottom) loadMoreFeed();
   }
 
+  /* A full reload of page one. Used by pull to refresh and by the pill,
+     both of which mean "show me the current truth". */
+  function reloadFeed() {
+    feedCursor = null;
+    feedDone = false;
+    feedFailed = false;
+    feedOrder = [];
+    loadMoreFeed();
+  }
+
   function renderFeed() {
-    $("cmFeedList").innerHTML = "";
-    feedShown = 0;
-    clearTimeout(loadTimer);
-    loadTimer = null;
-    appendFeedPage();
-    $("cmFeedEmpty").hidden = visibleGenerations().length > 0;
-    fillViewport();
+    renderKnownFeed();
+    if (feedOrder.length === 0) reloadFeed();
+    else fillViewport();
   }
 
   /* ---------- detail ---------- */
@@ -1815,16 +1887,10 @@
     title.textContent = "DISCUSSION · " + n;
   }
 
-  /* ---------- new arrivals: poll, pill, pull to refresh ----------
+  /* ---------- pins ----------
 
-     Production shape: GET /feed?after=<cursor> on an interval. Here the demo
-     backend "receives" posts on a timer from a rotating pool. Arrivals enter
-     state invisibly with freshPinned set, pendingGens tracks them, and only
-     the pill tap or a pull to refresh merges them into the visible feed, so
-     the timeline never shifts under the reader's thumb mid scroll. */
-
-  var pendingGens = [];
-  var pollCount = 0;
+     The timeline must not shift under a reader's thumb mid scroll, so new
+     arrivals are announced by the pill and merged only when asked for.
 
   /* Ids pinned to the top for this page view only.
 
@@ -1847,91 +1913,112 @@
     sessionPins = Object.create(null);
   }
 
-  var ARRIVAL_POOL = [
-    { creator: { name: "Kamsi", handle: "@kamsi" },
-      prompt: "Review this product spec like a hostile VP of Engineering.",
-      response: "The spec assumes the migration is free. It is not.\n\nHidden costs you did not budget: dual writes during the cutover, backfill of 40 million rows, and a rollback plan that currently says hope.\n\nFix the spec by adding a kill switch per tenant and a definition of done that includes deleting the old path, not just shipping the new one." },
-    { creator: { name: "Ada", handle: "@ada" },
-      prompt: "Plan a school fee savings wallet for market traders.",
-      response: "Daily micro deposits beat monthly targets because cash arrives daily.\n\nDesign: agent float at the stall, USSD fallback for the days the app is out of data, and fees locked at term start so school resumption never negotiates.\n\nThe feature that retains: a visible countdown to the term, not an interest rate." },
-    { creator: { name: "Miles", handle: "@miles" },
-      prompt: "Write 3 subject lines for a launch email about offline sync.",
-      response: "1. Your app finally works in an elevator.\n2. Data finished? Nothing changed.\n3. We shipped the thing you rage quit over.\n\nPick 2 for the send. It is true, it fits the preview text, and the people who churned over sync will open it on principle." },
-    { creator: { name: "Zainab", handle: "@zainab" },
-      prompt: "Interview questions that reveal if a startup actually ships.",
-      response: "1. Tell me about the last thing you deleted. Vacant stares mean hoarding.\n2. What shipped last Tuesday? Any answer older than a sprint is a process smell.\n3. Who can say no to a feature? If the answer is nobody, nothing ships on purpose." },
-    { creator: { name: "Tobi", handle: "@tobi" },
-      prompt: "Summarize Nigeria's data protection act for a two person SaaS.",
-      response: "You need consent before collection, a reason for every field you store, and a way to delete on request.\n\nThe practical floor: a privacy page a human can read, export and delete endpoints that actually work, and no analytics on data you cannot justify.\n\nIt is less law homework, more table manners with a budget line." },
-    { creator: { name: "Dami", handle: "@dami" },
-      prompt: "Turn these churn survey answers into a retention roadmap.",
-      response: "Group the answers by when users gave up, not why they said they left.\n\nDay 1 churn is onboarding, week 2 is missing habit, month 2 is price realization. One fix per window, shipped in that order.\n\nIgnore the loudest write in. The median abandoned session tells the truer story." }
-  ];
 
-  function simulateIncoming() {
-    if (state.generations.length >= 90) return; /* demo corpus cap */
-    var template = ARRIVAL_POOL[pollCount % ARRIVAL_POOL.length];
-    pollCount += 1;
-    var gen = {
-      id: uid(),
-      own: false,
-      creator: template.creator,
-      prompt: template.prompt,
-      response: template.response,
-      status: "complete", kind: "original", parentId: null, rootId: null,
-      locked: false, visibility: "public", saved: false,
-      createdAt: Date.now(),
-      counts: { remix: 0, challenge: 0, comment: 0, save: 0 },
-      freshPinned: true /* rides to the top exactly once, on merge */
-    };
-    gen.rootId = gen.id;
-    state.generations.push(gen);
-    pendingGens.push(gen);
-    persist();
-    syncPill();
+  /* ---------- new arrivals ----------
+
+     Asks the server for a count, not for rows. An idle tab costs one
+     integer per tick and the bodies are fetched only if the reader taps
+     the pill, which is the difference between a feed that polls and a feed
+     that downloads itself repeatedly.
+
+     Backs off when the tab is hidden and stops after repeated failures:
+     a phone in a pocket should not keep a radio busy, and a server that is
+     down should not be hammered by every open tab (architect 6.4). */
+
+  var POLL_MIN = 25000;
+  var POLL_MAX = 90000;
+  var pollDelay = POLL_MIN;
+  var pollTimer = null;
+  var pollFailures = 0;
+  var newestSeen = null;
+
+  function newestTimestamp() {
+    var newest = 0;
+    state.generations.forEach(function (gen) {
+      if (!isDeleted(gen) && gen.createdAt > newest) newest = gen.createdAt;
+    });
+    return newest ? new Date(newest).toISOString() : new Date().toISOString();
   }
 
-  /* First poll soon enough to be felt in a demo, then a relaxed heartbeat. */
+  function pollOnce() {
+    if (!liveOnline() || currentMode() !== "community") return Promise.resolve();
+    if (document.hidden) return Promise.resolve();
+    newestSeen = newestSeen || newestTimestamp();
+    return BotoData.newSince(newestSeen).then(function (out) {
+      if (!out.ok) {
+        pollFailures += 1;
+        /* Exponential backoff rather than a fixed retry: a server that is
+           struggling is made worse by every client retrying on a timer. */
+        pollDelay = Math.min(POLL_MAX, pollDelay * 2);
+        return;
+      }
+      pollFailures = 0;
+      pollDelay = POLL_MIN;
+      pendingCount = out.data || 0;
+      syncPill();
+    });
+  }
+
+  var pendingCount = 0;
+
   function schedulePoll() {
-    var delay = pollCount === 0 ? 28000 : 45000 + Math.floor(Math.random() * 45000);
-    setTimeout(function () {
-      simulateIncoming();
-      schedulePoll();
-    }, delay);
+    clearTimeout(pollTimer);
+    /* Six consecutive failures is a server that is not coming back in the
+       next minute. Stop, and let a deliberate refresh restart it. */
+    if (pollFailures >= 6) return;
+    pollTimer = setTimeout(function () {
+      pollOnce().then(schedulePoll);
+    }, pollDelay + Math.floor(Math.random() * 5000));
   }
+
+  /* A hidden tab is not reading. Resuming on focus is also the moment the
+     reader is most likely to want fresh data. */
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { clearTimeout(pollTimer); return; }
+    pollFailures = 0;
+    pollDelay = POLL_MIN;
+    pollOnce().then(schedulePoll);
+  });
 
   function mergeFresh() {
-    pendingGens.length = 0;
+    pendingCount = 0;
+    newestSeen = null;
     clearPins();
-    state.generations.forEach(function (gen) { gen.freshPinned = false; });
-    persist();
     $("cmNewPostsPill").hidden = true;
   }
 
+  /* The pill says how many, not who: the avatars needed the rows, and the
+     whole point of the count-only poll is that the rows have not been
+     fetched yet. Naming a number we actually know beats showing faces we
+     would have to download to be honest about. */
   function syncPill() {
     if ($("cmFeedView").hidden) return;
-    if (pendingGens.length === 0) return;
-    /* overlapping initial avatars for up to 3 distinct pending authors,
-       newest first, Twitter style */
-    var seen = {};
-    var avas = "";
-    var count = 0;
-    for (var i = pendingGens.length - 1; i >= 0 && count < 3; i--) {
-      var name = pendingGens[i].creator.name;
-      if (seen[name]) continue;
-      seen[name] = true;
-      count += 1;
-      avas += window.BotoAvatar
-        ? '<span class="npp-ava npp-ava-img">' + BotoAvatar.svg(pendingGens[i].creator.handle || name, 20) + "</span>"
-        : '<span class="npp-ava">' + esc(name.charAt(0).toUpperCase()) + "</span>";
+    var pill = $("cmNewPostsPill");
+    if (!pendingCount) { pill.hidden = true; return; }
+    var label = pill.querySelector(".npp-label");
+    if (label) {
+      label.textContent = pendingCount === 1 ? "1 new post" : pendingCount + " new posts";
     }
-    $("cmNppAvas").innerHTML = avas;
-    $("cmNewPostsPill").hidden = false;
+    $("cmNppAvas").innerHTML = "";
+    pill.hidden = false;
+  }
+
+  function initFeedRetry() {
+    $("cmFeedRetry").addEventListener("click", function () {
+      /* A deliberate retry also restarts the poll: the reader is telling
+         us they think the connection is back. */
+      pollFailures = 0;
+      pollDelay = POLL_MIN;
+      reloadFeed();
+      schedulePoll();
+    });
   }
 
   function initPill() {
     $("cmNewPostsPill").addEventListener("click", function () {
-      renderFeed(); /* pinned arrivals land on top in this render */
+      /* The rows were never downloaded, so this is a real fetch, not a
+         re-render of something already held. */
+      reloadFeed();
       mergeFresh();
       /* The feed scrolls inside #cmFeedView; window.scrollTo does nothing
          here, so the reader stayed where they were after tapping a pill
@@ -2008,8 +2095,9 @@
 
   /* Debug handle for previews and the smoke tests. */
   window.SLOPIFY_DEBUG = {
-    simulateIncoming: simulateIncoming,
-    pendingCount: function () { return pendingGens.length; }
+    pollOnce: function () { return pollOnce(); },
+    pendingCount: function () { return pendingCount; },
+    reloadFeed: function () { return reloadFeed(); }
   };
 
   /* ---------- composer ---------- */
@@ -2458,6 +2546,7 @@
     initComposer();
     initModeSeg();
     initPill();
+    initFeedRetry();
     initPullRefresh();
     schedulePoll();
     var sentinel = $("cmFeedSentinel");

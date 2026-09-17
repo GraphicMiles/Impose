@@ -1252,3 +1252,24 @@ body:not(.community-mode) .modebar { display: none; }
   background: var(--hover);
   border-color: var(--text-3);
 }
+
+
+/* Feed failure. Centred like the empty state because it occupies the same
+   slot, but it carries an action: an empty feed is a fact, a failed one is
+   a question the reader can answer by retrying. */
+.cm-scope .feed-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 56px 24px;
+  text-align: center;
+}
+
+.cm-scope .feed-error-msg {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--text-2);
+  max-width: 34ch;
+  line-height: 1.5;
+}

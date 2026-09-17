@@ -142,7 +142,7 @@ try {
       <button class="new-posts-pill" id="cmNewPostsPill" hidden>
         <i data-lucide="arrow-up"></i>
         <span class="npp-avas" id="cmNppAvas"></span>
-        <span>posted</span>
+        <span class="npp-label">New posts</span>
       </button>
 
       <div class="cm-view" id="cmFeedView">
@@ -163,6 +163,15 @@ try {
           <div class="feed-empty" id="cmFeedEmpty" hidden>
             <h1 class="greeting">Nothing here yet</h1>
             <p class="feed-empty-sub">Start a generation with @bot. It shows up here for everyone to remix.</p>
+          </div>
+          <!-- Failed to load is a distinct state from empty. An empty feed
+               invites you to post; a failed one has to admit it does not
+               know what is there and offer the way out. -->
+          <div class="feed-error" id="cmFeedError" hidden role="alert">
+            <p class="feed-error-msg" id="cmFeedErrorMsg">We could not load the feed.</p>
+            <button class="btn" id="cmFeedRetry" type="button">
+              <i data-lucide="rotate-ccw"></i><span>Try again</span>
+            </button>
           </div>
         </div>
       </div>

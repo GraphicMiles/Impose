@@ -490,7 +490,16 @@ test("the scroll fallback listens on the scroller, not only the window", functio
 });
 
 test("the feed pages ten at a time", function () {
-  ok(communityJs.indexOf("var PAGE_SIZE = 10;") !== -1);
+  /* The size moved to the data layer when the feed became server paged:
+     the client and the RPC have to agree, because a page shorter than the
+     requested size is how "you are at the end" is detected. Two copies of
+     the number would eventually disagree and the feed would either stop
+     early or never stop. */
+  var data = read("community-data.js");
+  ok(/var PAGE_SIZE = 10;/.test(data), "the data layer owns the page size");
+  ok(communityJs.indexOf("BotoData.PAGE_SIZE") !== -1,
+    "the view reads it rather than declaring its own");
+  ok(/p_limit: PAGE_SIZE/.test(data), "and the same value is what the server is asked for");
 });
 
 test("the spinner is a block so its ring cannot collapse", function () {
@@ -641,6 +650,33 @@ test("nothing credential shaped survives the debug log", function () {
   var push = bus.indexOf("function push(");
   ok(bus.slice(push, push + 500).indexOf("redactText(what)") !== -1,
     "redaction is applied at the entry point, not at render time");
+});
+
+test("the feed has a failure state, not just an empty one", function () {
+  /* flow.txt 9: "failed to load" and "nothing here" are different answers.
+     Showing the empty state on a dead connection tells the reader the feed
+     is empty, which is a lie they cannot correct. */
+  ok(read("index.html").indexOf('id="cmFeedError"') !== -1, "the state exists in the markup");
+  var view = read("community.js");
+  ok(view.indexOf("function syncFeedState") !== -1,
+    "one place decides which state is on screen, so two cannot show at once");
+  ok(/feedFailed && shown === 0/.test(view), "the error only replaces an empty list");
+  ok(/!feedFailed && !feedLoading && feedDone && shown === 0/.test(view),
+    "empty is only claimed once the server has actually said so");
+  ok(view.indexOf("cmFeedRetry") !== -1, "and it offers a way out");
+});
+
+test("polling asks for a count and backs off", function () {
+  var view = read("community.js");
+  ok(view.indexOf("BotoData.newSince") !== -1,
+    "the poll costs one integer, not a page of bodies");
+  ok(view.indexOf("document.hidden") !== -1, "a hidden tab stops polling");
+  ok(/pollDelay = Math.min\(POLL_MAX, pollDelay \* 2\)/.test(view),
+    "a failing server is backed off, not retried on a fixed timer");
+  ok(/pollFailures >= 6/.test(view), "and eventually left alone");
+  /* The fabricated arrivals had to go, not sit alongside the real poll. */
+  ok(view.indexOf("ARRIVAL_POOL") === -1 && view.indexOf("simulateIncoming") === -1,
+    "no invented posts once the feed is real");
 });
 
 test("one module owns the server, so a swap is not twenty-one edits", function () {
