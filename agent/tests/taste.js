@@ -642,8 +642,9 @@ test("deleting a comment does not destroy a draft in progress", function () {
   var rb = communityJs.slice(r, r + 800);
   ok(rb.indexOf("renderThread(") !== -1 && rb.indexOf("renderDetail(") === -1,
     "it must repaint the thread, never the page that owns the composer");
-  ok(rb.indexOf("clearReplyTarget()") !== -1,
-    "a composer aimed at a fresh tombstone must lose its target");
+  ok(rb.indexOf("clearReplyTarget(true)") !== -1,
+    "a composer aimed at a fresh tombstone must lose its target, and be " +
+    "told the loss was involuntary so the draft cannot post as top-level");
   ok(communityJs.indexOf("function clearReplyTarget") !== -1,
     "delete lives outside the composer closure, so the target drop is hoisted");
   var c = communityJs.indexOf("function clearReplyTarget");
@@ -674,6 +675,82 @@ test("the community top fade has no hard edge", function () {
     "the mask must ease out with the tint so the blur does not end on a line");
   ok(bar.indexOf("-webkit-mask-image") !== -1 && bar.indexOf("-webkit-backdrop-filter") !== -1,
     "Safari needs both prefixed properties or the bar turns into a solid slab");
+});
+
+test("an unanswered post invites, it does not show an empty thread", function () {
+  /* X-style: zero comments is not a list with nothing in it. No heading
+     counting to zero, no composer sitting open demanding input. */
+  var r = communityJs.indexOf("function renderDetail");
+  var body = communityJs.slice(r, r + 3000);
+  ok(body.indexOf("comments.length\n      ? '<div class=\"comments-title\">") !== -1 ||
+     /comments\.length[\s\S]{0,40}comments-title/.test(body),
+    "the DISCUSSION heading is conditional on there being a discussion");
+  ok(body.indexOf('"comment-box" + (comments.length ? "" : " comment-box--closed")') !== -1,
+    "the composer starts closed when there is nothing to reply to");
+  ok(communityJs.indexOf("data-first-reply") !== -1, "the empty state owns a Reply action");
+  ok(communityCss.indexOf(".cm-scope .comment-box--closed { display: none; }") !== -1,
+    "and the closed composer is actually hidden");
+});
+
+test("the three comment actions stay three different actions", function () {
+  var h = communityJs.indexOf('e.target.closest("[data-first-reply]")');
+  ok(h !== -1, "the empty-state CTA has its own branch");
+  var cta = communityJs.slice(h, h + 260);
+  ok(cta.indexOf("clearReplyTarget(false)") !== -1 && cta.indexOf("openComposer()") !== -1,
+    "first reply opens the composer with NO parent: it is a new top-level comment");
+  /* The post-level action routes to the thread and nothing else. */
+  var d = communityJs.indexOf('if (act === "discuss")');
+  var disc = communityJs.slice(d, d + 160);
+  ok(disc.indexOf('location.hash = "#/g/"') !== -1 && disc.indexOf("startReply") === -1,
+    "the post's comment button opens the thread, it never aims the composer");
+});
+
+test("a reply can never silently become a top-level comment", function () {
+  /* The draft was written as an answer to someone. If that target is taken
+     away - deleted, or removed by another tab - posting it at the root puts
+     the user's words somewhere they did not aim them. */
+  ok(communityJs.indexOf("var replyTargetLost") !== -1,
+    "an involuntary loss of the target must be remembered, not silently forgotten");
+  var pi = communityJs.indexOf("function post()");
+  var post = communityJs.slice(pi, pi + 2600);
+  ok(post.indexOf("if (replyTargetLost && !replyingTo)") !== -1,
+    "post() must refuse when the target was taken away");
+  ok(post.indexOf("var live = commentById(replyingTo.id)") !== -1,
+    "and must re-resolve the target by id rather than trusting a stale object");
+  ok(/!live \|\| isDeleted\(live\) \|\| live\.genId !== gen\.id/.test(post),
+    "a target that is gone, deleted, or on another post is not a target");
+  /* Deliberate choices must NOT be blocked. */
+  var sr = communityJs.indexOf("function startReply");
+  ok(communityJs.slice(sr, sr + 200).indexOf("replyTargetLost = false") !== -1,
+    "aiming somewhere new clears the flag");
+  var cr = communityJs.indexOf("function clearReply()");
+  ok(communityJs.slice(cr, cr + 260).indexOf("clearReplyTarget(false)") !== -1,
+    "the user's own cancel is deliberate and must still allow a top-level post");
+});
+
+test("comment counts are derived at every write, never incremented", function () {
+  var pi = communityJs.indexOf("function post()");
+  var post = communityJs.slice(pi, pi + 4200);
+  ok(post.indexOf("gen.counts.comment += 1") === -1,
+    "a parallel counter drifts the moment a delete or a merge touches the set");
+  ok(post.indexOf("syncCommentCount(gen.id)") !== -1, "derive it from the live comments");
+});
+
+test("the discussion heading can appear and disappear with the thread", function () {
+  var u = communityJs.indexOf("function updateDiscussionTitle");
+  var body = communityJs.slice(u, u + 700);
+  ok(body.indexOf("createElement") !== -1,
+    "0 -> 1 must create the heading, not wait for a full page render");
+  ok(body.indexOf("title.remove()") !== -1, "1 -> 0 must remove it");
+});
+
+test("an external comment does not rebuild the page under the reader", function () {
+  var a = communityJs.indexOf("function adoptExternalState");
+  var body = communityJs.slice(a, a + 1200);
+  ok(body.indexOf("refreshThreadOnly(openId)") !== -1,
+    "a still-present post repaints its thread in place, keeping the draft");
+  ok(body.indexOf("var stillHere = genById(openId)") !== -1,
+    "a post that is gone is still a routing event");
 });
 
 queue.forEach(function (entry) {

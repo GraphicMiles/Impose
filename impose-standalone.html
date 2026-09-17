@@ -2652,11 +2652,39 @@ body:not(.community-mode) .modebar { display: none; }
 }
 
 .cm-scope .comments-empty {
-  padding: 24px 16px;
+  padding: 28px 16px 32px;
   color: var(--text-3);
   font-size: 14px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
 }
+
+.cm-scope .comments-empty p { margin: 0; }
+
+/* The one action on an unanswered post. It is the primary thing to do here,
+   so it is the only filled control on the page. */
+.cm-scope .comments-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  /* Comfortably past the 44px touch floor. */
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cm-scope .comments-empty-cta .lucide,
+.cm-scope .comments-empty-cta i[data-lucide] { width: 15px; height: 15px; }
+
+/* A composer with nothing to answer yet stays out of the way. Hidden from
+   assistive tech too, not just visually: an empty thread should not offer a
+   text field the design says is closed. */
+.cm-scope .comment-box--closed { display: none; }
 
 /* comment composer: the same object, sized down */
 
@@ -15951,7 +15979,18 @@ window.BotoConfig = {
     state = fresh;
 
     if (location.hash.indexOf("#/g/") === 0) {
-      /* The post being read may now be a tombstone or gone entirely. */
+      /* State 11: another tab added a comment while this one is reading the
+         thread. The post itself may also now be a tombstone, which is a
+         routing event. But if the post is still here, a full route() would
+         rebuild the detail page and take the composer - and any draft in it,
+         and the reader's expanded branches - down with it. Repaint the
+         thread in place instead. */
+      var openId = location.hash.slice(4);
+      var stillHere = genById(openId);
+      if (stillHere && !isDeleted(stillHere)) {
+        refreshThreadOnly(openId);
+        return;
+      }
       route();
       return;
     }
@@ -16130,9 +16169,15 @@ window.BotoConfig = {
     var gen = genById(genId);
     var listEl = $("cmCommentList");
     if (gen && listEl && location.hash === "#/g/" + genId) {
-      /* The composer may be aimed at a comment that just became a tombstone;
-         replying to one is not a real state. */
-      if (replyingTo && isDeleted(commentById(replyingTo.id) || {})) clearReplyTarget();
+      /* The composer may be aimed at a comment that just became a tombstone,
+         or that a cross-tab merge removed outright. Either way it is no
+         longer a real target. Re-resolve by id: after a merge the object in
+         replyingTo is a discarded copy even when the comment still exists. */
+      if (replyingTo) {
+        var live = commentById(replyingTo.id);
+        if (!live || isDeleted(live)) clearReplyTarget(true);
+        else replyingTo = live;
+      }
       renderThread(gen, listEl);
       replaceCard(gen);
       updateDiscussionTitle(gen);
@@ -16652,14 +16697,24 @@ window.BotoConfig = {
     var comments = commentsFor(gen.id);
     var section = document.createElement("div");
     section.className = "comments";
-    section.innerHTML = '<div class="comments-title">DISCUSSION · ' + comments.length + "</div>";
+    /* With no discussion yet there is no thread to title: a "DISCUSSION · 0"
+       heading over an empty box announces an absence. The empty state below
+       carries the invitation instead. */
+    section.innerHTML = comments.length
+      ? '<div class="comments-title">DISCUSSION · ' + comments.length + "</div>"
+      : "";
     var listEl = document.createElement("div");
     listEl.id = "cmCommentList";
     section.appendChild(listEl);
     renderThread(gen, listEl);
 
     var box = document.createElement("div");
-    box.className = "comment-box";
+    /* The composer is a response to an intent, not permanent furniture. On a
+       post with no discussion it stays closed until the reader taps Reply.
+       Once a thread exists the box is the thread's own footer and stays
+       open, exactly like X: you can always add a top-level reply to a
+       conversation you are already reading. */
+    box.className = "comment-box" + (comments.length ? "" : " comment-box--closed");
     box.innerHTML =
       '<div class="remix-ctx comment-ctx" id="cmCommentCtx" hidden>' +
         '<i data-lucide="corner-down-right" class="remix-ctx-icon"></i>' +
@@ -16689,8 +16744,17 @@ window.BotoConfig = {
      module scope because delete and restore happen outside the composer's
      closure but can invalidate its target. Does NOT touch the input value:
      the user's typed draft is theirs and survives the target changing. */
-  function clearReplyTarget() {
+  /* Set when a reply target is taken away by something other than the user:
+     a delete, or a merge from another tab. The composer still holds their
+     draft, and that draft was written as an answer to a specific comment, so
+     posting it as a new top-level comment would put words in a place the
+     user never chose. The next post() refuses and explains instead.
+     Cancelling or aiming somewhere else clears the flag. */
+  var replyTargetLost = false;
+
+  function clearReplyTarget(lost) {
     replyingTo = null;
+    replyTargetLost = !!lost;
     var bar = $("cmCommentCtx");
     if (bar) bar.hidden = true;
   }
@@ -16855,7 +16919,18 @@ window.BotoConfig = {
     var comments = commentsFor(gen.id);
     listEl.innerHTML = "";
     if (comments.length === 0) {
-      listEl.innerHTML = '<div class="comments-empty">No discussion yet. The sharpest take usually goes first.</div>';
+      /* Zero comments is not an empty list, it is an invitation. The reader
+         gets one clear action; the composer stays out of the way until they
+         take it, so an unanswered post does not open with a blinking box
+         demanding input. */
+      listEl.innerHTML =
+        '<div class="comments-empty">' +
+          "<p>No replies yet. The sharpest take usually goes first.</p>" +
+          '<button class="btn primary comments-empty-cta" data-first-reply="1">' +
+            '<i data-lucide="corner-down-right"></i><span>Reply</span>' +
+          "</button>" +
+        "</div>";
+      refreshIcons();
       return;
     }
     var onPath = replyingTo ? pathToRoot(comments, replyingTo.id) : new Set();
@@ -16917,6 +16992,13 @@ window.BotoConfig = {
         deleteComment(delId);
         return;
       }
+      /* First-reply CTA on an empty thread: opens the composer for a NEW
+         top-level comment. No parent, so it must not set a reply target. */
+      if (e.target.closest("[data-first-reply]")) {
+        clearReplyTarget(false);
+        openComposer();
+        return;
+      }
       var replyBtn = e.target.closest("[data-reply]");
       if (replyBtn) {
         var wantId = replyBtn.getAttribute("data-reply");
@@ -16930,24 +17012,70 @@ window.BotoConfig = {
       $("cmCommentCtxClear").addEventListener("click", clearReply);
     }
 
+    /* Reveals the composer and puts the caret in it. Used by the empty
+       state's Reply and by every per-comment Reply. */
+    function openComposer() {
+      var wrap = document.querySelector(".comment-box");
+      if (wrap) wrap.classList.remove("comment-box--closed");
+      input.focus();
+      /* A composer that opens below the fold has not really opened. */
+      if (wrap && wrap.scrollIntoView) wrap.scrollIntoView({ block: "nearest" });
+    }
+
     function startReply(target) {
       replyingTo = target;
+      replyTargetLost = false;
       if (ctxBar) {
         ctxLabel.innerHTML = "<strong>Replying to " + esc(target.creator.handle) + "</strong> · " + esc(target.text);
         ctxBar.hidden = false;
       }
-      input.focus();
+      openComposer();
       renderThread(gen, listEl); /* repaints the branch highlight */
     }
 
+    /* The user's own cancel. Unlike a target being taken away, this is a
+       deliberate choice to stop replying, so the draft is now a top-level
+       comment and must not be blocked. */
     function clearReply() {
-      clearReplyTarget();
+      clearReplyTarget(false);
       renderThread(gen, listEl);
     }
 
     function post() {
       var text = input.value.trim();
+      /* State 8: empty or whitespace-only submission is not an error, it is
+         a no-op. The send button is already disabled; this is the guard for
+         Enter and for any programmatic path. */
       if (!text) return;
+
+      /* THE REPLY-TARGET RULE. A draft written as a reply must never quietly
+         become a top-level comment. Two ways that could happen, and both are
+         refused here.
+
+         First: the target was taken away while the draft sat in the box (a
+         delete, or a cross-tab merge). clearReplyTarget already dropped it,
+         so replyingTo is null and the guard below would not fire - hence the
+         explicit flag. */
+      if (replyTargetLost && !replyingTo) {
+        notify("The comment you were replying to is no longer available. Your draft was kept.");
+        replyTargetLost = false;
+        return;
+      }
+
+      /* Second: replyingTo is an object captured when the user tapped Reply
+         and the world moved underneath it. Re-resolve by id against live
+         state before trusting it. */
+      if (replyingTo) {
+        var live = commentById(replyingTo.id);
+        if (!live || isDeleted(live) || live.genId !== gen.id) {
+          clearReplyTarget();
+          renderThread(gen, listEl);
+          notify("The comment you were replying to is no longer available. Your draft was kept.");
+          return;
+        }
+        replyingTo = live;
+      }
+
       var parentId = replyingTo ? replyingTo.id : null;
       /* Depth cap: replying to a comment already at MAX_REPLY_DEPTH attaches
          the new comment as that comment's sibling instead of its child,
@@ -16987,10 +17115,18 @@ window.BotoConfig = {
         });
         expandedThreads.add(replyingTo.id);
       }
-      gen.counts.comment += 1;
+      /* State 10: derive, never increment. A parallel += drifts the moment
+         anything else touches the set (a delete, an undo, a merge from
+         another tab), and the chip then disagrees with the thread. */
+      syncCommentCount(gen.id);
+      /* State 9: a failed write must not look like a success. persist()
+         reports it and has already told the user storage is broken; the
+         comment stays in memory for this session so their text is not
+         destroyed, but we do not pretend it was saved. */
       persist();
       input.value = "";
       replyingTo = null;
+      replyTargetLost = false;
       if (ctxBar) ctxBar.hidden = true;
       sync();
       renderThread(gen, listEl);
@@ -16999,9 +17135,24 @@ window.BotoConfig = {
     }
   }
 
+  /* The heading only exists while there is a discussion, so going 0 -> 1 has
+     to create it and 1 -> 0 has to remove it. Only rewriting an existing node
+     left the first comment with no heading until a full page render. */
   function updateDiscussionTitle(gen) {
-    var title = document.querySelector(".comments-title");
-    if (title) title.textContent = "DISCUSSION · " + commentsFor(gen.id).length;
+    var section = document.querySelector(".comments");
+    if (!section) return;
+    var title = section.querySelector(".comments-title");
+    var n = commentsFor(gen.id).length;
+    if (!n) {
+      if (title) title.remove();
+      return;
+    }
+    if (!title) {
+      title = document.createElement("div");
+      title.className = "comments-title";
+      section.insertBefore(title, section.firstChild);
+    }
+    title.textContent = "DISCUSSION · " + n;
   }
 
   /* ---------- new arrivals: poll, pill, pull to refresh ----------

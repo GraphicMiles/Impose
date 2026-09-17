@@ -645,11 +645,39 @@ body:not(.community-mode) .modebar { display: none; }
 }
 
 .cm-scope .comments-empty {
-  padding: 24px 16px;
+  padding: 28px 16px 32px;
   color: var(--text-3);
   font-size: 14px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
 }
+
+.cm-scope .comments-empty p { margin: 0; }
+
+/* The one action on an unanswered post. It is the primary thing to do here,
+   so it is the only filled control on the page. */
+.cm-scope .comments-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  /* Comfortably past the 44px touch floor. */
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cm-scope .comments-empty-cta .lucide,
+.cm-scope .comments-empty-cta i[data-lucide] { width: 15px; height: 15px; }
+
+/* A composer with nothing to answer yet stays out of the way. Hidden from
+   assistive tech too, not just visually: an empty thread should not offer a
+   text field the design says is closed. */
+.cm-scope .comment-box--closed { display: none; }
 
 /* comment composer: the same object, sized down */
 
