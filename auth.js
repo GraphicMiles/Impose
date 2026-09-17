@@ -4,6 +4,11 @@
   var AUTH_KEY = "impose.auth.v1";
   document.documentElement.setAttribute("data-theme", "dark");
   var pendingEmail = sessionStorage.getItem("impose.auth.pendingEmail") || "";
+  /* Held in memory only, for the seconds between requesting a code and
+     entering it. Deliberately not sessionStorage: a password that outlives
+     the tab, or that another script on the page can read, is a worse
+     trade than asking someone to start over after a refresh. */
+  var pendingPassword = "";
   var otpPurpose = sessionStorage.getItem("impose.auth.otpPurpose") || "signup";
   var toastTimer = null;
   var resendTimer = null;
@@ -220,6 +225,7 @@
     /* No account exists yet. The relay validates the address, refuses one
        that is taken, and emails a code. The account is created only when
        that code comes back. */
+    pendingPassword = password;
     window.BotoAuth.signUp(email, password).then(function () {
       busy(form, false);
       route("otp");
@@ -327,9 +333,20 @@
       return;
     }
 
-    /* This call is what creates the account. Until it returns there is no
-       user, which is the whole point of the change. */
-    window.BotoAuth.completeSignUp(pendingEmail, code).then(function () {
+    if (!pendingPassword) {
+      /* The page was reloaded between requesting the code and entering it,
+         so the password is gone. Say so plainly instead of failing at the
+         sign-in that follows. */
+      busy(form, false);
+      showToast("Start signup again: this page was reloaded.");
+      route("sign-up");
+      return;
+    }
+
+    /* This is what confirms the account. Until it returns, the user exists
+       but cannot sign in, which is the point of the change. */
+    window.BotoAuth.completeSignUp(pendingEmail, code, pendingPassword).then(function () {
+      pendingPassword = "";
       busy(form, false);
       saveSession(sessionStorage.getItem("impose.auth.pendingName") || pendingEmail.split("@")[0], pendingEmail);
       showVerified();
@@ -410,7 +427,7 @@
       return;
     }
     busy(form, true);
-    window.BotoAuth.completeReset(ticket, password).then(function () {
+    window.BotoAuth.completeReset(ticket, password, pendingEmail).then(function () {
       sessionStorage.removeItem("impose.auth.resetTicket");
       busy(form, false);
       done();

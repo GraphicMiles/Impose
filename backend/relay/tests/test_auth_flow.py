@@ -33,13 +33,13 @@ class FakeStore:
         self.rows = {}
         self.issued = []
 
-    async def issue(self, email, purpose, code, password_hash):
+    async def issue(self, email, purpose, code, user_id=None):
         key = (email.lower(), purpose)
         self.rows[key] = {
             "email": email.lower(),
             "purpose": purpose,
             "code_hash": otp_store.hash_code(code),
-            "password_hash": password_hash,
+            "user_id": user_id,
             "attempts": 0,
         }
         self.issued.append((email.lower(), purpose, code))
@@ -79,6 +79,17 @@ def env(monkeypatch):
     monkeypatch.setattr(otp_store, "issue", store.issue)
     monkeypatch.setattr(otp_store, "verify", store.verify)
 
+    tickets = {}
+
+    async def issue_ticket(email, token, user_id, ttl=600):
+        tickets[token] = {"email": email.lower(), "user_id": user_id}
+
+    async def redeem_ticket(token):
+        return tickets.pop(token, None)
+
+    monkeypatch.setattr(otp_store, "issue_ticket", issue_ticket)
+    monkeypatch.setattr(otp_store, "redeem_ticket", redeem_ticket)
+
     async def find_user(email):
         for user in created:
             if user["email"] == email.lower():
@@ -86,9 +97,22 @@ def env(monkeypatch):
         return None
 
     async def create_user(email, password):
-        user = {"id": "user-" + str(len(created) + 1), "email": email.lower(), "password": password}
+        user = {"id": "user-" + str(len(created) + 1), "email": email.lower(),
+                "password": password, "email_confirmed_at": None}
         created.append(user)
         return user
+
+    async def confirm_user(user_id):
+        for user in created:
+            if user["id"] == user_id:
+                user["email_confirmed_at"] = "now"
+        return {}
+
+    async def delete_user(user_id):
+        for i, user in enumerate(created):
+            if user["id"] == user_id:
+                created.pop(i)
+                return
 
     async def set_password(user_id, password):
         passwords.append((user_id, password))
@@ -97,16 +121,11 @@ def env(monkeypatch):
                 user["password"] = password
         return {}
 
-    async def issue_session(email, password):
-        for user in created:
-            if user["email"] == email.lower() and user["password"] == password:
-                return {"access_token": "tok-" + user["id"], "refresh_token": "ref", "user": user}
-        raise supabase_admin.AdminError("That email and password do not match.", status=401)
-
     monkeypatch.setattr(supabase_admin, "find_user_by_email", find_user)
-    monkeypatch.setattr(supabase_admin, "create_confirmed_user", create_user)
+    monkeypatch.setattr(supabase_admin, "create_pending_user", create_user)
+    monkeypatch.setattr(supabase_admin, "confirm_user", confirm_user)
+    monkeypatch.setattr(supabase_admin, "delete_user", delete_user)
     monkeypatch.setattr(supabase_admin, "set_password", set_password)
-    monkeypatch.setattr(supabase_admin, "issue_session", issue_session)
     monkeypatch.setattr(supabase_admin, "configured", lambda: True)
 
     from relay import server
@@ -115,24 +134,41 @@ def env(monkeypatch):
     return {"client": TestClient(app), "store": store, "created": created, "passwords": passwords}
 
 
-def test_requesting_a_code_creates_no_account(env):
-    """The defect that made all of this necessary."""
+def test_requesting_a_code_creates_no_usable_account(env):
+    """The defect that made all of this necessary.
+
+    A row is staged so Supabase can hash the password and nothing else has
+    to store it, but it is unconfirmed and therefore cannot sign in.
+    """
     r = env["client"].post("/v1/auth/otp/request",
                            json={"email": "a@b.com", "password": "Str0ng!pass", "purpose": "signup"})
     assert r.status_code == 200
-    assert env["created"] == [], "no user may exist before the code is verified"
+    assert len(env["created"]) == 1
+    assert env["created"][0]["email_confirmed_at"] is None, \
+        "the account must not be usable before the code is verified"
 
 
-def test_the_code_is_what_creates_the_account(env):
+def test_the_password_is_never_stored_by_us(env):
+    """It goes straight to Supabase, which hashes it.
+
+    The earlier design kept it reversibly encrypted in the codes table for
+    ten minutes, which made OTP_PEPPER a key whose loss was a breach.
+    """
+    env["client"].post("/v1/auth/otp/request",
+                       json={"email": "a@b.com", "password": "Str0ng!pass", "purpose": "signup"})
+    for row in env["store"].rows.values():
+        assert "password" not in row
+        assert "password_hash" not in row
+
+
+def test_the_code_is_what_makes_the_account_usable(env):
     c = env["client"]
     c.post("/v1/auth/otp/request", json={"email": "a@b.com", "password": "Str0ng!pass", "purpose": "signup"})
     code = env["store"].last_code("a@b.com")
     r = c.post("/v1/auth/otp/verify", json={"email": "a@b.com", "purpose": "signup", "code": code})
     assert r.status_code == 200
-    body = r.json()
-    assert body["session"]["access_token"], "verification must return a real session"
-    assert len(env["created"]) == 1
-    assert env["created"][0]["email"] == "a@b.com"
+    assert r.json()["confirmed"] is True
+    assert env["created"][0]["email_confirmed_at"] is not None
 
 
 def test_a_wrong_code_creates_nothing(env):
@@ -140,7 +176,7 @@ def test_a_wrong_code_creates_nothing(env):
     c.post("/v1/auth/otp/request", json={"email": "a@b.com", "password": "Str0ng!pass", "purpose": "signup"})
     r = c.post("/v1/auth/otp/verify", json={"email": "a@b.com", "purpose": "signup", "code": "00000000"})
     assert r.status_code == 400
-    assert env["created"] == []
+    assert env["created"][0]["email_confirmed_at"] is None, "a wrong code must not confirm anything"
 
 
 def test_a_code_cannot_be_replayed(env):
@@ -150,10 +186,9 @@ def test_a_code_cannot_be_replayed(env):
     assert c.post("/v1/auth/otp/verify", json={"email": "a@b.com", "purpose": "signup", "code": code}).status_code == 200
     again = c.post("/v1/auth/otp/verify", json={"email": "a@b.com", "purpose": "signup", "code": code})
     assert again.status_code == 410
-    assert len(env["created"]) == 1, "a replayed code must not create a second account"
 
 
-def test_a_taken_address_is_refused_before_any_email(env):
+def test_a_confirmed_address_is_refused_before_any_email(env):
     c = env["client"]
     c.post("/v1/auth/otp/request", json={"email": "a@b.com", "password": "Str0ng!pass", "purpose": "signup"})
     code = env["store"].last_code("a@b.com")
@@ -184,6 +219,7 @@ def test_reset_returns_a_ticket_not_a_session(env):
     body = r.json()
     assert body.get("ticket"), "reset must hand back a ticket"
     assert "session" not in body, "a reset code must not itself be a login"
+    assert "access_token" not in str(body)
 
 
 def test_a_password_cannot_be_reset_without_a_ticket(env):
@@ -213,16 +249,29 @@ def test_reset_does_not_reveal_whether_an_address_exists(env):
     assert known.status_code == 200
 
 
-def test_the_pending_password_is_not_stored_in_the_clear(env):
-    """It sits in the codes table for up to ten minutes; a dump must not read it."""
-    from relay.server import _seal_password, _unseal_password
-    sealed = _seal_password("Str0ng!pass")
-    assert "Str0ng!pass" not in sealed
-    assert _unseal_password(sealed) == "Str0ng!pass"
+def test_an_abandoned_signup_does_not_squat_the_address(env):
+    """A staged, unconfirmed row must not block a later real attempt."""
+    c = env["client"]
+    c.post("/v1/auth/otp/request", json={"email": "a@b.com", "password": "First!pass1", "purpose": "signup"})
+    r = c.post("/v1/auth/otp/request", json={"email": "a@b.com", "password": "Second!pass1", "purpose": "signup"})
+    assert r.status_code == 200, "a retried signup must be allowed"
+    assert len(env["created"]) == 1, "the abandoned row is replaced, not duplicated"
+    # The replace is what matters: the row now carries the password just
+    # typed, so someone who mistyped it the first time is not locked out of
+    # their own signup.
+    assert env["created"][0]["password"] == "Second!pass1", "the newest password wins"
+    assert env["created"][0]["email_confirmed_at"] is None
 
 
-def test_a_tampered_password_blob_is_rejected(env):
-    from relay.server import _seal_password, _unseal_password
-    sealed = _seal_password("Str0ng!pass")
-    body, tag = sealed.rsplit(".", 1)
-    assert _unseal_password(body + ".00000000000000000000000000000000") == ""
+def test_a_failed_send_leaves_no_ghost_account(env, monkeypatch):
+    """If no code can arrive, the staged row must not block every retry."""
+    from relay import server
+
+    async def boom(*a, **k):
+        raise server.MailFailed("smtp down")
+
+    monkeypatch.setattr(server, "send_code", boom)
+    r = env["client"].post("/v1/auth/otp/request",
+                           json={"email": "a@b.com", "password": "Str0ng!pass", "purpose": "signup"})
+    assert r.status_code == 502
+    assert env["created"] == [], "the staged account must be removed when the email fails"

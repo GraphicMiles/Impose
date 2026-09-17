@@ -63,7 +63,11 @@ grant usage on schema auth to anon, authenticated;
 grant execute on function auth.uid() to anon, authenticated;
 SQL
 
-psql -f "$ROOT/supabase/migrations/0001_mvp.sql" >/dev/null
+# Every migration, in order. Testing only the first one would let a later
+# migration break the schema and still report green.
+for m in "$ROOT"/supabase/migrations/*.sql; do
+  psql -f "$m" >/dev/null
+done
 
 # Supabase grants these to the API roles when a table is exposed; the
 # migration controls access through RLS, not through GRANT.

@@ -131,13 +131,19 @@ async def find_user_by_email(email: str) -> dict | None:
     return None
 
 
-async def create_confirmed_user(email: str, password: str) -> dict:
-    """Create a user that is already email-confirmed.
+async def create_pending_user(email: str, password: str) -> dict:
+    """Create the account up front, unconfirmed and therefore unusable.
 
-    email_confirm=True is honest here in a way it would not be anywhere
-    else: this is called only after the relay has checked a code that was
-    delivered to that address, so the confirmation reflects a fact the
-    server established rather than a claim the client made.
+    This is what removes the need to store the password anywhere of our
+    own. The earlier design held it in the codes table, encrypted, until
+    verification; that meant a decryptable password sat in a row for ten
+    minutes and OTP_PEPPER became a key whose loss was a breach. Supabase
+    hashes the password the moment it arrives here, and it is never written
+    anywhere else.
+
+    email_confirm is false, so the account cannot sign in. Confirmation is
+    the single flag that verification flips, which makes the code the only
+    thing standing between a request and a usable account.
     """
     return await _request(
         "POST",
@@ -145,9 +151,31 @@ async def create_confirmed_user(email: str, password: str) -> dict:
         json_body={
             "email": email,
             "password": password,
-            "email_confirm": True,
+            "email_confirm": False,
         },
     )
+
+
+async def confirm_user(user_id: str) -> dict:
+    """Mark the address verified. Called only after a code is consumed."""
+    return await _request(
+        "PUT",
+        f"/auth/v1/admin/users/{user_id}",
+        json_body={"email_confirm": True},
+    )
+
+
+async def delete_user(user_id: str) -> None:
+    """Remove an unconfirmed account.
+
+    A pending signup that is never completed must not squat the address
+    forever, and a failed send must not leave a ghost the user cannot get
+    past. Best effort: a failure here is logged, not surfaced.
+    """
+    try:
+        await _request("DELETE", f"/auth/v1/admin/users/{user_id}")
+    except AdminError as exc:
+        print(f"[auth] could not remove pending user {user_id}: {exc.detail}")
 
 
 async def set_password(user_id: str, password: str) -> dict:

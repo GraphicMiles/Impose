@@ -108,16 +108,16 @@
 
   /* ---------- accounts ----------
 
-     Nothing here creates an account or a session. The browser asks; the
-     relay decides, after checking a code it delivered to the address. The
-     earlier version called supabase.auth.signUp() from here and got a
-     session back immediately, which made the code that followed it
-     decorative: skipping it produced a working account.
+     Nothing here creates an account. The browser asks; the relay decides,
+     after checking a code it delivered to the address. An earlier version
+     called the SDK's own signup from here and got a session back
+     immediately, which made the code that followed it decorative:
+     skipping it produced a working account.
 
-     The session that arrives from the relay is a real Supabase session, so
-     it is handed to the SDK rather than stored by hand. Supabase remains
-     the authority on what a valid session is, and every later request is
-     checked against its own records regardless of what this page believes. */
+     Sessions still come from Supabase, through an ordinary sign-in once
+     the relay has confirmed the address. Nothing here mints or installs a
+     token, so Supabase remains the authority on what a valid session is
+     and every later request is checked against its own records. */
 
   /* Step one of signup: hand the address and password to the relay, which
      refuses taken addresses, holds the password encrypted, and emails a
@@ -130,14 +130,16 @@
     });
   }
 
-  /* Step two: the relay checks the code, creates the confirmed account and
-     returns a session. This is the only path to an account. */
-  function completeSignUp(email, code) {
+  /* Step two: the relay checks the code and confirms the account, which
+     is the flag that makes it usable. Then we sign in normally, because
+     the relay does not mint sessions: Supabase stays the authority on what
+     a valid session is, and the password is already in its hands. */
+  function completeSignUp(email, code, password) {
     return verifyCode(email, "signup", code).then(function (out) {
-      if (!out || !out.session || !out.session.access_token) {
+      if (!out || !out.confirmed) {
         throw new Error("Verification did not complete. Request a new code.");
       }
-      return adoptSession(out.session);
+      return signIn(email, password);
     });
   }
 
@@ -168,26 +170,14 @@
     });
   }
 
-  function completeReset(ticket, password) {
+  function completeReset(ticket, password, email) {
     return postJson("/v1/auth/password/reset", { ticket: ticket, password: password })
-      .then(function (out) {
-        if (!out || !out.session) throw new Error("Could not set the password. Request a new code.");
-        return adoptSession(out.session);
+      .then(function () {
+        /* Signing in here proves the new password actually took, rather
+           than trusting a 200 and stranding the user at a login that
+           rejects them. */
+        return signIn(email, password);
       });
-  }
-
-  /* Install a relay-issued session into the SDK so the rest of the app,
-     which asks Supabase for the current user, sees it. */
-  function adoptSession(session) {
-    if (!configured()) return Promise.resolve(session);
-    return supabase().auth.setSession({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token
-    }).then(function (res) {
-      if (res.error) throw new Error(humanize(res.error));
-      cacheSession((res.data && res.data.user) || (session && session.user));
-      return res.data;
-    });
   }
 
   function signOut() {

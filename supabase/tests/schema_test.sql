@@ -215,5 +215,71 @@ select test_ok('waitlist addresses are case insensitive',
 select test_denied('the waitlist RPC validates the address server side', $$
   select public.join_waitlist('not-an-email')$$);
 
+
+-- ============ auth hardening (0003) ============
+-- The attempt cap used to be enforced by reading the count, adding one and
+-- writing it back. Measured against real Postgres, ten concurrent wrong
+-- guesses recorded as one attempt and the code stayed live. These pin the
+-- single-statement replacement.
+
+reset role;
+
+select public.issue_auth_code('cap@test.com', 'signup', 'GOODHASH', null, 600, 60);
+
+select test_ok('a wrong code is counted, not ignored',
+  (select outcome from public.consume_auth_code('cap@test.com','signup','BADHASH')) = 'wrong');
+
+select test_ok('the remaining attempts are reported',
+  (select attempts_left from public.consume_auth_code('cap@test.com','signup','BADHASH')) = 3);
+
+-- Burn the rest of the budget.
+select public.consume_auth_code('cap@test.com','signup','BADHASH');
+select public.consume_auth_code('cap@test.com','signup','BADHASH');
+
+select test_ok('the fifth wrong guess locks the code',
+  (select outcome from public.consume_auth_code('cap@test.com','signup','BADHASH')) = 'locked');
+
+select test_ok('a locked code is destroyed, so the real value is dead too',
+  (select outcome from public.consume_auth_code('cap@test.com','signup','GOODHASH')) = 'expired');
+
+-- The correct code, on a fresh issue, consumes in one shot.
+select public.issue_auth_code('good@test.com', 'signup', 'GOODHASH',
+  '11111111-1111-1111-1111-111111111111', 600, 60);
+
+select test_ok('the right code returns the staged user',
+  (select user_id from public.consume_auth_code('good@test.com','signup','GOODHASH'))
+    = '11111111-1111-1111-1111-111111111111');
+
+select test_ok('and consuming it removes the row, so it cannot be replayed',
+  (select outcome from public.consume_auth_code('good@test.com','signup','GOODHASH')) = 'expired');
+
+-- Cooldown is decided in the same statement that writes, so two resends
+-- cannot both believe they are the first.
+select public.issue_auth_code('cool@test.com','signup','H1',null,600,60);
+select test_ok('a resend inside the cooldown reuses the live code',
+  (select reused from public.issue_auth_code('cool@test.com','signup','H2',null,600,60)) = true);
+select test_ok('and the original code still works, not the rival',
+  (select outcome from public.consume_auth_code('cool@test.com','signup','H1')) = 'ok');
+
+-- Tickets.
+insert into public.auth_tickets (token_hash, email, user_id, expires_at)
+values ('THASH', 'r@test.com', '11111111-1111-1111-1111-111111111111', now() + interval '10 minutes');
+
+select test_ok('a ticket redeems once',
+  (select count(*) from (select public.redeem_auth_ticket('THASH')) x) = 1);
+select test_ok('and cannot be redeemed twice',
+  (select count(*) from public.redeem_auth_ticket('THASH')) = 0);
+
+insert into public.auth_tickets (token_hash, email, expires_at)
+values ('EXPIRED', 'r@test.com', now() - interval '1 minute');
+select test_ok('an expired ticket is refused',
+  (select count(*) from public.redeem_auth_ticket('EXPIRED')) = 0);
+
+-- The codes table must be unreachable from the browser roles.
+set role anon;
+select test_denied('anon cannot read pending codes', $$select * from public.auth_codes$$);
+select test_denied('anon cannot read reset tickets', $$select * from public.auth_tickets$$);
+reset role;
+
 \echo ''
 \echo 'All schema assertions passed.'
