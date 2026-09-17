@@ -400,9 +400,10 @@ body:not(.nav-open) .sidebar-inner {
   letter-spacing: -0.01em;
   padding: 8px 10px;
   border-radius: 10px;
-  transition: background-color 140ms ease;
+  transition: background-color 140ms ease, transform 160ms var(--ease-out);
 }
 @media (hover: hover) { .model-btn:hover { background: var(--hover); } }
+.model-btn:active { background: var(--press); transform: scale(0.98); }
 .model-btn .lucide, .model-btn i[data-lucide] { width: 16px; height: 16px; color: var(--text-3); }
 .model-btn .chev { transition: transform 180ms var(--ease-out); }
 .model-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
@@ -566,6 +567,7 @@ body:not(.nav-open) .sidebar-inner {
 .msg-actions.fresh { animation: act-in 400ms ease-out both; }
 .msg-actions button {
   flex: none;
+  position: relative;
   width: 32px;
   height: 32px;
   display: inline-flex;
@@ -721,7 +723,7 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
 .pop.open { opacity: 1; transform: scale(1); pointer-events: auto; }
 .pop-sm { min-width: 190px; }
 
-.pop-label { font-size: 12px; color: var(--text-3); font-weight: 500; padding: 7px 10px 5px; margin: 0; }
+.pop-label { font-size: 12px; color: var(--text-3); font-weight: 500; letter-spacing: 0.02em; padding: 7px 10px 5px; margin: 0; }
 .pop-sep { height: 1px; background: var(--border-soft); margin: 6px 4px; }
 
 .pop-item {
@@ -924,7 +926,7 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
   height: 20px;
   border-radius: 50%;
   background: var(--text-3);
-  transition: transform 180ms var(--ease-out), background-color 180ms ease;
+  transition: transform 220ms var(--ease-spring), background-color 180ms ease;
 }
 .toggle[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
 .toggle[aria-checked="true"] .knob { transform: translateX(19px); background: var(--accent-fg); }
@@ -1106,6 +1108,8 @@ html.reduce-motion .dots span { animation: none; opacity: 0.7; }
   transition: color 140ms ease, border-color 140ms ease;
 }
 @media (hover: hover) { .settings-tabs button:hover { color: var(--text); } }
+.settings-tabs button { transition: color 140ms ease, border-color 140ms ease; }
+.settings-tabs button:active { color: var(--text); }
 .settings-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
 
 .pane-note { font-size: 13px; line-height: 1.55; color: var(--text-2); margin: 12px 0 4px; }
@@ -1406,6 +1410,9 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .edit-box textarea { background: var(--composer); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; resize: vertical; min-height: 70px; }
 .edit-row { display: flex; gap: 8px; justify-content: flex-end; }
 
+/* Counters tick; tabular figures stop the digits dancing. */
+.msg-stats, .debug-count, .usage td, .usage th, .stat-num { font-variant-numeric: tabular-nums; }
+
 /* ---------- sources + citations + followups ---------- */
 
 .sources { margin-top: 2px; }
@@ -1437,6 +1444,8 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .followups-head { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 2px; }
 .followup { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-size: 12.5px; color: var(--text); border-bottom: 1px solid var(--border-soft); border-radius: 8px; padding: 7px 6px; animation: fade-up 350ms cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: var(--d, 0ms); }
 @media (hover: hover) { .followup:hover { background: var(--hover); } }
+.followup:active { background: var(--hover); transform: scale(0.995); }
+.followup { transition: background-color 140ms ease, transform 160ms var(--ease-out); }
 .followup .lucide, .followup i[data-lucide] { width: 11px; height: 11px; color: var(--text-3); flex: none; }
 
 /* ---------- feel: toasts, jump pill, palette ---------- */
@@ -2240,8 +2249,9 @@ body:not(.community-mode) .modebar { display: none; }
   font-weight: 500;
   color: var(--text-2);
   border-radius: var(--r-pill);
-  transition: color 140ms ease;
+  transition: color 140ms ease, transform 160ms var(--ease-out);
 }
+.modeseg-tab:active { transform: scale(0.97); }
 
 .modeseg-tab.active { color: var(--text); }
 
@@ -2287,17 +2297,31 @@ body:not(.community-mode) .modebar { display: none; }
    high-contrast ring runs at the bottom of the list so the fetch is felt,
    not inferred. */
 
+/* Pagination skeleton: two ghost cards in the shape of the gen cards
+   they become, breathing softly. A ring tells nothing about what is
+   coming; the skeleton previews it. */
 .cm-scope .feed-loader {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+  display: grid;
+  gap: 14px;
   width: 100%;
-  padding: 24px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-2);
-  animation: ctx-in var(--dur-2) var(--ease-out) both;
+  padding: 4px 0 8px;
+}
+.cm-scope .skel-card {
+  display: flex;
+  gap: 12px;
+  padding: 14px 4px;
+  animation: skel-breathe 1.4s ease-in-out infinite;
+}
+.cm-scope .skel-card:nth-child(2) { animation-delay: 160ms; }
+.cm-scope .skel-ava { width: 34px; height: 34px; flex: none; border-radius: 50%; background: var(--hover); }
+.cm-scope .skel-lines { flex: 1; display: grid; gap: 8px; align-content: start; }
+.cm-scope .skel-line { height: 11px; border-radius: 6px; background: var(--hover); }
+.cm-scope .skel-line.w60 { width: 60%; }
+.cm-scope .skel-line.w90 { width: 90%; }
+.cm-scope .skel-line.w40 { width: 40%; }
+@keyframes skel-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .cm-scope .skel-card { animation: none; opacity: 0.6; }
 }
 
 .cm-scope .spinner {
@@ -2354,8 +2378,7 @@ body:not(.community-mode) .modebar { display: none; }
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border-soft);
   transition: background-color 140ms ease;
-  cursor: pointer;
-}
+  cursor: pointer; animation: ctx-in var(--dur-2) var(--ease-out) both; }
 
 @media (hover: hover) {
 .cm-scope .gen:hover { background: var(--hover); }
@@ -2511,6 +2534,9 @@ body:not(.community-mode) .modebar { display: none; }
   margin-left: -8px;
 }
 
+/* Counters tick; tabular figures stop the digits dancing. */
+.cm-scope .gen-act, .cm-scope .comments-title, .cm-scope .gen-meta { font-variant-numeric: tabular-nums; }
+
 .cm-scope .gen-act {
   display: inline-flex;
   align-items: center;
@@ -2642,7 +2668,9 @@ body:not(.community-mode) .modebar { display: none; }
   display: flex;
   align-items: stretch;
   position: relative;
+  transition: background-color 140ms ease;
 }
+.cm-scope .trow:active { background: var(--hover); }
 
 /* Ancestor continuation line: one column per ancestor with siblings below. */
 
@@ -2758,6 +2786,8 @@ body:not(.community-mode) .modebar { display: none; }
   transition: background-color 140ms ease, color 140ms ease;
 }
 
+.cm-scope .comment-replies-btn { transition: background-color 140ms ease, color 140ms ease, transform 160ms var(--ease-out); }
+.cm-scope .comment-replies-btn:active { transform: scale(0.95); }
 .cm-scope .comment-replies-btn .lucide { width: 14px; height: 14px; }
 
 .cm-scope .comment-replies-btn[aria-expanded="true"] { background: var(--hover); color: var(--text); }
@@ -3526,7 +3556,14 @@ try {
           <div id="cmFeedList"></div>
           <div id="cmFeedSentinel" aria-hidden="true"></div>
           <div class="feed-loader" id="cmFeedLoader" hidden role="status" aria-label="Loading more generations">
-            <span class="spinner" aria-hidden="true"></span><span>Loading more generations</span>
+            <div class="skel-card" aria-hidden="true">
+              <span class="skel-ava"></span>
+              <span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w90"></span><span class="skel-line w60"></span></span>
+            </div>
+            <div class="skel-card" aria-hidden="true">
+              <span class="skel-ava"></span>
+              <span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w90"></span><span class="skel-line w60"></span></span>
+            </div>
           </div>
           <div class="feed-end" id="cmFeedEnd" hidden>You are all caught up.</div>
           <div class="feed-empty" id="cmFeedEmpty" hidden>

@@ -368,9 +368,10 @@ body:not(.nav-open) .sidebar-inner {
   letter-spacing: -0.01em;
   padding: 8px 10px;
   border-radius: 10px;
-  transition: background-color 140ms ease;
+  transition: background-color 140ms ease, transform 160ms var(--ease-out);
 }
 @media (hover: hover) { .model-btn:hover { background: var(--hover); } }
+.model-btn:active { background: var(--press); transform: scale(0.98); }
 .model-btn .lucide, .model-btn i[data-lucide] { width: 16px; height: 16px; color: var(--text-3); }
 .model-btn .chev { transition: transform 180ms var(--ease-out); }
 .model-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
@@ -534,6 +535,7 @@ body:not(.nav-open) .sidebar-inner {
 .msg-actions.fresh { animation: act-in 400ms ease-out both; }
 .msg-actions button {
   flex: none;
+  position: relative;
   width: 32px;
   height: 32px;
   display: inline-flex;
@@ -689,7 +691,7 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
 .pop.open { opacity: 1; transform: scale(1); pointer-events: auto; }
 .pop-sm { min-width: 190px; }
 
-.pop-label { font-size: 12px; color: var(--text-3); font-weight: 500; padding: 7px 10px 5px; margin: 0; }
+.pop-label { font-size: 12px; color: var(--text-3); font-weight: 500; letter-spacing: 0.02em; padding: 7px 10px 5px; margin: 0; }
 .pop-sep { height: 1px; background: var(--border-soft); margin: 6px 4px; }
 
 .pop-item {
@@ -892,7 +894,7 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
   height: 20px;
   border-radius: 50%;
   background: var(--text-3);
-  transition: transform 180ms var(--ease-out), background-color 180ms ease;
+  transition: transform 220ms var(--ease-spring), background-color 180ms ease;
 }
 .toggle[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
 .toggle[aria-checked="true"] .knob { transform: translateX(19px); background: var(--accent-fg); }
@@ -1074,6 +1076,8 @@ html.reduce-motion .dots span { animation: none; opacity: 0.7; }
   transition: color 140ms ease, border-color 140ms ease;
 }
 @media (hover: hover) { .settings-tabs button:hover { color: var(--text); } }
+.settings-tabs button { transition: color 140ms ease, border-color 140ms ease; }
+.settings-tabs button:active { color: var(--text); }
 .settings-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
 
 .pane-note { font-size: 13px; line-height: 1.55; color: var(--text-2); margin: 12px 0 4px; }
@@ -1374,6 +1378,9 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .edit-box textarea { background: var(--composer); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; resize: vertical; min-height: 70px; }
 .edit-row { display: flex; gap: 8px; justify-content: flex-end; }
 
+/* Counters tick; tabular figures stop the digits dancing. */
+.msg-stats, .debug-count, .usage td, .usage th, .stat-num { font-variant-numeric: tabular-nums; }
+
 /* ---------- sources + citations + followups ---------- */
 
 .sources { margin-top: 2px; }
@@ -1405,6 +1412,8 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .followups-head { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 2px; }
 .followup { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-size: 12.5px; color: var(--text); border-bottom: 1px solid var(--border-soft); border-radius: 8px; padding: 7px 6px; animation: fade-up 350ms cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: var(--d, 0ms); }
 @media (hover: hover) { .followup:hover { background: var(--hover); } }
+.followup:active { background: var(--hover); transform: scale(0.995); }
+.followup { transition: background-color 140ms ease, transform 160ms var(--ease-out); }
 .followup .lucide, .followup i[data-lucide] { width: 11px; height: 11px; color: var(--text-3); flex: none; }
 
 /* ---------- feel: toasts, jump pill, palette ---------- */
