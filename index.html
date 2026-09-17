@@ -209,7 +209,15 @@ try {
                    It is aria-hidden and never focusable: the textarea remains
                    the single real control. -->
               <div class="composer-field">
-                <div class="composer-hl" id="cmInputHl" aria-hidden="true"></div>
+                <!-- The inline position/color is a failsafe, not styling. If
+                     community.css is ever stale or missing (a service worker
+                     serving an old cache did exactly this), an unstyled layer
+                     falls back to static flow and paints a second visible copy
+                     of the text above the input. Pinning it out of flow and
+                     transparent here means the worst case is an invisible
+                     layer and a plain textarea, never doubled text. -->
+                <div class="composer-hl" id="cmInputHl" aria-hidden="true"
+                     style="position:absolute;inset:0;color:transparent;pointer-events:none"></div>
                 <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything, or just post a thought" aria-label="Message Botocracy"></textarea>
               </div>
               <div class="composer-row">

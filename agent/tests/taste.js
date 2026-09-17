@@ -414,6 +414,62 @@ test("the delete plan is written down and traceable", function () {
   ok(plan.indexOf("## 8. Non-goals") !== -1, "scope lock needs explicit non-goals");
 });
 
+
+/* ---- Task 5: pagination, pull-to-refresh spinner, cache correctness ---- */
+
+test("the feed measures the element that actually scrolls", function () {
+  ok(communityJs.indexOf("function feedScroller") !== -1);
+  ok(communityJs.indexOf("box.scrollTop + box.clientHeight >= box.scrollHeight") !== -1,
+    "measuring the window is wrong: body is overflow:hidden in community mode");
+  ok(communityJs.indexOf("document.documentElement.scrollHeight - 320") === -1,
+    "the window-based near-bottom test was always true and loaded every page at once");
+});
+
+test("the sentinel observer is rooted on the scroller", function () {
+  ok(communityJs.indexOf("root: feedScroller()") !== -1);
+});
+
+test("the scroll fallback listens on the scroller, not only the window", function () {
+  ok(communityJs.indexOf('scrollBox.addEventListener("scroll", fillViewport') !== -1);
+});
+
+test("the feed pages ten at a time", function () {
+  ok(communityJs.indexOf("var PAGE_SIZE = 10;") !== -1);
+});
+
+test("the spinner is a block so its ring cannot collapse", function () {
+  var i = communityCss.indexOf(".cm-scope .spinner {");
+  ok(i !== -1);
+  var rule = communityCss.slice(i, i + 400);
+  ok(rule.indexOf("display: block") !== -1,
+    "width/height/border-radius are all ignored on an inline box");
+  ok(rule.indexOf("box-sizing: border-box") !== -1);
+});
+
+test("the pull indicator's smaller ring wins on source order", function () {
+  var base = communityCss.indexOf(".cm-scope .spinner {");
+  var override = communityCss.indexOf(".cm-scope .pull-spin .spinner {");
+  ok(base !== -1 && override !== -1);
+  ok(override > base, "equal specificity, so the override must come after the base rule");
+});
+
+test("the service worker cache version moved with the shipped assets", function () {
+  var sw = read("sw.js");
+  ok(sw.indexOf('var CACHE = "impose-shell-v44"') === -1,
+    "v44 shipped avatars.js and the highlight layer without a version bump");
+  ok(/var CACHE = "impose-shell-v(4[5-9]|[5-9][0-9])"/.test(sw));
+});
+
+test("the highlight layer cannot double the text without its stylesheet", function () {
+  ok(indexHtml.indexOf('id="cmInputHl"') !== -1);
+  var i = indexHtml.indexOf('id="cmInputHl"');
+  var tag = indexHtml.slice(i - 200, i + 300);
+  ok(tag.indexOf("position:absolute") !== -1, "an unstyled layer must stay out of flow");
+  ok(tag.indexOf("color:transparent") !== -1, "an unstyled layer must stay invisible");
+  ok(communityJs.indexOf("releaseHighlightFailsafe") !== -1,
+    "and the JS must hand the colour back once the stylesheet is verifiably applied");
+});
+
 queue.forEach(function (entry) {
   try { entry[1](); passed++; console.log("PASS: " + entry[0]); }
   catch (e) { failed++; console.log("FAIL: " + entry[0] + "\n      " + e.message); }

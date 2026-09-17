@@ -827,7 +827,7 @@
      before the user arrives, a raw scroll fallback covers mobile browsers
      that skip observer callbacks, and one timer ref means rapid scrolling
      can never stack parallel page loads. */
-  var PAGE_SIZE = 8;
+  var PAGE_SIZE = 10;
   var feedShown = 0;
   var loadTimer = null;
 
@@ -864,12 +864,23 @@
     }, 700); /* deliberate latency so the fetch is felt, like a real backend */
   }
 
-  /* Near the bottom of the page, or the page is shorter than the viewport:
-     fetch the next slice. Only while the feed itself is on screen. */
+  /* Near the bottom of the feed, or the feed is shorter than its own
+     viewport: fetch the next slice. Only while the feed is on screen.
+
+     The measurement has to come from #cmFeedView, which is the element that
+     actually scrolls (overflow-y: auto). Measuring the window instead looked
+     correct but was always true: body is overflow:hidden in community mode,
+     so documentElement.scrollHeight equals innerHeight forever and the
+     "near bottom" test never went false. Each page load then re-triggered
+     the next one and the whole corpus arrived in one burst, which is exactly
+     what paginating is supposed to prevent. */
+  function feedScroller() { return $("cmFeedView"); }
+
   function fillViewport() {
-    if (currentMode() !== "community" || $("cmFeedView").hidden) return;
-    var nearBottom = window.innerHeight + window.scrollY >=
-      document.documentElement.scrollHeight - 320;
+    if (currentMode() !== "community") return;
+    var box = feedScroller();
+    if (!box || box.hidden) return;
+    var nearBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 320;
     if (nearBottom) loadMoreFeed();
   }
 
@@ -1623,10 +1634,26 @@
      for pixel under the real (transparent) text. Only the leading mention
      is coloured: a stray "@bot" mid-sentence does not address the agent,
      and colouring it would promise behaviour that will not happen. */
+  /* The layer ships with an inline transparent/absolute failsafe so a stale
+     or missing community.css can never paint a second copy of the text above
+     the input. Inline styles outrank the stylesheet, so once the stylesheet
+     is verifiably applied the inline colour has to be handed back, otherwise
+     the mention would stay invisible. The probe is the textarea's own
+     transparent fill, which only that stylesheet sets. */
+  function releaseHighlightFailsafe(input, layer) {
+    /* Re-evaluated on every paint rather than latched once: the stylesheet
+       can arrive late, and it can also go away. Both directions have to be
+       handled, and the safe state is the one that cannot double the text. */
+    var fill = getComputedStyle(input).webkitTextFillColor || "";
+    var styled = fill.indexOf("rgba(0, 0, 0, 0)") !== -1 || fill === "transparent";
+    layer.style.color = styled ? "" : "transparent";
+  }
+
   function paintHighlight() {
     var input = $("cmInput");
     var layer = $("cmInputHl");
     if (!input || !layer) return;
+    releaseHighlightFailsafe(input, layer);
     var raw = input.value;
     var m = raw.match(BOT_MENTION);
     if (m) {
@@ -1790,13 +1817,22 @@
     schedulePoll();
     var sentinel = $("cmFeedSentinel");
     if (sentinel && "IntersectionObserver" in window) {
+      /* root must be the scrolling element, not the viewport. With the
+         default root the sentinel's intersection is computed against the
+         window, which does not scroll in community mode, so it read as
+         permanently visible and kept requesting pages. */
       new IntersectionObserver(function (entries) {
         if ($("cmFeedView").hidden) return;
         for (var i = 0; i < entries.length; i++) {
           if (entries[i].isIntersecting) { loadMoreFeed(); break; }
         }
-      }, { rootMargin: "0px 0px 480px" }).observe(sentinel);
+      }, { root: feedScroller(), rootMargin: "0px 0px 480px" }).observe(sentinel);
     }
+    /* The feed scrolls inside #cmFeedView, so a window scroll listener never
+       fires for it. Kept on the scroller as the fallback for browsers that
+       drop observer callbacks during fast flings. */
+    var scrollBox = feedScroller();
+    if (scrollBox) scrollBox.addEventListener("scroll", fillViewport, { passive: true });
     window.addEventListener("scroll", fillViewport, { passive: true });
     window.addEventListener("hashchange", route);
     route();

@@ -112,7 +112,12 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .pull-arrow .lucide { width: 18px; height: 18px; }
 
-.cm-scope .pull-spin .spinner { width: 18px; height: 18px; border-width: 2px; }
+/* The wrapper is what the JS toggles, so it has to be a flex box itself or
+   the ring inside it sits off-centre in the 40px circle. The size override
+   for the ring lives next to the .spinner base rule further down: these two
+   selectors have equal specificity, so source order decides, and declaring
+   it up here silently lost to the 26px default. */
+.cm-scope .pull-spin { display: inline-flex; align-items: center; justify-content: center; }
 
 /* New posts pill (Twitter): polls surface fresh generations invisibly, this
    pill announces them with the author avatars, tap merges them on top. */
@@ -290,6 +295,12 @@ body:not(.community-mode) .modebar { display: none; }
 }
 
 .cm-scope .spinner {
+  /* display is load-bearing: width/height/border-radius are all ignored on
+     an inline box, which collapsed the pull-to-refresh ring into a 4x23px
+     sliver. The feed loader only looked right because it sits in a flex
+     container that blockified it; the pull indicator did not. */
+  display: block;
+  box-sizing: border-box;
   width: 26px; height: 26px;
   border: 3px solid var(--border);
   border-top-color: var(--link);
@@ -297,6 +308,10 @@ body:not(.community-mode) .modebar { display: none; }
   animation: feed-spin 750ms linear infinite;
   flex: none;
 }
+
+/* Smaller ring for the pull indicator's 40px circle. Must come after the
+   base rule above: equal specificity, so source order is the tiebreak. */
+.cm-scope .pull-spin .spinner { width: 18px; height: 18px; border-width: 2px; }
 
 /* House motion rule cuts infinite animations to 1ms, which would freeze the
    ring mid-frame; a gentle opacity pulse reads as loading without spinning. */
