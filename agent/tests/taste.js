@@ -607,6 +607,42 @@ test("reading replies never hijacks the composer", function () {
     "expanding renders and returns, full stop");
 });
 
+test("the debug log captures without call sites", function () {
+  /* The old panel only recorded what someone remembered to call dnote()
+     for: 39 hand-placed lines in app.js and none at all in Community. The
+     things you actually need when something breaks, the request that
+     500ed and the promise nobody caught, were never in it. */
+  var bus = read("debug-bus.js");
+  ok(/window\.fetch = function/.test(bus), "fetch is wrapped");
+  ok(bus.indexOf("XMLHttpRequest.prototype.send") !== -1, "XHR is wrapped too");
+  ok(bus.indexOf('addEventListener("unhandledrejection"') !== -1, "rejections are caught");
+  ok(bus.indexOf("res.clone().text()") !== -1,
+    "a failed response body is read from a clone, so the caller still gets its stream");
+  ok(bus.indexOf("isThirdPartyBeacon") !== -1,
+    "third-party beacons must not light the error badge for a fault that is not ours");
+
+  /* One wrapper, or every request appears twice. */
+  var app = read("app.js");
+  var wrap = app.indexOf("function wrapFetch()");
+  ok(app.slice(wrap, wrap + 160).indexOf("if (window.BotoDebug) return;") !== -1,
+    "app.js stands down its own fetch wrapper when the bus is present");
+});
+
+test("nothing credential shaped survives the debug log", function () {
+  /* The log is copied into bug reports and pasted into chats. Redaction
+     happens on the way in, so there is no path that stores the raw value. */
+  var bus = read("debug-bus.js");
+  ok(bus.indexOf("function redactUrl") !== -1 && bus.indexOf("function redactText") !== -1,
+    "urls and free text are both redacted");
+  ok(/sbp_|sb_secret_/.test(bus), "this project's own key shapes are covered");
+  ok(bus.indexOf("redacted jwt") !== -1, "bearer tokens and JWTs are stripped");
+  ok(/password\|passwd\|pass\|secret\|token/.test(bus) || bus.indexOf("password|passwd") !== -1,
+    "password fields are removed from request bodies before truncation");
+  var push = bus.indexOf("function push(");
+  ok(bus.slice(push, push + 500).indexOf("redactText(what)") !== -1,
+    "redaction is applied at the entry point, not at render time");
+});
+
 test("action rows sit on one centre line", function () {
   /* Taste skill 9.C: mathematically perfect padding, no floating elements
      with awkward gaps. Count buttons set their height from a text line box

@@ -244,10 +244,40 @@
      redacted). App events and failures are logged at their call sites.
      Newest first, 500 lines max, like Luna's panel. */
 
-  var debugLog = [];
+  /* The log itself lives in debug-bus.js, which installs before this file
+     and captures fetch, XHR, uncaught errors, rejections, console.error
+     and interactions with no call site of its own. This panel is a view
+     onto that buffer, not an owner of it, so Community and the auth pages
+     appear here too. The local array is a fallback for the case where the
+     bus script failed to load, so the panel degrades to its old behaviour
+     rather than throwing. */
+  var debugFallback = [];
   var debugErrorsOnly = false;
   var debugCopiedFlash = false;
-  var DEBUG_MAX = 500;
+  var debugPinned = false;
+  var debugFilter = "all";
+  var debugFind = "";
+
+  /* One predicate, used by the list, the counter and the copy button, so
+     what you copy is always exactly what you are looking at. */
+  function debugVisible(entry) {
+    if (debugFilter === "errors" && entry.level !== "error") return false;
+    if (debugFilter === "net" && !/^(net|relay|supabase|auth|otp)$/.test(entry.where)) return false;
+    if (debugFilter === "ui" && !/^(ui|route)$/.test(entry.where)) return false;
+    if (debugFind) {
+      var hay = (entry.where + " " + entry.what + " " + (entry.detail || "")).toLowerCase();
+      if (hay.indexOf(debugFind) === -1) return false;
+    }
+    return true;
+  }
+  var DEBUG_MAX = window.BotoDebug ? window.BotoDebug.MAX : 500;
+
+  function debugEntries() {
+    /* Newest first: the panel reads top down and the interesting line is
+       almost always the last thing that happened. */
+    if (window.BotoDebug) return window.BotoDebug.entries().reverse();
+    return debugFallback;
+  }
 
   function debugClock(d) {
     function pad(n, w) { n = String(n); while (n.length < w) n = "0" + n; return n; }
@@ -263,10 +293,16 @@
 
   function dlog(level, where, what) {
     if (level !== "error" && level !== "warn") level = "info";
-    debugLog.unshift({ t: new Date(), level: level, where: String(where), what: String(what).replace(/\n/g, " ").trim() });
-    if (debugLog.length > DEBUG_MAX) debugLog.length = DEBUG_MAX;
+    if (window.BotoDebug) {
+      /* The bus notifies this panel through its subscription, so writing
+         the row here as well would double every line. */
+      window.BotoDebug[level === "error" ? "error" : level === "warn" ? "warn" : "log"](where, what);
+      return;
+    }
+    debugFallback.unshift({ t: new Date(), level: level, where: String(where), what: String(what).replace(/\n/g, " ").trim(), detail: "" });
+    if (debugFallback.length > DEBUG_MAX) debugFallback.length = DEBUG_MAX;
     if (!$("debugPanel").hidden && (!debugErrorsOnly || level === "error")) {
-      prependDebugRow(debugLog[0]);
+      prependDebugRow(debugFallback[0]);
     }
     syncDebugChrome();
   }
@@ -321,8 +357,37 @@
     what.textContent = entry.what;
     row.appendChild(meta);
     row.appendChild(what);
+
+    /* The evidence, folded away. A failed request carries the body that
+       says why, which is the whole reason to open this panel, but showing
+       every body inline would make the list unreadable. */
+    if (entry.detail) {
+      row.classList.add("has-detail");
+      var detail = document.createElement("pre");
+      detail.className = "debug-detail";
+      detail.textContent = entry.detail;
+      detail.hidden = true;
+      row.appendChild(detail);
+      meta.appendChild(function () {
+        var chev = document.createElement("span");
+        chev.className = "debug-expand";
+        chev.textContent = "details";
+        return chev;
+      }());
+      row.title = "Click to expand, double click to copy";
+      row.addEventListener("click", function () {
+        detail.hidden = !detail.hidden;
+        row.classList.toggle("open", !detail.hidden);
+      });
+      row.addEventListener("dblclick", function () {
+        copyText(window.BotoDebug ? window.BotoDebug.formatEntry(entry) : debugPlain(entry), "Line copied");
+      });
+      return row;
+    }
+
+    row.title = "Click to copy this line";
     row.addEventListener("click", function () {
-      copyText(debugPlain(entry), "Line copied");
+      copyText(window.BotoDebug ? window.BotoDebug.formatEntry(entry) : debugPlain(entry), "Line copied");
     });
     return row;
   }
@@ -339,34 +404,39 @@
     var list = $("debugList");
     list.innerHTML = "";
     var shown = 0;
-    debugLog.forEach(function (entry) {
-      if (debugErrorsOnly && entry.level !== "error") return;
+    debugEntries().forEach(function (entry) {
+      if (!debugVisible(entry)) return;
       list.appendChild(debugRow(entry));
       shown++;
     });
     if (!shown) {
       var p = document.createElement("p");
       p.className = "debug-empty";
-      p.textContent = debugErrorsOnly ? "Nothing has failed." : "Nothing logged yet.";
+      p.textContent = debugFind ? "Nothing matches that."
+        : debugFilter === "errors" ? "Nothing has failed."
+        : debugFilter === "net" ? "No requests yet."
+        : debugFilter === "ui" ? "No interactions yet."
+        : "Nothing logged yet.";
       list.appendChild(p);
     }
     list.scrollTop = 0;
   }
 
   function syncDebugChrome() {
+    var all = debugEntries();
     var errors = 0;
-    debugLog.forEach(function (e) { if (e.level === "error") errors++; });
+    all.forEach(function (e) { if (e.level === "error") errors++; });
     var tab = $("debugTab");
     tab.classList.toggle("bad", errors > 0);
     /* The tab stays off the screen while everything is fine; it appears
        only once something fails, so the log is reachable when it matters. */
     var panel = $("debugPanel");
     var panelOpen = !panel.hidden && panel.classList.contains("open");
-    tab.hidden = errors === 0 && !panelOpen;
+    tab.hidden = errors === 0 && !panelOpen && !debugPinned;
     var count = $("debugTabCount");
     count.hidden = errors === 0;
     count.textContent = errors > 99 ? "99" : String(errors);
-    var shown = debugErrorsOnly ? errors : debugLog.length;
+    var shown = all.filter(debugVisible).length;
     $("debugCount").textContent = debugCopiedFlash ? "Copied" : shown + (shown === 1 ? " line" : " lines");
   }
 
@@ -410,13 +480,53 @@
   }
 
   $("debugTab").addEventListener("click", openDebug);
+
+  /* Anything logged anywhere on the platform repaints this panel. Without
+     the subscription the panel would only update for lines app.js wrote
+     itself, which is the bug this whole change exists to fix. A null entry
+     means the buffer was cleared. */
+  if (window.BotoDebug) {
+    window.BotoDebug.subscribe(function (entry) {
+      var panel = $("debugPanel");
+      if (!panel) return;
+      if (!panel.hidden && entry && debugVisible(entry)) {
+        prependDebugRow(entry);
+      } else if (!panel.hidden && !entry) {
+        renderDebugList();
+      }
+      syncDebugChrome();
+    });
+  }
+
+  /* The tab hides itself while nothing has failed, which is right for
+     everyday use and wrong when you are deliberately debugging something
+     that does not error. Shift+D reveals it on demand, and the preference
+     sticks so a session spent debugging does not need it re-pressed. */
+  try {
+    if (localStorage.getItem("impose.debug.pinned") === "1") debugPinned = true;
+  } catch (e) {}
+
+  document.addEventListener("keydown", function (e) {
+    /* Ctrl/Cmd + Shift + D. Plain Shift+D was unusable: the Community
+       composer holds focus for most of a session, so the shortcut has to
+       survive a text field, and a bare letter cannot. The modifier combo
+       is safe to accept while typing. */
+    if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return;
+    if (String(e.key).toLowerCase() !== "d") return;
+    e.preventDefault();
+    debugPinned = !debugPinned;
+    try { localStorage.setItem("impose.debug.pinned", debugPinned ? "1" : "0"); } catch (err) {}
+    if (debugPinned) openDebug(); else closeDebug();
+    syncDebugChrome();
+  });
   $("debugClose").addEventListener("click", closeDebug);
   $("debugTrace").addEventListener("click", function () { closeDebug(); playTraceDemo(); });
 
   $("debugSeg").addEventListener("click", function (e) {
     var b = e.target.closest("[data-df]");
     if (!b) return;
-    debugErrorsOnly = b.dataset.df === "errors";
+    debugFilter = b.dataset.df;
+    debugErrorsOnly = debugFilter === "errors";
     $("debugSeg").querySelectorAll("button").forEach(function (x) {
       x.setAttribute("aria-pressed", x === b ? "true" : "false");
     });
@@ -424,15 +534,28 @@
     syncDebugChrome();
   });
 
+  $("debugFind").addEventListener("input", function () {
+    debugFind = this.value.trim().toLowerCase();
+    renderDebugList();
+    syncDebugChrome();
+  });
+
   $("debugClear").addEventListener("click", function () {
-    debugLog.length = 0;
+    if (window.BotoDebug) window.BotoDebug.clear();
+    debugFallback.length = 0;
     renderDebugList();
     syncDebugChrome();
   });
 
   $("debugCopy").addEventListener("click", function () {
-    var lines = debugLog.filter(function (e) { return !debugErrorsOnly || e.level === "error"; });
-    copySilent(lines.map(debugPlain).join("\n") || "Debug log is empty.").then(function (ok) {
+    var lines = debugEntries().filter(debugVisible);
+    /* The bus formatter includes the request and response bodies plus a
+       header naming the page, browser and error count. A pasted log should
+       answer the first three questions without a reply asking for them. */
+    var text = window.BotoDebug
+      ? window.BotoDebug.asText(lines.slice().reverse())
+      : (lines.map(debugPlain).join("\n") || "Debug log is empty.");
+    copySilent(text).then(function (ok) {
       if (!ok) { toast.error("Could not copy the debug log."); return; }
       debugCopiedFlash = true;
       syncDebugChrome();
@@ -447,8 +570,14 @@
     });
   });
 
-  /* Log every network request the app makes. Keys in URLs are redacted. */
+  /* Log every network request the app makes. Keys in URLs are redacted.
+     Superseded by debug-bus.js, which wraps fetch before anything runs and
+     additionally records the response body, classifies the destination and
+     covers XHR. Both wrappers active logged every request twice, so this
+     one stands down when the bus is present. Kept for the standalone build
+     and any page that loads app.js without the bus. */
   (function wrapFetch() {
+    if (window.BotoDebug) return;
     if (!window.fetch || window.fetch.__imposeWrapped) return;
     var nativeFetch = window.fetch.bind(window);
     function wrapped(input, opts) {

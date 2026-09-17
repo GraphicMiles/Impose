@@ -726,9 +726,12 @@ try {
     </div>
     <div class="debug-seg">
       <div class="seg" id="debugSeg" role="group" aria-label="Filter the log">
-        <button type="button" data-df="all" aria-pressed="true">Everything</button>
+        <button type="button" data-df="all" aria-pressed="true">All</button>
         <button type="button" data-df="errors" aria-pressed="false">Errors</button>
+        <button type="button" data-df="net" aria-pressed="false">Network</button>
+        <button type="button" data-df="ui" aria-pressed="false">Actions</button>
       </div>
+      <input id="debugFind" class="debug-find" type="search" placeholder="Filter" aria-label="Filter the log by text">
     </div>
     <div class="debug-list" id="debugList"></div>
   </div>
@@ -776,6 +779,7 @@ try {
 <script src="./agent/orchestrator.js"></script>
 <script src="./agent/harness.js"></script>
 <script src="./agent/features.js"></script>
+<script src="./debug-bus.js"></script>
 <script src="./config.js"></script>
 <script src="./avatars.js"></script>
 <script src="./ui-core.js"></script>

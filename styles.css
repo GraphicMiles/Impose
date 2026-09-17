@@ -1275,6 +1275,49 @@ textarea.text-input { resize: vertical; min-height: 76px; line-height: 1.55; }
 .debug-pill { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: var(--text); color: var(--bg); }
 .debug-row.warn .debug-pill { background: var(--press); color: var(--text); }
 .debug-what { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.45; color: var(--text-2); overflow-wrap: break-word; margin-top: 3px; }
+
+/* Text filter, sized to sit under the segmented control without becoming
+   a second focal point: this is a refinement of the list, not a search
+   feature in its own right. */
+.debug-find {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-2);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.debug-find::placeholder { color: var(--text-3); }
+.debug-find:focus { outline: none; border-color: var(--text-3); }
+
+/* A row carrying evidence says so, and opens in place. Folded by default
+   because a request body inline would push everything else off screen. */
+.debug-expand {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.debug-row.has-detail .debug-meta { display: flex; align-items: center; gap: 8px; }
+.debug-row.open .debug-expand { color: var(--text); }
+.debug-detail {
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow-y: auto;
+}
 .debug-row.bad .debug-what { color: var(--text); font-weight: 600; }
 
 /* ---------- model pick list (tap a row, it probes, it fills) ---------- */
