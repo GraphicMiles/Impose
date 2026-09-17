@@ -581,9 +581,36 @@
   /* Replies keep pointing at a deleted parent, so a tombstone has to
      render whenever anything still descends from it. A leaf comment
      leaves no trace instead of littering the thread. */
-  function hasLiveDescendants(commentId) {
-    return state.comments.some(function (c) {
-      return c.parentId === commentId && !isDeleted(c);
+  /* A tombstone only earns its slot by holding up something a reader can
+     still see. The test has to be "is there a LIVE comment somewhere below
+     me", not "do I have any children": a deleted comment whose only children
+     are themselves deleted was keeping itself on screen, and because each
+     tombstone justified the one above it, deleting a whole branch left a
+     stack of "Comment deleted." rows propping each other up with nothing
+     underneath. Walking the subtree makes the emptiness collapse from the
+     leaves upward on its own. */
+  function hasLiveDescendants(commentId, all) {
+    var list = all || state.comments;
+    var kids = list.filter(function (c) { return c.parentId === commentId; });
+    for (var i = 0; i < kids.length; i++) {
+      if (!isDeleted(kids[i])) return true;
+      if (hasLiveDescendants(kids[i].id, list)) return true;
+    }
+    return false;
+  }
+
+  /* The set a reader should actually be shown: every live comment, plus only
+     those tombstones that still have a live descendant to parent. Deleted
+     leaves and deleted branches disappear entirely.
+
+     Pruning here rather than at render time means the tree builder, the
+     reply-count chips and the rail geometry all agree on one set, so a
+     tombstone can never be counted as a reply that is not there. */
+  function visibleComments(genId) {
+    var all = state.comments.filter(function (c) { return c.genId === genId; });
+    return all.filter(function (c) {
+      if (!isDeleted(c)) return true;
+      return hasLiveDescendants(c.id, all);
     });
   }
 
@@ -692,8 +719,11 @@
     return null;
   }
 
+  /* Thread read path. Returns what should be rendered, which is not the same
+     as what is stored: spent tombstones are pruned out. Callers that need the
+     raw records (counts, deletion, undo) go to state.comments directly. */
   function commentsFor(genId) {
-    return state.comments.filter(function (c) { return c.genId === genId; })
+    return visibleComments(genId)
       .sort(function (a, b) { return a.createdAt - b.createdAt; });
   }
 

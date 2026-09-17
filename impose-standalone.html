@@ -438,39 +438,6 @@ body:not(.nav-open) .sidebar-inner {
 
 .empty-slot { width: 100%; max-width: 768px; }
 
-.chips {
-  width: 100%;
-  max-width: 768px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-@media (max-width: 640px) { .chips { grid-template-columns: 1fr; } }
-
-.chip {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  text-align: left;
-  border: 1px solid var(--border-soft);
-  border-radius: 16px;
-  padding: 13px 15px;
-  opacity: 0;
-  transform: translateY(8px);
-  animation: rise 300ms var(--ease-out) forwards;
-  transition: transform 160ms var(--ease-out), background-color 140ms ease, border-color 140ms ease;
-}
-.chip.d1 { animation-delay: 40ms; }
-.chip.d2 { animation-delay: 90ms; }
-.chip.d3 { animation-delay: 140ms; }
-.chip.d4 { animation-delay: 190ms; }
-@keyframes rise { to { opacity: 1; transform: translateY(0); } }
-@media (hover: hover) { .chip:hover { background: var(--hover); border-color: var(--border); } }
-.chip:active { transform: scale(0.98); }
-.chip .lucide, .chip i[data-lucide] { width: 18px; height: 18px; color: var(--text-2); margin-top: 1px; }
-.chip span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.chip strong { font-size: 14px; font-weight: 600; }
-.chip em { font-style: normal; font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- composer ---------- */
 
@@ -3796,24 +3763,6 @@ try {
       <div class="empty" id="emptyState">
         <h1 class="greeting">What can I help with?</h1>
         <div class="empty-slot" id="emptySlot"></div>
-        <div class="chips" id="chips">
-          <button class="chip d1" data-prompt="Draft a follow up email for a late invoice">
-            <i data-lucide="pen-line"></i>
-            <span><strong>Write</strong><em>Draft a follow up email for a late invoice</em></span>
-          </button>
-          <button class="chip d2" data-prompt="Walk me through a Python function line by line">
-            <i data-lucide="code"></i>
-            <span><strong>Code</strong><em>Walk me through a Python function line by line</em></span>
-          </button>
-          <button class="chip d3" data-prompt="Brainstorm names for a Lagos food blog">
-            <i data-lucide="lightbulb"></i>
-            <span><strong>Ideas</strong><em>Brainstorm names for a Lagos food blog</em></span>
-          </button>
-          <button class="chip d4" data-prompt="Teach me how mortgages work in simple terms">
-            <i data-lucide="graduation-cap"></i>
-            <span><strong>Learn</strong><em>Teach me how mortgages work in simple terms</em></span>
-          </button>
-        </div>
       </div>
       <div class="messages" id="messages" hidden></div>
     </div>
@@ -4085,10 +4034,6 @@ try {
           <div class="setting-row">
             <div class="setting-text"><strong>Send with Enter</strong><span>Enter sends, Shift + Enter adds a new line</span></div>
             <button class="toggle" id="tglEnter" role="switch" aria-checked="true" aria-label="Send with Enter"><span class="knob"></span></button>
-          </div>
-          <div class="setting-row">
-            <div class="setting-text"><strong>Show suggestions</strong><span>Starter ideas on new chats</span></div>
-            <button class="toggle" id="tglChips" role="switch" aria-checked="true" aria-label="Show suggestions"><span class="knob"></span></button>
           </div>
           <div class="setting-row">
             <div class="setting-text"><strong>Smart follow ups</strong><span>Model suggested next messages</span></div>
@@ -7941,7 +7886,7 @@ window.BotoConfig = {
     /* The public relay ships as the default: visitors get keyless search
        and images out of the box, rate limited per person. Owners add their
        control key for the wake, the proxy, and the reader. */
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "https://impose-relay.onrender.com", relayKey: "", searchMode: false, displayName: "You",
+    return { theme: "dark", enterToSend: true, activeProviderId: null, relayUrl: "https://impose-relay.onrender.com", relayKey: "", searchMode: false, displayName: "You",
       redactPII: false, followupsSmart: true, imageTools: true, autoName: true, retentionDays: 0, failover: true };
   }
 
@@ -9861,7 +9806,6 @@ window.BotoConfig = {
   var composerBlock = $("composerBlock");
   var emptySlot = $("emptySlot");
   var dockSlot = $("dockSlot");
-  var chipsEl = $("chips");
   var input = $("input");
   var sendBtn = $("sendBtn");
 
@@ -10238,7 +10182,6 @@ window.BotoConfig = {
     messagesEl.hidden = true;
     composerDock.hidden = true;
     emptySlot.appendChild(composerBlock);
-    applyChipsVisibility();
     syncShareItem();
   }
 
@@ -10248,10 +10191,6 @@ window.BotoConfig = {
     composerDock.hidden = false;
     dockSlot.appendChild(composerBlock);
     syncShareItem();
-  }
-
-  function applyChipsVisibility() {
-    chipsEl.style.display = state.settings.showChips ? "" : "none";
   }
 
   function openChat(id, historyMode) {
@@ -13058,12 +12997,6 @@ window.BotoConfig = {
     send(input.value);
   });
 
-  chipsEl.addEventListener("click", function (e) {
-    var chip = e.target.closest(".chip");
-    if (!chip) return;
-    send(chip.dataset.prompt);
-  });
-
   /* ---------- model menu (demo + every provider) ---------- */
 
   var modelMenuBody = $("modelMenuBody");
@@ -13880,7 +13813,6 @@ window.BotoConfig = {
 
   function syncSettingsUI() {
     $("tglEnter").setAttribute("aria-checked", state.settings.enterToSend ? "true" : "false");
-    $("tglChips").setAttribute("aria-checked", state.settings.showChips ? "true" : "false");
     $("tglRedact").setAttribute("aria-checked", state.settings.redactPII ? "true" : "false");
     $("tglFollow").setAttribute("aria-checked", state.settings.followupsSmart ? "true" : "false");
     $("tglAutoName").setAttribute("aria-checked", state.settings.autoName ? "true" : "false");
@@ -13950,7 +13882,6 @@ window.BotoConfig = {
   }
 
   wireToggle("tglEnter", "enterToSend");
-  wireToggle("tglChips", "showChips", applyChipsVisibility);
   wireToggle("tglRedact", "redactPII");
   wireToggle("tglFollow", "followupsSmart");
   wireToggle("tglAutoName", "autoName");
@@ -16039,9 +15970,36 @@ window.BotoConfig = {
   /* Replies keep pointing at a deleted parent, so a tombstone has to
      render whenever anything still descends from it. A leaf comment
      leaves no trace instead of littering the thread. */
-  function hasLiveDescendants(commentId) {
-    return state.comments.some(function (c) {
-      return c.parentId === commentId && !isDeleted(c);
+  /* A tombstone only earns its slot by holding up something a reader can
+     still see. The test has to be "is there a LIVE comment somewhere below
+     me", not "do I have any children": a deleted comment whose only children
+     are themselves deleted was keeping itself on screen, and because each
+     tombstone justified the one above it, deleting a whole branch left a
+     stack of "Comment deleted." rows propping each other up with nothing
+     underneath. Walking the subtree makes the emptiness collapse from the
+     leaves upward on its own. */
+  function hasLiveDescendants(commentId, all) {
+    var list = all || state.comments;
+    var kids = list.filter(function (c) { return c.parentId === commentId; });
+    for (var i = 0; i < kids.length; i++) {
+      if (!isDeleted(kids[i])) return true;
+      if (hasLiveDescendants(kids[i].id, list)) return true;
+    }
+    return false;
+  }
+
+  /* The set a reader should actually be shown: every live comment, plus only
+     those tombstones that still have a live descendant to parent. Deleted
+     leaves and deleted branches disappear entirely.
+
+     Pruning here rather than at render time means the tree builder, the
+     reply-count chips and the rail geometry all agree on one set, so a
+     tombstone can never be counted as a reply that is not there. */
+  function visibleComments(genId) {
+    var all = state.comments.filter(function (c) { return c.genId === genId; });
+    return all.filter(function (c) {
+      if (!isDeleted(c)) return true;
+      return hasLiveDescendants(c.id, all);
     });
   }
 
@@ -16150,8 +16108,11 @@ window.BotoConfig = {
     return null;
   }
 
+  /* Thread read path. Returns what should be rendered, which is not the same
+     as what is stored: spent tombstones are pruned out. Callers that need the
+     raw records (counts, deletion, undo) go to state.comments directly. */
   function commentsFor(genId) {
-    return state.comments.filter(function (c) { return c.genId === genId; })
+    return visibleComments(genId)
       .sort(function (a, b) { return a.createdAt - b.createdAt; });
   }
 

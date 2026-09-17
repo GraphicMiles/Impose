@@ -280,6 +280,7 @@ var avatarsJs = read("avatars.js");
 var communityJs = read("community.js");
 var communityCss = read("community.css");
 var indexHtml = read("index.html");
+var appJs = read("app.js");
 var stylesCss = read("styles.css");
 
 test("avatars.js exposes the BotoAvatar API", function () {
@@ -523,6 +524,50 @@ test("the highlight layer cannot double the text without its stylesheet", functi
   ok(tag.indexOf("color:transparent") !== -1, "an unstyled layer must stay invisible");
   ok(communityJs.indexOf("releaseHighlightFailsafe") !== -1,
     "and the JS must hand the colour back once the stylesheet is verifiably applied");
+});
+
+test("a tombstone only survives if something live still hangs below it", function () {
+  /* The bug: the keep-test counted children, not LIVE children, so a deleted
+     comment whose replies were also deleted kept itself on screen and each
+     tombstone justified the one above it. Deleting a branch left a stack of
+     "Comment deleted." rows propping each other up over nothing. */
+  var i = communityJs.indexOf("function hasLiveDescendants");
+  ok(i !== -1, "the keep-test must exist");
+  var fn = communityJs.slice(i, i + 420);
+  ok(/hasLiveDescendants\(kids\[i\]\.id/.test(fn),
+    "the test must recurse: a live comment any depth below still earns the tombstone");
+  ok(fn.indexOf("if (!isDeleted(kids[i])) return true;") !== -1,
+    "a live direct child is the base case");
+});
+
+test("the thread render path is pruned of spent tombstones", function () {
+  ok(communityJs.indexOf("function visibleComments") !== -1,
+    "there must be one pruned set the tree, counts and rails all agree on");
+  var v = communityJs.indexOf("function visibleComments");
+  var body = communityJs.slice(v, v + 360);
+  ok(body.indexOf("if (!isDeleted(c)) return true;") !== -1, "live comments always render");
+  ok(/return hasLiveDescendants\(c\.id, all\);/.test(body),
+    "deleted comments render only to hold up a live descendant");
+  var c = communityJs.indexOf("function commentsFor");
+  ok(communityJs.slice(c, c + 200).indexOf("visibleComments(genId)") !== -1,
+    "the thread read path must go through the pruned set, not state.comments");
+});
+
+test("comment counts stay derived from live records, never from rendered rows", function () {
+  var i = communityJs.indexOf("function liveCommentCount");
+  ok(communityJs.slice(i, i + 220).indexOf("!isDeleted(c)") !== -1,
+    "pruning tombstones must not make the count chip drift");
+});
+
+test("the workspace empty state carries no starter cards", function () {
+  ok(indexHtml.indexOf('id="chips"') === -1, "the four suggestion cards are gone from the markup");
+  ok(indexHtml.indexOf("late invoice") === -1 && indexHtml.indexOf("Lagos food blog") === -1,
+    "and none of their copy survives");
+  ok(appJs.indexOf("chipsEl") === -1, "no JS may reference the removed node");
+  ok(indexHtml.indexOf('id="tglChips"') === -1 && appJs.indexOf("showChips") === -1,
+    "the setting that governed them must go too rather than control nothing");
+  ok(indexHtml.indexOf('id="emptyState"') !== -1 && indexHtml.indexOf("What can I help with?") !== -1,
+    "the greeting itself stays");
 });
 
 queue.forEach(function (entry) {

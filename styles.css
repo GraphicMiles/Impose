@@ -406,39 +406,6 @@ body:not(.nav-open) .sidebar-inner {
 
 .empty-slot { width: 100%; max-width: 768px; }
 
-.chips {
-  width: 100%;
-  max-width: 768px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-@media (max-width: 640px) { .chips { grid-template-columns: 1fr; } }
-
-.chip {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  text-align: left;
-  border: 1px solid var(--border-soft);
-  border-radius: 16px;
-  padding: 13px 15px;
-  opacity: 0;
-  transform: translateY(8px);
-  animation: rise 300ms var(--ease-out) forwards;
-  transition: transform 160ms var(--ease-out), background-color 140ms ease, border-color 140ms ease;
-}
-.chip.d1 { animation-delay: 40ms; }
-.chip.d2 { animation-delay: 90ms; }
-.chip.d3 { animation-delay: 140ms; }
-.chip.d4 { animation-delay: 190ms; }
-@keyframes rise { to { opacity: 1; transform: translateY(0); } }
-@media (hover: hover) { .chip:hover { background: var(--hover); border-color: var(--border); } }
-.chip:active { transform: scale(0.98); }
-.chip .lucide, .chip i[data-lucide] { width: 18px; height: 18px; color: var(--text-2); margin-top: 1px; }
-.chip span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.chip strong { font-size: 14px; font-weight: 600; }
-.chip em { font-style: normal; font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- composer ---------- */
 

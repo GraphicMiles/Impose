@@ -559,7 +559,7 @@
     /* The public relay ships as the default: visitors get keyless search
        and images out of the box, rate limited per person. Owners add their
        control key for the wake, the proxy, and the reader. */
-    return { theme: "dark", enterToSend: true, showChips: true, activeProviderId: null, relayUrl: "https://impose-relay.onrender.com", relayKey: "", searchMode: false, displayName: "You",
+    return { theme: "dark", enterToSend: true, activeProviderId: null, relayUrl: "https://impose-relay.onrender.com", relayKey: "", searchMode: false, displayName: "You",
       redactPII: false, followupsSmart: true, imageTools: true, autoName: true, retentionDays: 0, failover: true };
   }
 
@@ -2479,7 +2479,6 @@
   var composerBlock = $("composerBlock");
   var emptySlot = $("emptySlot");
   var dockSlot = $("dockSlot");
-  var chipsEl = $("chips");
   var input = $("input");
   var sendBtn = $("sendBtn");
 
@@ -2856,7 +2855,6 @@
     messagesEl.hidden = true;
     composerDock.hidden = true;
     emptySlot.appendChild(composerBlock);
-    applyChipsVisibility();
     syncShareItem();
   }
 
@@ -2866,10 +2864,6 @@
     composerDock.hidden = false;
     dockSlot.appendChild(composerBlock);
     syncShareItem();
-  }
-
-  function applyChipsVisibility() {
-    chipsEl.style.display = state.settings.showChips ? "" : "none";
   }
 
   function openChat(id, historyMode) {
@@ -5676,12 +5670,6 @@
     send(input.value);
   });
 
-  chipsEl.addEventListener("click", function (e) {
-    var chip = e.target.closest(".chip");
-    if (!chip) return;
-    send(chip.dataset.prompt);
-  });
-
   /* ---------- model menu (demo + every provider) ---------- */
 
   var modelMenuBody = $("modelMenuBody");
@@ -6498,7 +6486,6 @@
 
   function syncSettingsUI() {
     $("tglEnter").setAttribute("aria-checked", state.settings.enterToSend ? "true" : "false");
-    $("tglChips").setAttribute("aria-checked", state.settings.showChips ? "true" : "false");
     $("tglRedact").setAttribute("aria-checked", state.settings.redactPII ? "true" : "false");
     $("tglFollow").setAttribute("aria-checked", state.settings.followupsSmart ? "true" : "false");
     $("tglAutoName").setAttribute("aria-checked", state.settings.autoName ? "true" : "false");
@@ -6568,7 +6555,6 @@
   }
 
   wireToggle("tglEnter", "enterToSend");
-  wireToggle("tglChips", "showChips", applyChipsVisibility);
   wireToggle("tglRedact", "redactPII");
   wireToggle("tglFollow", "followupsSmart");
   wireToggle("tglAutoName", "autoName");
