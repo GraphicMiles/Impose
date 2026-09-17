@@ -336,6 +336,147 @@
     return null;
   }
 
+  /* ---------- delete and recovery ----------
+
+     Delete is soft: the record keeps its id and its place in the reply
+     graph so replies survive as children of a tombstone. Nothing is
+     removed from storage, which is what makes Undo exact rather than a
+     best-effort rebuild.
+
+     The flag is persisted at the moment of deletion, not when the undo
+     window expires. A reload mid-window therefore lands on "deleted",
+     never on "restored": if we must be wrong, be wrong in the direction
+     the author actually asked for.
+
+     See docs/delete-flow-plan.md for the full semantics and the reasons
+     the alternatives were rejected. */
+
+  var UNDO_MS = 6000;
+
+  function isDeleted(rec) { return !!(rec && rec.deleted); }
+
+  /* Ownership is the only permission input, and it is re-checked here
+     rather than trusted from the DOM. The control is hidden on content
+     the user does not own, but a hidden control is a UI convenience, not
+     a security boundary: a forged data-id must still be rejected. */
+  function canDelete(rec) {
+    return !!rec && rec.own === true && !isDeleted(rec);
+  }
+
+  /* Replies keep pointing at a deleted parent, so a tombstone has to
+     render whenever anything still descends from it. A leaf comment
+     leaves no trace instead of littering the thread. */
+  function hasLiveDescendants(commentId) {
+    return state.comments.some(function (c) {
+      return c.parentId === commentId && !isDeleted(c);
+    });
+  }
+
+  /* Comment counts describe what a reader can actually see, so they are
+     derived from the live set instead of being incremented and
+     decremented in parallel. A count that is computed cannot drift. */
+  function liveCommentCount(genId) {
+    return state.comments.filter(function (c) {
+      return c.genId === genId && !isDeleted(c);
+    }).length;
+  }
+
+  function syncCommentCount(genId) {
+    var gen = genById(genId);
+    if (gen) gen.counts.comment = liveCommentCount(genId);
+  }
+
+  function deleteGeneration(id) {
+    var gen = genById(id);
+    if (!canDelete(gen)) return;
+    /* A generation that is still streaming has an in-flight writer that
+       would resurrect fields behind the tombstone. */
+    if (gen.status === "streaming") return;
+
+    gen.deleted = true;
+    gen.deletedAt = Date.now();
+    persist();
+
+    var replies = state.generations.filter(function (g) {
+      return g.parentId === id && !isDeleted(g);
+    }).length;
+
+    /* State the dependent-data consequence, because that is the part the
+       author cannot see from the button. */
+    var msg = replies === 0
+      ? "Post deleted."
+      : "Post deleted. " + replies + (replies === 1 ? " reply" : " replies") +
+        " kept, shown under a removed post.";
+
+    notify(msg, "Undo", function () { restoreGeneration(id); });
+    rerenderAfterDelete(id);
+  }
+
+  function restoreGeneration(id) {
+    var gen = genById(id);
+    if (!gen || !isDeleted(gen)) return; /* idempotent: undo twice is a no-op */
+    delete gen.deleted;
+    delete gen.deletedAt;
+    persist();
+    notify("Post restored.");
+    renderFeed();
+  }
+
+  function deleteComment(id) {
+    var c = commentById(id);
+    if (!canDelete(c)) return;
+    c.deleted = true;
+    c.deletedAt = Date.now();
+    syncCommentCount(c.genId);
+    persist();
+    notify("Comment deleted.", "Undo", function () { restoreComment(id); });
+    refreshDetail(c.genId);
+  }
+
+  function restoreComment(id) {
+    var c = commentById(id);
+    if (!c || !isDeleted(c)) return;
+    delete c.deleted;
+    delete c.deletedAt;
+    syncCommentCount(c.genId);
+    persist();
+    notify("Comment restored.");
+    refreshDetail(c.genId);
+  }
+
+  function commentById(id) {
+    for (var i = 0; i < state.comments.length; i++) {
+      if (state.comments[i].id === id) return state.comments[i];
+    }
+    return null;
+  }
+
+  /* Deleting the generation you are currently reading has nowhere to
+     stand, so the detail view hands back to the feed. Deleting from the
+     feed just re-renders in place. */
+  function rerenderAfterDelete(id) {
+    if (location.hash === "#/g/" + id) {
+      location.hash = "#/";
+      return;
+    }
+    renderFeed();
+  }
+
+  function refreshDetail(genId) {
+    var gen = genById(genId);
+    if (gen && location.hash === "#/g/" + genId) renderDetail(gen);
+    else renderFeed();
+  }
+
+  /* One door to the shared toast stack. Community runs in its own IIFE,
+     so app.js exports it; if that export is ever missing the product
+     still works, it just loses the undo affordance rather than throwing
+     inside a delete handler. */
+  function notify(msg, actionLabel, onAction) {
+    if (window.BotoToast) return window.BotoToast(msg, actionLabel, onAction, UNDO_MS);
+    return null;
+  }
+
   function commentsFor(genId) {
     return state.comments.filter(function (c) { return c.genId === genId; })
       .sort(function (a, b) { return a.createdAt - b.createdAt; });
@@ -468,6 +609,19 @@
     if (hash.indexOf("#/g/") === 0) {
       var id = hash.slice(4);
       var gen = genById(id);
+      /* A link to a deleted post is a real destination with a real answer,
+         not a reason to silently dump the reader on the home feed. Same
+         for an id that never existed: both get the missing state, which
+         explains what happened and offers a way out. */
+      if (!gen || isDeleted(gen)) {
+        renderMissing(!!gen);
+        showMode("community");
+        feedView.hidden = true;
+        detailView.hidden = false;
+        setGenDock(false);
+        window.scrollTo(0, 0);
+        return;
+      }
       if (gen) {
         expandedThreads.clear(); /* fresh view: all chains start collapsed */
         renderDetail(gen);
@@ -489,6 +643,27 @@
     feedView.hidden = false;
     detailView.hidden = true;
     setGenDock(true);
+  }
+
+  /* The missing state for #/g/<id>. wasDeleted distinguishes "the author
+     removed it" from "this link never pointed at anything", because those
+     are different facts and the reader can act on the difference. */
+  function renderMissing(wasDeleted) {
+    /* Writes into #cmDetail, the inner container. Replacing #cmDetailView
+       itself would delete that container and break every later render. */
+    var detail = $("cmDetail");
+    if (!detail) return;
+    detail.innerHTML =
+      '<div class="detail-missing">' +
+        '<i data-lucide="' + (wasDeleted ? "trash-2" : "unlink") + '"></i>' +
+        "<h1>" + (wasDeleted ? "This post was deleted" : "This post does not exist") + "</h1>" +
+        "<p>" + (wasDeleted
+          ? "The author removed it. The replies it started are gone with it."
+          : "The link may be mistyped, or it pointed at something that was never public.") +
+        "</p>" +
+        '<a class="detail-missing-back" href="#/">Back to the feed</a>' +
+      "</div>";
+    refreshIcons();
   }
 
   /* Show or hide the feed's generation composer dock. Kept as one function
@@ -538,6 +713,12 @@
         (gen.locked ? "Unlock this generation" : "Lock this generation") + '" aria-pressed="' + gen.locked + '" title="' +
         (gen.locked ? "Unlock" : "Lock") + '">' +
         '<i data-lucide="' + (gen.locked ? "lock" : "lock-open") + '"></i></button>';
+      /* Own content only, and never mid-stream: a streaming post has a
+         writer still appending to it. */
+      if (gen.status !== "streaming") {
+        html += '<button class="gen-act gen-act-danger" data-act="delete" aria-label="Delete post" title="Delete post">' +
+          '<i data-lucide="trash-2"></i></button>';
+      }
     }
     html += "</div>";
     return html;
@@ -621,6 +802,10 @@
      saves, recency only breaks ties. */
   function visibleGenerations() {
     var list = state.generations.filter(function (gen) {
+      /* A deleted post leaves the feed entirely. It still exists for its
+         replies to point at, which is what renders the tombstone on the
+         detail view. */
+      if (isDeleted(gen)) return false;
       return gen.visibility === "public" || gen.own;
     });
     list.sort(function (a, b) {
@@ -766,6 +951,26 @@
 
     var kidCount = countDescendants(c); /* total replies under this comment */
 
+    /* A deleted comment that still has replies has to hold its slot, or
+       the children below it lose their parent and the rails point at
+       nothing. It keeps the geometry and drops the content: no text, no
+       author, no reply affordance. */
+    if (isDeleted(c)) {
+      el.innerHTML =
+        rails + elbow +
+        '<div class="trow-main">' +
+          '<div class="comment comment--gone' + (row.depth > 0 ? " comment--reply" : "") + '">' +
+            '<span class="comment-gone-text">Comment deleted.</span>' +
+            (kidCount > 0
+              ? '<button class="comment-replies-btn" data-expand="' + c.id + '" aria-expanded="' + String(expandedThreads.has(c.id)) + '">' +
+                  '<i data-lucide="message-square"></i><span>' + kidCount + (kidCount === 1 ? " reply" : " replies") + "</span>" +
+                "</button>"
+              : "") +
+          "</div>" +
+        "</div>";
+      return el;
+    }
+
     el.innerHTML =
       rails + elbow +
       '<div class="trow-main">' +
@@ -788,6 +993,11 @@
               (kidCount > 0
                 ? '<button class="comment-replies-btn" data-expand="' + c.id + '" aria-expanded="' + String(expandedThreads.has(c.id)) + '">' +
                     '<i data-lucide="message-square"></i><span>' + kidCount + (kidCount === 1 ? " reply" : " replies") + "</span>" +
+                  "</button>"
+                : "") +
+              (c.own
+                ? '<button class="comment-del-btn" data-del="' + c.id + '" aria-label="Delete comment" title="Delete comment">' +
+                    '<i data-lucide="trash-2"></i><span>Delete</span>' +
                   "</button>"
                 : "") +
             "</div>" +
@@ -880,6 +1090,15 @@
         if (expandedThreads.has(rid)) expandedThreads.delete(rid);
         else expandedThreads.add(rid);
         renderThread(gen, listEl);
+        return;
+      }
+      var delBtn = e.target.closest("[data-del]");
+      if (delBtn) {
+        /* If the composer is aimed at the comment being deleted, drop the
+           target first: replying to a tombstone is not a real state. */
+        var delId = delBtn.getAttribute("data-del");
+        if (replyingTo && replyingTo.id === delId) clearReply();
+        deleteComment(delId);
         return;
       }
       var replyBtn = e.target.closest("[data-reply]");
@@ -1349,6 +1568,10 @@
       gen.counts.save += gen.saved ? 1 : -1;
       persist();
       replaceCard(gen);
+      return;
+    }
+    if (act === "delete") {
+      deleteGeneration(gen.id);
       return;
     }
     if (act === "lock" && gen.own) {

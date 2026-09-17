@@ -344,6 +344,76 @@ test("only a leading mention is highlighted", function () {
   ok(communityJs.indexOf("BOT_MENTION = /^") !== -1);
 });
 
+
+/* ---- Task 4: delete, undo, tombstones, missing state ---- */
+
+test("delete is soft so replies and undo remain possible", function () {
+  ok(communityJs.indexOf("function isDeleted") !== -1);
+  ok(communityJs.indexOf("gen.deleted = true") !== -1, "soft flag, not a splice");
+  ok(communityJs.indexOf("state.generations.splice") === -1, "hard delete would break undo");
+});
+
+test("ownership is re-checked in the handler, not trusted from the DOM", function () {
+  ok(communityJs.indexOf("function canDelete") !== -1);
+  ok(communityJs.indexOf("rec.own === true") !== -1);
+});
+
+test("a streaming generation cannot be deleted", function () {
+  ok(communityJs.indexOf('if (gen.status === "streaming") return;') !== -1);
+});
+
+test("deleted posts leave the feed", function () {
+  ok(communityJs.indexOf("if (isDeleted(gen)) return false;") !== -1);
+});
+
+test("comment counts are derived, so they cannot drift or go negative", function () {
+  ok(communityJs.indexOf("function liveCommentCount") !== -1);
+  ok(communityJs.indexOf("function syncCommentCount") !== -1);
+});
+
+test("undo is idempotent", function () {
+  ok(communityJs.indexOf("if (!gen || !isDeleted(gen)) return;") !== -1);
+  ok(communityJs.indexOf("if (!c || !isDeleted(c)) return;") !== -1);
+});
+
+test("the destructive toast states the reply consequence", function () {
+  ok(communityJs.indexOf("kept, shown under a removed post.") !== -1);
+  ok(communityJs.indexOf('"Undo"') !== -1, "a reversible action must offer the reversal");
+});
+
+test("copy never asks 'are you sure' without a consequence", function () {
+  ok(communityJs.toLowerCase().indexOf("are you sure") === -1);
+});
+
+test("a dead generation link explains itself instead of silently redirecting", function () {
+  ok(communityJs.indexOf("function renderMissing") !== -1);
+  ok(communityJs.indexOf("This post was deleted") !== -1);
+  ok(communityJs.indexOf("This post does not exist") !== -1, "deleted and never-existed are different facts");
+});
+
+test("the missing state always offers a route out", function () {
+  ok(communityJs.indexOf("detail-missing-back") !== -1);
+  ok(communityCss.indexOf(".cm-scope .detail-missing-back") !== -1);
+});
+
+test("a deleted comment with replies keeps its slot and drops its content", function () {
+  ok(communityJs.indexOf("comment--gone") !== -1);
+  ok(communityJs.indexOf("Comment deleted.") !== -1);
+  ok(communityCss.indexOf(".cm-scope .comment--gone") !== -1);
+});
+
+test("the toast stack is shared, not reimplemented per surface", function () {
+  ok(read("app.js").indexOf("window.BotoToast = toast;") !== -1);
+  ok(communityJs.indexOf("window.BotoToast") !== -1);
+});
+
+test("the delete plan is written down and traceable", function () {
+  ok(exists("docs/delete-flow-plan.md"));
+  var plan = read("docs/delete-flow-plan.md");
+  ok(plan.indexOf("## 2. Traceability") !== -1);
+  ok(plan.indexOf("## 8. Non-goals") !== -1, "scope lock needs explicit non-goals");
+});
+
 queue.forEach(function (entry) {
   try { entry[1](); passed++; console.log("PASS: " + entry[0]); }
   catch (e) { failed++; console.log("FAIL: " + entry[0] + "\n      " + e.message); }

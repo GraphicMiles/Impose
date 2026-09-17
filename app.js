@@ -2008,6 +2008,12 @@
   toast.error = function (msg, ms) { buzz(25); return toast(humanizeUserError(msg), null, null, ms || 4200, "error"); };
   toast.warn = function (msg, ms) { return toast(msg, null, null, ms || 4200, "warn"); };
   toast.info = function (msg, ms) { return toast(msg, null, null, ms, "info"); };
+
+  /* Community runs in the same document but its own IIFE, and it needs the
+     undo affordance for deletes. Exported rather than reimplemented so
+     there is one toast stack, one dismiss policy, and one swipe handler.
+     app.js keeps using the local binding; this is purely an outward door. */
+  window.BotoToast = toast;
   toast.promise = function (p, o) {
     o = o || {};
     var dismiss = toast(o.loading || "Working...", null, null, 60000, "info");
