@@ -541,9 +541,12 @@
     return article;
   }
 
-  /* Shared kernel: identical icon refresh to the workspace. */
+  /* Shared kernel: identical icon refresh to the workspace. Falls back to a
+     direct lucide pass when the kernel file is missing (e.g. a half-deployed
+     tree), so icons degrade instead of silently vanishing. */
   function refreshIcons() {
     if (window.BotoUI) BotoUI.refreshIcons();
+    else if (window.lucide && lucide.createIcons) lucide.createIcons();
   }
 
   function replaceCard(gen) {

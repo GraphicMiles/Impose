@@ -5548,9 +5548,16 @@
   /* ---------- composer ---------- */
 
   /* Delegates to the shared kernel (ui-core.js): one autogrow for both
-     surfaces, so the hidden-measure guard can never drift between them. */
+     surfaces, so the hidden-measure guard can never drift between them.
+     Native fallback keeps the composer alive if the kernel file is missing
+     (half-deployed tree). */
   function autogrow() {
     if (window.BotoUI) BotoUI.autogrow(input, 200);
+    else {
+      if (!input.getClientRects().length) { input.style.height = ""; return; }
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 200) + "px";
+    }
   }
 
   function updateTokEst() {
