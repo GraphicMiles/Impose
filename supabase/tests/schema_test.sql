@@ -283,3 +283,124 @@ reset role;
 
 \echo ''
 \echo 'All schema assertions passed.'
+
+-- ============ canonical db (0004) ============
+
+reset role;
+insert into auth.users (id, email) values
+  ('55555555-5555-5555-5555-555555555555', 'cara@test.com');
+
+set role authenticated;
+set request.jwt.claim.sub = '55555555-5555-5555-5555-555555555555';
+
+-- Idempotency. The same key replayed must not produce a second post.
+select test_ok('a post is created through the RPC',
+  (select id from public.create_generation(
+     'aaaaaaaa-1111-1111-1111-111111111111','hello','world',false,
+     'complete','public','original',null)) is not null);
+
+select test_ok('replaying the key returns the same row, not a new one',
+  (select count(*) from public.generations where prompt = 'hello') = 1);
+
+select public.create_generation('aaaaaaaa-1111-1111-1111-111111111111',
+  'hello','world',false,'complete','public','original',null);
+
+select test_ok('and still only one after the replay',
+  (select count(*) from public.generations where prompt = 'hello') = 1);
+
+select test_denied('the same key with a different body is refused', $$
+  select public.create_generation('aaaaaaaa-1111-1111-1111-111111111111',
+    'DIFFERENT','world',false,'complete','public','original',null)$$);
+
+-- Counts stay derived. The client cannot send one.
+select test_ok('a new post starts with zero derived counts',
+  (select comment_count = 0 and save_count = 0 from public.generations
+    where prompt = 'hello'));
+
+-- Comment RPC, and the reply-target rule enforced server side.
+select test_ok('a comment is created through the RPC',
+  (select id from public.create_comment('bbbbbbbb-1111-1111-1111-111111111111',
+     (select id from public.generations where prompt='hello'), null, 'first')) is not null);
+
+select test_ok('the trigger counted it',
+  (select comment_count from public.generations where prompt='hello') = 1);
+
+select test_denied('a reply to a comment on another post is refused', $$
+  select public.create_comment('bbbbbbbb-2222-2222-2222-222222222222',
+    (select id from public.generations where prompt='hello'),
+    'cccccccc-9999-9999-9999-999999999999', 'orphan')$$);
+
+-- updated_at moves on write, so a stale client can be detected.
+select test_ok('updated_at is set on insert',
+  (select updated_at is not null from public.generations where prompt='hello'));
+
+-- Keyset pagination. Insert enough to page, then walk it.
+insert into public.generations (author_id, prompt, response, created_at)
+select '55555555-5555-5555-5555-555555555555', 'p' || i, 'body',
+       now() - (i || ' minutes')::interval
+  from generate_series(1, 12) i;
+
+select test_ok('a feed page is capped at the requested size',
+  (select count(*) from public.feed_page(null, null, 5)) = 5);
+
+select test_ok('the page carries the author handle, no second query needed',
+  (select handle from public.feed_page(null, null, 1) limit 1) is not null);
+
+-- Walking the cursor must not repeat or skip.
+create temp table walked as
+  select id from public.feed_page(null, null, 5);
+insert into walked
+  select f.id from public.feed_page(
+    (select created_at from public.generations g
+      join walked w on w.id = g.id order by g.created_at asc limit 1),
+    (select w.id from walked w join public.generations g on g.id = w.id
+      order by g.created_at asc limit 1), 5) f;
+
+select test_ok('paging twice returns no duplicate rows',
+  (select count(*) = count(distinct id) from walked));
+
+select test_ok('the limit is capped server side, not by the caller',
+  (select count(*) from public.feed_page(null, null, 9999)) <= 50);
+
+-- Polling counts other people's posts only: your own arriving is not news.
+-- Measured as a difference rather than an absolute, because earlier tests
+-- in this file have already put rows in any recent window. Asserting "= 1"
+-- was asserting an empty database, which is a property of the suite and
+-- not of the function.
+create temp table probe_mark as select now() as at;
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+create temp table probe_before as
+  select public.feed_since((select at from probe_mark)) as n;
+
+-- Ada posts one thing.
+insert into public.generations (author_id, prompt, response)
+values ('11111111-1111-1111-1111-111111111111', 'from-ada', 'x');
+
+select test_ok('your own new post does not raise your own counter',
+  public.feed_since((select at from probe_mark)) = (select n from probe_before));
+
+set request.jwt.claim.sub = '55555555-5555-5555-5555-555555555555';
+select test_ok('but another reader is told about it',
+  public.feed_since((select at from probe_mark)) > 0);
+
+-- Soft-deleted posts leave the feed.
+update public.generations set deleted_at = now() where prompt = 'p1';
+select test_ok('a deleted post is not in the feed',
+  (select count(*) from public.feed_page(null, null, 50) where prompt = 'p1') = 0);
+
+-- Rate limiting, shared and atomic.
+reset role;
+select test_ok('the rate limiter allows traffic under the limit',
+  public.rate_hit('t:ip', 3, 60) = false);
+select public.rate_hit('t:ip', 3, 60);
+select public.rate_hit('t:ip', 3, 60);
+select test_ok('and reports over the limit once it is exceeded',
+  public.rate_hit('t:ip', 3, 60) = true);
+
+set role anon;
+select test_denied('anon cannot read the rate counters', $$select * from public.rate_counters$$);
+select test_denied('anon cannot read idempotency keys of others', $$
+  insert into public.idempotency_keys (key, user_id, request_hash)
+  values (gen_random_uuid(), '55555555-5555-5555-5555-555555555555', 'x')$$);
+reset role;
