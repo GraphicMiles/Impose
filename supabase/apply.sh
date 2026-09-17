@@ -33,25 +33,59 @@ if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
   }
   # The session pooler is reachable over IPv4; db.<ref> is IPv6-only on
   # newer projects and fails from most CI and container networks.
-  for HOST in \
-    "aws-0-eu-central-1.pooler.supabase.com" \
-    "aws-0-us-east-1.pooler.supabase.com" \
-    "aws-0-us-west-1.pooler.supabase.com" \
-    "aws-0-ap-southeast-1.pooler.supabase.com"
-  do
-    echo "trying $HOST ..."
-    if PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
-         "postgresql://postgres.$REF@$HOST:5432/postgres?sslmode=require" \
-         -v ON_ERROR_STOP=1 -f "$SQL" 2>/tmp/apply.err; then
-      echo "migration applied via $HOST"
-      exit 0
-    fi
-    grep -qi "password authentication failed" /tmp/apply.err && {
-      echo "the database password was rejected" >&2; exit 1; }
+  #
+  # The pooler is regional and the hostname does not encode the project, so
+  # the right host has to be found rather than assumed. A wrong host answers
+  # "Tenant or user not found" and a right one answers about the password,
+  # which makes the distinction reliable without a valid credential.
+  # SUPABASE_DB_HOST short-circuits the search.
+  if [ -n "${SUPABASE_DB_HOST:-}" ]; then
+    HOSTS="$SUPABASE_DB_HOST"
+  else
+    HOSTS=""
+    for prefix in aws-0 aws-1; do
+      for region in eu-west-2 eu-west-1 eu-central-1 us-east-1 us-east-2 \
+                    us-west-1 us-west-2 ap-south-1 ap-southeast-1 \
+                    ap-southeast-2 ap-northeast-1 ca-central-1 sa-east-1; do
+        HOSTS="$HOSTS $prefix-$region.pooler.supabase.com"
+      done
+    done
+  fi
+
+  FOUND=""
+  for HOST in $HOSTS; do
+    # set -e plus a failing command inside $( ) with a pipe kills the shell
+    # before the case below can report anything, so the probe is guarded
+    # and the pipe is dropped.
+    set +e
+    PROBE="$(PGCONNECT_TIMEOUT=8 PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
+      "postgresql://postgres.$REF@$HOST:5432/postgres?sslmode=require" \
+      -tAc 'select 1' 2>&1)"
+    set -e
+    PROBE="$(printf '%s' "$PROBE" | tr -d '\r' | head -1)"
+    case "$PROBE" in
+      1) FOUND="$HOST"; break ;;
+      *"Tenant or user not found"*|*ENOTFOUND*) continue ;;
+      *"password authentication failed"*)
+        echo "found the project at $HOST, but the database password was rejected." >&2
+        echo "Copy it from Project Settings > Database > Database password." >&2
+        exit 1 ;;
+      *) continue ;;
+    esac
   done
-  echo "could not reach any pooler host; last error:" >&2
-  tail -3 /tmp/apply.err >&2
-  exit 1
+
+  if [ -z "$FOUND" ]; then
+    echo "could not find the pooler host for project $REF." >&2
+    echo "Set SUPABASE_DB_HOST to the host shown under Project Settings > Database > Connection string." >&2
+    exit 1
+  fi
+
+  echo "applying via $FOUND ..."
+  PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
+    "postgresql://postgres.$REF@$FOUND:5432/postgres?sslmode=require" \
+    -v ON_ERROR_STOP=1 -f "$SQL"
+  echo "migration applied via $FOUND"
+  exit 0
 fi
 
 # ---- route B: management API -------------------------------------------
