@@ -217,8 +217,9 @@
       return;
     }
     busy(form, true);
-    /* The account is created first so a taken address fails here, before
-       an email goes out. */
+    /* No account exists yet. The relay validates the address, refuses one
+       that is taken, and emails a code. The account is created only when
+       that code comes back. */
     window.BotoAuth.signUp(email, password).then(function () {
       busy(form, false);
       route("otp");
@@ -290,40 +291,49 @@
     }
     var form = event.currentTarget;
 
-    function onVerified() {
-      if (otpPurpose === "reset") {
-        /* Carry the code forward: setting the new password needs it to
-           prove, to the server, that this browser held the code. */
-        sessionStorage.setItem("impose.auth.otpCode", code);
-        route("reset-password");
-        return;
-      }
-      saveSession(sessionStorage.getItem("impose.auth.pendingName") || pendingEmail.split("@")[0], pendingEmail);
+    function showVerified() {
       $("successTitle").textContent = "Email verified";
       $("successCopy").textContent = "Your Impose account is ready to use.";
       route("success");
     }
 
-    if (!live()) { briefWork(form, onVerified); return; }
-
-    busy(form, true);
-    if (otpPurpose === "reset") {
-      /* Do not spend the code here. The reset screen exchanges it for a
-         session and sets the password in one step; verifying now would
-         consume it and the exchange would then fail. */
-      busy(form, false);
-      onVerified();
+    if (!live()) {
+      briefWork(form, function () {
+        if (otpPurpose === "reset") { route("reset-password"); return; }
+        saveSession(sessionStorage.getItem("impose.auth.pendingName") || pendingEmail.split("@")[0], pendingEmail);
+        showVerified();
+      });
       return;
     }
-    window.BotoAuth.verifyCode(pendingEmail, "signup", code).then(function () {
-      busy(form, false);
-      onVerified();
-    }, function (err) {
+
+    function codeFailed(err) {
       busy(form, false);
       $("otpError").textContent = err.message || "That code is not right.";
       otpInputs.forEach(function (input) { input.value = ""; });
       otpInputs[0].focus();
-    });
+    }
+
+    busy(form, true);
+
+    if (otpPurpose === "reset") {
+      /* The ticket is the proof, not the code. It is what the relay
+         requires before it will change a password, so it has to survive
+         the hop to the next screen. */
+      window.BotoAuth.verifyReset(pendingEmail, code).then(function (ticket) {
+        busy(form, false);
+        sessionStorage.setItem("impose.auth.resetTicket", ticket);
+        route("reset-password");
+      }, codeFailed);
+      return;
+    }
+
+    /* This call is what creates the account. Until it returns there is no
+       user, which is the whole point of the change. */
+    window.BotoAuth.completeSignUp(pendingEmail, code).then(function () {
+      busy(form, false);
+      saveSession(sessionStorage.getItem("impose.auth.pendingName") || pendingEmail.split("@")[0], pendingEmail);
+      showVerified();
+    }, codeFailed);
   });
 
   function startResendCountdown() {
@@ -380,7 +390,6 @@
     var form = event.currentTarget;
 
     function done() {
-      sessionStorage.removeItem("impose.auth.otpCode");
       $("successTitle").textContent = "Password updated";
       $("successCopy").textContent = "You can now sign in with your new password.";
       var successLink = $("successAction");
@@ -391,17 +400,18 @@
 
     if (!live()) { briefWork(form, done); return; }
 
-    var code = sessionStorage.getItem("impose.auth.otpCode") || "";
-    if (!code) {
-      /* The code is gone: a refresh, a new tab, or an expired session.
-         Send them back rather than failing at the server with something
-         cryptic. */
-      showToast("That reset link expired. Request a new code.");
+    var ticket = sessionStorage.getItem("impose.auth.resetTicket") || "";
+    if (!ticket) {
+      /* No ticket means no verified code in this session: a refresh, a new
+         tab, or an expired flow. Send them back rather than letting the
+         server refuse it with something cryptic. */
+      showToast("That reset expired. Request a new code.");
       route("forgot-password");
       return;
     }
     busy(form, true);
-    window.BotoAuth.completeReset(pendingEmail, code, password).then(function () {
+    window.BotoAuth.completeReset(ticket, password).then(function () {
+      sessionStorage.removeItem("impose.auth.resetTicket");
       busy(form, false);
       done();
     }, function (err) {

@@ -106,48 +106,44 @@
     return postJson("/v1/auth/otp/verify", { email: email, purpose: purpose, code: code });
   }
 
-  /* ---------- accounts ---------- */
+  /* ---------- accounts ----------
 
-  /* Creates the account, then asks for a code. Order matters: if the
-     address is already taken we want to say so before an email goes out,
-     and Supabase is the only thing that knows.
+     Nothing here creates an account or a session. The browser asks; the
+     relay decides, after checking a code it delivered to the address. The
+     earlier version called supabase.auth.signUp() from here and got a
+     session back immediately, which made the code that followed it
+     decorative: skipping it produced a working account.
 
-     Requires "Confirm email" to be OFF in the Supabase dashboard
-     (Authentication, Sign In / Providers, Email). Left on, Supabase sends
-     its own confirmation link and the user receives two emails for one
-     signup: an unbranded link from Supabase and our code from Sendlib.
-     Verification is ours to own, so Supabase's copy is the one that goes. */
+     The session that arrives from the relay is a real Supabase session, so
+     it is handed to the SDK rather than stored by hand. Supabase remains
+     the authority on what a valid session is, and every later request is
+     checked against its own records regardless of what this page believes. */
+
+  /* Step one of signup: hand the address and password to the relay, which
+     refuses taken addresses, holds the password encrypted, and emails a
+     code. No account exists yet at this point. */
   function signUp(email, password) {
-    return supabase().auth.signUp({ email: email, password: password })
-      .then(function (res) {
-        if (res.error) throw new Error(humanize(res.error));
-
-        /* Supabase returns a session only when it is not waiting on its own
-           confirmation link. No session means "Confirm email" is still on,
-           and the two systems are now fighting: Supabase has emailed a link
-           and will refuse sign-in until it is clicked, while we are about to
-           email a code that cannot satisfy it.
-
-           Detected here rather than left to fail later, because the failure
-           without this check is a dead end: the code arrives, it verifies,
-           and sign-in then rejects the account for a reason the screen never
-           mentions. Better to name the real cause once. */
-        var session = res.data && res.data.session;
-        var user = res.data && res.data.user;
-        if (!session && user && !user.email_confirmed_at) {
-          var err = new Error(
-            "Accounts are half configured: email confirmation is still on in " +
-            "Supabase, so sign-in will be blocked even after you enter a code. " +
-            "Turn off Confirm email in Authentication, Sign In / Providers, Email."
-          );
-          err.code = "confirm_email_enabled";
-          throw err;
-        }
-
-        return requestCode(email, "signup");
-      });
+    return postJson("/v1/auth/otp/request", {
+      email: email,
+      password: password,
+      purpose: "signup"
+    });
   }
 
+  /* Step two: the relay checks the code, creates the confirmed account and
+     returns a session. This is the only path to an account. */
+  function completeSignUp(email, code) {
+    return verifyCode(email, "signup", code).then(function (out) {
+      if (!out || !out.session || !out.session.access_token) {
+        throw new Error("Verification did not complete. Request a new code.");
+      }
+      return adoptSession(out.session);
+    });
+  }
+
+  /* Sign-in stays a direct Supabase call, and that is not an inconsistency:
+     it proves possession of a password Supabase already holds, so Supabase
+     is the right authority and there is nothing for the relay to add. */
   function signIn(email, password) {
     return supabase().auth.signInWithPassword({ email: email, password: password })
       .then(function (res) {
@@ -157,25 +153,39 @@
       });
   }
 
-  /* Reset asks for a code without revealing whether the account exists.
-     The relay issues one either way; an address with no account simply
-     never receives it. */
   function requestReset(email) {
     return requestCode(email, "reset");
   }
 
-  /* A verified reset code is proof of inbox control, so we exchange it for
-     a real session via Supabase's own OTP channel, then set the password.
-     Without that exchange the client would be asserting its own
-     authorisation, which is exactly what must not happen. */
-  function completeReset(email, code, password) {
-    return verifyCode(email, "reset", code).then(function () {
-      return supabase().auth.verifyOtp({ email: email, token: code, type: "recovery" });
+  /* Reset verification returns a ticket, not a session: proof of inbox
+     control that is good for one password change and can read nothing. The
+     ticket is what the relay requires before it will set a password, so a
+     browser that skips the code has nothing to present. */
+  function verifyReset(email, code) {
+    return verifyCode(email, "reset", code).then(function (out) {
+      if (!out || !out.ticket) throw new Error("Verification did not complete. Request a new code.");
+      return out.ticket;
+    });
+  }
+
+  function completeReset(ticket, password) {
+    return postJson("/v1/auth/password/reset", { ticket: ticket, password: password })
+      .then(function (out) {
+        if (!out || !out.session) throw new Error("Could not set the password. Request a new code.");
+        return adoptSession(out.session);
+      });
+  }
+
+  /* Install a relay-issued session into the SDK so the rest of the app,
+     which asks Supabase for the current user, sees it. */
+  function adoptSession(session) {
+    if (!configured()) return Promise.resolve(session);
+    return supabase().auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token
     }).then(function (res) {
       if (res.error) throw new Error(humanize(res.error));
-      return supabase().auth.updateUser({ password: password });
-    }).then(function (res) {
-      if (res.error) throw new Error(humanize(res.error));
+      cacheSession((res.data && res.data.user) || (session && session.user));
       return res.data;
     });
   }
@@ -214,6 +224,8 @@
     requestCode: requestCode,
     verifyCode: verifyCode,
     signUp: signUp,
+    completeSignUp: completeSignUp,
+    verifyReset: verifyReset,
     signIn: signIn,
     requestReset: requestReset,
     completeReset: completeReset,

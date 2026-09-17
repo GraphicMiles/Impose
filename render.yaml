@@ -80,6 +80,13 @@ services:
       # Sign-up and password-reset emails. Set these in the dashboard: with
       # no key the relay logs codes instead of sending them, which is the
       # right local default and the wrong production one.
+      # The relay creates accounts, so it needs Supabase. The service key
+      # bypasses RLS and is the only thing that can mint a user once public
+      # signup is off, which is what makes verification mean anything.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
       - key: SENDLIB_API_KEY
         sync: false
       - key: SENDLIB_FROM
