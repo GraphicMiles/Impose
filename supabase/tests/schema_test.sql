@@ -320,15 +320,15 @@ select test_ok('a new post starts with zero derived counts',
 -- Comment RPC, and the reply-target rule enforced server side.
 select test_ok('a comment is created through the RPC',
   (select id from public.create_comment('bbbbbbbb-1111-1111-1111-111111111111',
-     (select id from public.generations where prompt='hello'), null, 'first')) is not null);
+     (select id from public.generations where prompt='hello'), 'first')) is not null);
 
 select test_ok('the trigger counted it',
   (select comment_count from public.generations where prompt='hello') = 1);
 
 select test_denied('a reply to a comment on another post is refused', $$
   select public.create_comment('bbbbbbbb-2222-2222-2222-222222222222',
-    (select id from public.generations where prompt='hello'),
-    'cccccccc-9999-9999-9999-999999999999', 'orphan')$$);
+    (select id from public.generations where prompt='hello'), 'orphan',
+    'cccccccc-9999-9999-9999-999999999999')$$);
 
 -- updated_at moves on write, so a stale client can be detected.
 select test_ok('updated_at is set on insert',

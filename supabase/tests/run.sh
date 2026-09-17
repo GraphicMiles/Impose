@@ -48,7 +48,14 @@ psql() { command psql -h "$PGHOST" -p "$PGPORT" -U postgres -v ON_ERROR_STOP=1 -
 # a simulation of Supabase.
 psql <<'SQL'
 create schema if not exists auth;
-create extension if not exists pgcrypto;
+-- Supabase puts pgcrypto in `extensions`, not `public`. Reproducing that
+-- here is the difference between a harness that catches a missing schema
+-- qualification and one that hides it: the RPCs pin search_path to public
+-- for safety, so an unqualified digest() works locally and fails on the
+-- real project. That exact bug shipped and was found by calling the live
+-- API, which is a worse place to find it.
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 create table auth.users (
   id uuid primary key default gen_random_uuid(),
   email text unique,
