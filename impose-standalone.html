@@ -2037,21 +2037,18 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   flex: none;
   display: flex;
   justify-content: center;
-  padding: 8px 12px 8px;
-  /* Community sits between the topbar edge above and #wsContent's own
-     border below; Workspace hides this row entirely and keeps only the
-     topbar's border from styles.css. */
+  /* This row IS the Community navbar: it sits at the very top of the
+     screen, so it clears the notch/status bar itself. Mobile first. */
+  padding: max(8px, env(safe-area-inset-top)) 12px 8px;
   background: var(--bg);
+  border-bottom: 1px solid var(--border-soft);
 }
 
-/* Mode gates. Workspace chrome (sidebar etc.) shows only in workspace;
-   the Community | Workspace switch row shows only in Community. In
-   Workspace the topbar carries a mode icon (users-round) in its right
-   cluster, so nothing overlaps anything. */
-body.community-mode #openSidebarBtn,
-body.community-mode #modelBtn,
-body.community-mode #chatParamsBtn,
-body.community-mode #wsModeBtn { display: none; }
+/* Mode gates. The two surfaces are different entities with different UI:
+   Community's header is ONLY the mode switch row - no topbar, no profile,
+   no grey bar above it. Workspace's header is its own topbar (model label,
+   settings, mode icon, avatar) with no switch row anywhere. */
+body.community-mode .topbar,
 body.community-mode .sidebar,
 body.community-mode .backdrop { display: none !important; }
 body:not(.community-mode) .modebar { display: none; }
@@ -2833,11 +2830,12 @@ body:not(.community-mode) .modebar { display: none; }
    top of this file owns the layout; nothing overrides it.
    ========================================================================== */
 
-/* Fixed overlay offsets (new posts pill, pull to refresh): the header is
-   topbar (60px) + modebar (~41px), so both overlays park just under it.
-   They must follow the base rules above or the cascade drops them. */
-.cm-scope .new-posts-pill { top: 110px; }
-.cm-scope .pull-refresh { top: 106px; }
+/* Fixed overlay offsets (new posts pill, pull to refresh): the Community
+   header is just the modebar (~53px + notch inset), so both overlays park
+   just under it. They must follow the base rules above or the cascade
+   drops them. */
+.cm-scope .new-posts-pill { top: calc(61px + env(safe-area-inset-top)); }
+.cm-scope .pull-refresh { top: calc(63px + env(safe-area-inset-top)); }
 
 </style>
 <style>
@@ -3637,7 +3635,6 @@ try {
   </div>
     <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
     <button class="pop-item" id="acctShare" role="menuitem" disabled><i data-lucide="share"></i><span>Share chat</span></button>
-    <button class="pop-item" id="acctCommunity" role="menuitem"><i data-lucide="users-round"></i><span>Community feed</span></button>
   <button class="pop-item" id="acctSettings" role="menuitem"><i data-lucide="settings"></i><span>Settings</span></button>
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
   <button class="pop-item" id="acctAbout" role="menuitem"><i data-lucide="file-text"></i><span>About &amp; privacy</span></button>
@@ -12596,11 +12593,6 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   });
   $("acctAbout").addEventListener("click", function () {
     window.location.href = window.location.protocol === "file:" ? "./about.html" : "./about";
-  });
-
-  $("acctCommunity").addEventListener("click", function () {
-    hidePop(true);
-    window.location.hash = "#/";
   });
 
   var wipeArmed = false;

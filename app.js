@@ -6013,11 +6013,6 @@
     window.location.href = window.location.protocol === "file:" ? "./about.html" : "./about";
   });
 
-  $("acctCommunity").addEventListener("click", function () {
-    hidePop(true);
-    window.location.hash = "#/";
-  });
-
   var wipeArmed = false;
   var wipeTimer = null;
   function disarmWipe() {
