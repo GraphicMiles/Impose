@@ -708,11 +708,15 @@ body.community-mode .backdrop { display: none !important; }
 .cm-scope .comment-replies-btn:hover { background: var(--hover); color: var(--text); }
 }
 
-/* ---------- composer (verbatim from Impose) ---------- */
+/* ---------- composer (the workspace composer, ported) ---------- */
+
+/* The port added a permanent border here, but the house design is
+   borderless controls (styles.css: depth from filled surfaces, never a
+   permanent outline) and the workspace composer is borderless. Drop the
+   border so both composer bars read as the same object. */
 
 .cm-scope .composer {
   background: var(--composer);
-  border: 1px solid var(--border-soft);
   border-radius: 28px;
   padding: 10px 10px 8px 20px;
   transition: border-color 160ms ease;
@@ -811,6 +815,9 @@ body.community-mode .backdrop { display: none !important; }
   left: 50%;
   transform: translateX(-50%);
   height: 60px;
+  /* Center the switch vertically: without this the default flex stretch
+     grows the segmented control to the full 60px header height. */
+  align-items: center;
   padding: 0;
   border-bottom: none;
   background: transparent;

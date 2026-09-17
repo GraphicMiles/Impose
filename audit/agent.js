@@ -1,5 +1,5 @@
 /* Category: agent primitive (observe -> reason -> propose -> permit -> execute -> verify -> recover)
-   plus orchestration, intent decomposition, browser-agent authorization, and extension routing. */
+   plus orchestration, intent decomposition, and approval state. */
 "use strict";
 var L = require("./lib.js");
 var path = L.path;
@@ -229,75 +229,6 @@ function approvalState(fw, count) {
   return jobs;
 }
 
-function extensionTrustBoundary(fw, count) {
-  /* Executes the REAL extension router (extension/background.js) against a
-     chrome stub that resolves navigation, so we can observe what the worker
-     actually authorizes. */
-  fw.currentCategory = "agent.authorization.extension-trust-boundary";
-  var fs = require("fs");
-  var vm = require("vm");
-  function loadBackground() {
-    var src = fs.readFileSync(path.join(L.ROOT, "extension", "background.js"), "utf8");
-    var updated = [];
-    var removed = [];
-    var chromeStub = {
-      tabs: {
-        query: function (q) { return Promise.resolve([{ id: 1, url: "https://x.com/home", title: "X", active: true }]); },
-        create: function () { return Promise.resolve({ id: 2, url: "about:blank" }); },
-        get: function (id) { return Promise.resolve({ id: id, url: "https://x.com/compose/post", title: "X" }); },
-        update: function (id, o) {
-          setTimeout(function () { updated.forEach(function (f) { f(id, { status: "complete" }); }); }, 0);
-          return Promise.resolve();
-        },
-        sendMessage: function (id, m) { return Promise.resolve({ ok: true, result: { sent: true, confirmed: true } }); },
-        onUpdated: { addListener: function (f) { updated.push(f); }, removeListener: function () {} },
-        onRemoved: { addListener: function (f) { removed.push(f); }, removeListener: function () {} }
-      },
-      runtime: { lastError: null, id: "impose-bridge",
-        sendMessage: function () {}, onMessage: { addListener: function () {} } },
-      storage: { local: { set: function () {} } }
-    };
-    var sandbox = { chrome: chromeStub, module: { exports: {} }, Promise: Promise,
-      setTimeout: setTimeout, clearTimeout: clearTimeout, URL: URL, console: { log: function () {}, error: function () {} } };
-    vm.createContext(sandbox);
-    vm.runInContext(src, sandbox, { filename: "extension/background.js" });
-    return sandbox.module.exports;
-  }
-  var bg = loadBackground();
-  /* Only methods that change something outside the browser. Navigation and
-   search are origin-bounded by design and are covered by their own tests. */
-var sideEffectMethods = ["x.post", "x.reply", "dm.send"];
-  var rng = L.makeRng(fw.seed + 67);
-  var jobs = [];
-  for (var i = 0; i < count; i++) {
-    (function (i) {
-      var method = sideEffectMethods[i % sideEffectMethods.length];
-      var allowed = rng.pick([["https://x.com"], ["https://x.com", "https://evil.example"], ["https://evil.example"]]);
-      /* The payload is exactly what a compromised or confused client could send:
-         no approval record, no token, no nonce, only a self-declared allowlist. */
-      var params = { text: "unapproved public statement", url: "https://x.com/u/status/123",
-        allowedOrigins: allowed, tabId: 1, ref: "e1" };
-      emit(fw, jobs, "agent.authorization.extension-trust-boundary", function () {
-        return Promise.race([
-          Promise.resolve().then(function () { return bg.route({ method: method, params: params }, { tab: { id: 9, url: "https://impose-web.onrender.com/" } }); }),
-          new Promise(function (res) { setTimeout(function () { res({ __timeout: true }); }, 700); })
-        ])
-          .then(function (r) {
-            if (r && r.__timeout) return { blocked: true, actual: "route did not settle", reason: "stubbed chrome cannot complete navigation deterministically" };
-            var executed = !!(r && r.ok);
-            var gated = !executed && /token|already spent/i.test(String((r && r.error) || ""));
-            return fw.check(gated, {
-              severity: "P0", rootCause: "extension-executes-side-effects-without-approval-evidence",
-              actual: method + " ok=" + executed + " error=" + String((r && r.error) || "").slice(0, 60),
-              reason: "an external side effect ran without presenting the single-use approval token"
-            });
-          });
-      });
-    })(i);
-  }
-  return jobs;
-}
-
 /* Executor: does a failed/throwing tool ever get reported as success? */
 function executorVerification(fw, count) {
   fw.currentCategory = "agent.recovery.executor-false-success";
@@ -370,7 +301,6 @@ module.exports = {
       capabilityGrounding(fw, 320),
       determinism(fw, 140),
       approvalState(fw, 220),
-      extensionTrustBoundary(fw, 120),
       executorVerification(fw, 120)
     );
   }

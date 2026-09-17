@@ -9,18 +9,6 @@ var O = require("../orchestrator.js");
 
 var root = path.join(__dirname, "..", "..");
 var appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
-var bg = require(path.join(root, "extension", "background.js"));
-
-/* Minimal chrome surface so read-only routing can be exercised; tests that
-   need navigation replace this whole object. */
-global.chrome = {
-  tabs: { query: function () { return Promise.resolve([]); }, create: function () { return Promise.resolve({ id: 1 }); },
-    update: function () { return Promise.resolve(); }, get: function (id) { return Promise.resolve({ id: id, url: "about:blank" }); },
-    sendMessage: function (id, message, done) { if (done) done({ ok: true, result: { sent: true } }); },
-    onUpdated: { addListener: function () {}, removeListener: function () {} },
-    onRemoved: { addListener: function () {}, removeListener: function () {} } },
-  runtime: { lastError: null, id: "impose-bridge" }, storage: { local: { set: function () {} } }
-};
 
 var passed = 0, failed = 0;
 var queue = [];
@@ -132,39 +120,8 @@ test("short exact-name credential parameters are redacted without eating benign 
   ok(benign.indexOf("design=dark") !== -1, "benign parameters stay readable: " + benign);
 });
 
-/* ---- Finding 3: a side effect needed no proof of the user's approval ---- */
-test("external side effects require the single-use token minted at approval", async function () {
-  var denied = await bg.route({ method: "x.post", params: { text: "hello", allowedOrigins: ["https://x.com"] } },
-    { tab: { id: 1, url: "https://impose-web.onrender.com/" } });
-  ok(denied.ok === false && denied.denied === "approval", "unsigned side effect is refused at the boundary");
-  var read = await bg.route({ method: "browser.tabs", params: {} }, { tab: { id: 1 } });
-  ok(read.ok === true, "read-only methods are not gated");
-});
-
-test("the same approval cannot publish twice", async function () {
-  var listeners = [];
-  global.chrome = {
-    tabs: { query: function () { return Promise.resolve([{ id: 4, url: "https://x.com/home" }]); },
-      create: function () { return Promise.resolve({ id: 4 }); },
-      update: function (id) { setTimeout(function () { listeners.slice().forEach(function (l) { l(id, { status: "complete" }); }); }, 0); return Promise.resolve(); },
-      sendMessage: function (id, message, done) { if (done) done({ ok: true, result: { sent: true } }); },
-      get: function () { return Promise.resolve({ id: 4, url: "https://x.com/compose/post" }); },
-      onUpdated: { addListener: function (l) { listeners.push(l); }, removeListener: function (l) { listeners = listeners.filter(function (x) { return x !== l; }); } },
-      onRemoved: { addListener: function () {}, removeListener: function () {} } },
-    runtime: { lastError: null, id: "impose-bridge" }, storage: { local: { set: function () {} } }
-  };
-  var params = { text: "one time only", allowedOrigins: ["https://x.com"], approvalToken: "c1-plan1-1700000000000-1" };
-  /* First claim must reach dispatch and publish exactly once. */
-  await bg.route({ method: "x.post", params: params }, { tab: { id: 1 } });
-  var replay = await bg.route({ method: "x.post", params: params }, { tab: { id: 1 } });
-  ok(replay.ok === false && /already spent/i.test(replay.error || ""), "the replay is refused: " + JSON.stringify(replay));
-});
-
-test("the client mints that token from the consumed approval", function () {
-  ok(appSource.indexOf("approvalToken") !== -1, "token is wired through the client");
-  ok(appSource.indexOf("planId: record.id") !== -1, "the run record keeps the approval identity");
-  ok(/extSend\("dm\.send"[\s\S]{0,200}approvalToken: token/.test(appSource), "the manual arm tap authorizes its own send");
-});
+/* Finding 3 (extension side-effect approval) no longer applies: the
+   companion extension bridge was removed, so its router has no client. */
 
 function run() {
   var row = queue.shift();

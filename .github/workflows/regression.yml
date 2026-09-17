@@ -21,18 +21,16 @@ jobs:
         run: python -m pip install -r backend/requirements.txt -r backend/relay/requirements.txt
       - name: Static build is current
         run: python3 build_inline.py --check
-      - name: Agent and extension suites
+      - name: Agent suites
         run: |
           node agent/tests/run.js
           node agent/tests/features.js
-          node agent/tests/browser-agent.js
           node agent/tests/lifecycle.js
           node agent/tests/orchestrator.js
           node agent/tests/audit-regressions.js
-          node extension/tests/lifecycle.js
       - name: Relay contract suites
         run: PYTHONPATH=backend python3 -m pytest backend -q
-      - name: Audit scenario matrix (2788 scenarios)
+      - name: Audit scenario matrix (6360 scenarios)
         run: |
           node audit/run.js
           PYTHONPATH=backend python3 audit/relay.py

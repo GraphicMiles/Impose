@@ -11,6 +11,7 @@ CHECK = "--check" in sys.argv[1:]
 
 html = (ROOT / "index.html").read_text(encoding="utf-8")
 css = (ROOT / "styles.css").read_text(encoding="utf-8")
+community_css = (ROOT / "community.css").read_text(encoding="utf-8")
 trace_css = (ROOT / "agent" / "trace.css").read_text(encoding="utf-8")
 lucide = (ROOT / "lucide.min.js").read_text(encoding="utf-8")
 anime = (ROOT / "anime.min.js").read_text(encoding="utf-8")
@@ -18,19 +19,24 @@ trace_js = (ROOT / "agent" / "trace.js").read_text(encoding="utf-8")
 orchestrator = (ROOT / "agent" / "orchestrator.js").read_text(encoding="utf-8")
 harness = (ROOT / "agent" / "harness.js").read_text(encoding="utf-8")
 features = (ROOT / "agent" / "features.js").read_text(encoding="utf-8")
-browser_agent = (ROOT / "agent" / "browser-agent.js").read_text(encoding="utf-8")
 app = (ROOT / "app.js").read_text(encoding="utf-8")
+community_js = (ROOT / "community.js").read_text(encoding="utf-8")
 
-for name, blob in (("styles.css", css), ("agent/trace.css", trace_css),
+for name, blob in (("styles.css", css), ("community.css", community_css), ("agent/trace.css", trace_css),
                    ("lucide.min.js", lucide), ("anime.min.js", anime), ("agent/trace.js", trace_js),
                    ("agent/orchestrator.js", orchestrator), ("agent/harness.js", harness), ("agent/features.js", features),
-                   ("agent/browser-agent.js", browser_agent), ("app.js", app)):
+                   ("app.js", app), ("community.js", community_js)):
     if "</script" in blob.lower():
         raise SystemExit("Refusing to inline %s: it contains a closing script tag." % name)
 
 html = html.replace(
     '<link rel="stylesheet" href="./styles.css">',
     "<style>\n" + css + "\n</style>",
+    1,
+)
+html = html.replace(
+    '<link rel="stylesheet" href="./community.css">',
+    "<style>\n" + community_css + "\n</style>",
     1,
 )
 html = html.replace(
@@ -69,13 +75,13 @@ html = html.replace(
     1,
 )
 html = html.replace(
-    '<script src="./agent/browser-agent.js"></script>',
-    "<script>\n" + browser_agent + "\n</script>",
+    '<script src="./app.js"></script>',
+    "<script>\n" + app + "\n</script>",
     1,
 )
 html = html.replace(
-    '<script src="./app.js"></script>',
-    "<script>\n" + app + "\n</script>",
+    '<script src="./community.js"></script>',
+    "<script>\n" + community_js + "\n</script>",
     1,
 )
 
