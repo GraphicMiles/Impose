@@ -5,7 +5,12 @@
    icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
    behind the cache's back for next time. */
 
-var CACHE = "impose-shell-v44";
+/* Bump on every shipped asset change. A stale entry here is not a cosmetic
+   problem: serving an old community.css beside a new index.html left the
+   composer highlight layer unstyled, so it rendered as a second visible copy
+   of the text above the input. Version, precache list and asset list must
+   move together. */
+var CACHE = "impose-shell-v45";
 var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
 var PUBLIC_ROUTE = {
   "/about": "./about.html",
