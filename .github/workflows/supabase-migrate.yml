@@ -1,0 +1,90 @@
+name: apply supabase migration
+
+# Schema changes need a credential that can run DDL, which the publishable
+# key deliberately is not. Rather than passing that credential around by
+# hand, it lives once as a repository secret and only this workflow reads
+# it. Runs on demand, never on push: applying a schema is a decision, not
+# a side effect of committing.
+#
+# Setup, once:
+#   Settings > Secrets and variables > Actions > New repository secret
+#     SUPABASE_DB_PASSWORD   Supabase dashboard > Project Settings > Database
+#   or
+#     SUPABASE_ACCESS_TOKEN  Supabase dashboard > Account > Access Tokens
+#
+# Then: Actions > apply supabase migration > Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Verify against a scratch Postgres only, do not touch the project"
+        type: boolean
+        default: true
+
+jobs:
+  verify:
+    # The migration is proven on a throwaway database before it is allowed
+    # near the real one. This job runs in both modes, so a dry run is a
+    # complete rehearsal rather than a different code path.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the schema assertions on a scratch Postgres
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql
+          sudo systemctl stop postgresql || true
+          chmod +x supabase/tests/run.sh
+          ./supabase/tests/run.sh
+
+  apply:
+    needs: verify
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail early if no credential is configured
+        env:
+          PW: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PAT: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$PW" ] && [ -z "$PAT" ]; then
+            echo "::error::Set SUPABASE_DB_PASSWORD or SUPABASE_ACCESS_TOKEN as a repository secret first."
+            exit 1
+          fi
+
+      - name: Install psql client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Apply the migration
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'xgqcvuzkeaferjsnpjjw' }}
+        run: |
+          chmod +x supabase/apply.sh
+          ./supabase/apply.sh
+
+      - name: Confirm the tables are live
+        env:
+          URL: ${{ vars.SUPABASE_URL || 'https://xgqcvuzkeaferjsnpjjw.supabase.co' }}
+          KEY: ${{ vars.SUPABASE_ANON_KEY || 'sb_publishable_ErA2UAjkG2Wfw_T63dtbkA_sCe8wFp8' }}
+        run: |
+          # Proves the API can actually see the schema, which is a different
+          # claim from "the DDL ran": PostgREST caches the schema and a
+          # migration applied behind its back stays invisible until it
+          # reloads.
+          for table in profiles generations comments saves; do
+            code="$(curl -s -o /tmp/body -w '%{http_code}' \
+              "$URL/rest/v1/$table?select=count&limit=1" \
+              -H "apikey: $KEY" -H "Authorization: Bearer $KEY")"
+            if [ "$code" = "200" ]; then
+              echo "ok      $table"
+            else
+              echo "::error::$table is not reachable through the API (HTTP $code): $(cat /tmp/body)"
+              exit 1
+            fi
+          done
+          echo "All tables reachable."
