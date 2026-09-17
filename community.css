@@ -625,9 +625,24 @@ body:not(.community-mode) .modebar { display: none; }
    x=30 (16px inset + half of 28px). Reply avatars sit one column per depth,
    their center at column edge minus 1, so each connector line runs exactly
    through its parent avatar's center and each arm lands flush on the child
-   avatar's left edge. Lines touch every comment in the chain. */
+   avatar's left edge. Lines touch every comment in the chain.
 
-.cm-scope :root { --thread-rail: 30px; }
+   The token is declared on .cm-scope itself. It used to be written as
+   `.cm-scope :root`, which can never match: :root is <html>, and html is
+   never a descendant of anything. So --thread-rail resolved to nothing,
+   `flex: 0 0 var(--thread-rail)` was dropped as invalid, and every rail
+   and elbow collapsed to zero width. That is what broke the thread lines.
+
+   Three visual layers maximum, so the deepest row is indented 2 columns
+   (60px) and the tree still fits a 390px screen. */
+
+.cm-scope { --thread-rail: 30px; }
+
+@media (max-width: 420px) {
+  /* Narrow screens: tighten the columns so a depth-2 reply keeps a usable
+     text measure instead of being squeezed against the right edge. */
+  .cm-scope { --thread-rail: 22px; }
+}
 
 .cm-scope .trow {
   display: flex;
@@ -679,7 +694,9 @@ body:not(.community-mode) .modebar { display: none; }
   position: absolute;
   left: calc(100% - 1px);
   top: 21px;
-  width: 17px;
+  /* Derived from the rail, not hardcoded: at a 30px rail this is the
+     original 17px, and it stays flush when the rail narrows on mobile. */
+  width: calc(var(--thread-rail) - 13px);
   height: 1.5px;
   background: var(--border);
 }

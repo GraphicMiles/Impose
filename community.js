@@ -438,6 +438,12 @@
         showMode("community");
         feedView.hidden = true;
         detailView.hidden = false;
+        /* The feed's generation composer is docked as a sibling of both
+           views, so without this it stayed mounted on top of the detail
+           page and the user saw two composers: "Ask @bot anything" over
+           "Add to the discussion". The detail page owns exactly one
+           composer, the comment box. */
+        setGenDock(false);
         window.scrollTo(0, 0);
         return;
       }
@@ -446,6 +452,14 @@
     showMode("community");
     feedView.hidden = false;
     detailView.hidden = true;
+    setGenDock(true);
+  }
+
+  /* Show or hide the feed's generation composer dock. Kept as one function
+     so the two call sites above can never disagree about it. */
+  function setGenDock(show) {
+    var dock = $("cmComposerDock");
+    if (dock) dock.hidden = !show;
   }
 
   /* ---------- card rendering ---------- */
@@ -771,7 +785,13 @@
     var kids = node.replies || [];
     var childGuides = depth === 0 ? [] : guides.concat([!isLast]);
     kids.forEach(function (kid, i) {
-      out.push({ node: kid, depth: depth + 1, guides: childGuides.slice(0, MAX_REPLY_DEPTH), isLast: i === kids.length - 1 });
+      /* Three visual layers maximum (depth 0, 1, 2), YouTube and Twitter
+         style. Past the cap a reply keeps its true parent in the data and
+         in its @mention, but renders at the cap's indent instead of
+         stepping further right. Without this clamp a long chain walked off
+         the right edge of a 390px screen. */
+      var kidDepth = Math.min(depth + 1, MAX_REPLY_DEPTH);
+      out.push({ node: kid, depth: kidDepth, guides: childGuides.slice(0, MAX_REPLY_DEPTH), isLast: i === kids.length - 1 });
       emitAll(kid, depth + 1, childGuides, i === kids.length - 1, out);
     });
   }
@@ -855,14 +875,28 @@
       var text = input.value.trim();
       if (!text) return;
       var parentId = replyingTo ? replyingTo.id : null;
-      /* Depth cap: replying to a comment already at MAX_REPLY_DEPTH flattens
-         the new comment onto the level above (a sibling), YouTube style. The
-         mention keeps the true addressee visible in the text. */
+      /* Depth cap: replying to a comment already at MAX_REPLY_DEPTH attaches
+         the new comment as that comment's sibling instead of its child,
+         YouTube style, so the tree never gains a fourth layer. The @mention
+         keeps the true addressee visible in the text.
+
+         This walks up until the parent is above the cap rather than
+         stepping up exactly once: a single step is only enough when the
+         target sits exactly at the cap, and data that already runs deeper
+         (an import, or a chain built before the cap existed) would still
+         land past it. */
       if (replyingTo) {
-        var depthOfTarget = pathToRoot(commentsFor(gen.id), replyingTo.id).size - 1;
-        if (depthOfTarget >= MAX_REPLY_DEPTH && replyingTo.parentId) {
-          parentId = replyingTo.parentId;
+        var all = commentsFor(gen.id);
+        var byId = {};
+        all.forEach(function (c) { byId[c.id] = c; });
+        var anchor = replyingTo;
+        var hops = 0;
+        while (anchor && pathToRoot(all, anchor.id).size - 1 >= MAX_REPLY_DEPTH &&
+               anchor.parentId && byId[anchor.parentId] && hops < 64) {
+          anchor = byId[anchor.parentId];
+          hops++;
         }
+        parentId = anchor ? anchor.id : null;
       }
       state.comments.push({
         id: uid(), genId: gen.id, own: true, creator: YOU,

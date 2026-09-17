@@ -195,6 +195,74 @@ test("the waitlist gate explains the Workspace in plain language", function () {
     "the access gate copy drifted from the plain-language version");
 });
 
+/* ---------- generation detail view ----------
+   Three defects reported against the detail page: a duplicated composer, a
+   collapsed comment-tree rail, and unbounded reply nesting. Each is pinned
+   here because all three were silent: nothing threw, the page just looked
+   wrong. */
+
+test("the feed composer dock is dismissed on the detail view", function () {
+  var js = read("community.js");
+  ok(js.indexOf("function setGenDock") > -1,
+    "setGenDock is gone; the two views can drift on dock visibility again");
+  /* Both routes must set it, or the detail page shows two composers. */
+  ok(js.indexOf("setGenDock(false)") > -1, "the detail route does not hide the generation dock");
+  ok(js.indexOf("setGenDock(true)") > -1, "the feed route does not restore the generation dock");
+});
+
+test("each surface owns exactly one composer", function () {
+  var html = read("index.html");
+  /* Two static composers is correct: #composer is the workspace's and
+     #cmComposer is the Community feed's. They live in different views.
+     The detail page's comment composer is built by renderDetail. The bug
+     was never a third composer, it was the feed's dock staying mounted
+     over the detail view, which setGenDock now prevents. */
+  ok(html.indexOf('class="composer" id="composer"') > -1, "the workspace composer is gone");
+  ok(html.indexOf('class="composer" id="cmComposer"') > -1, "the community composer is gone");
+  var ids = html.match(/class="composer" id="\w+"/g) || [];
+  ok(ids.length === 2, "index.html declares " + ids.length + " static composers, expected 2");
+  ok(read("community.js").indexOf('id="commentComposer"') > -1,
+    "the comment composer is no longer built by the detail view");
+});
+
+test("the thread rail token is declared on a selector that can match", function () {
+  var css = read("community.css");
+  ok(css.indexOf(".cm-scope { --thread-rail:") > -1,
+    "--thread-rail is not declared on .cm-scope");
+  /* `.cm-scope :root` can never match: :root is <html>, which is never a
+     descendant. That typo silently collapsed every rail to zero width. */
+  /* Strip comments first: the CSS deliberately names the broken selector
+     in the note explaining why it was removed. Only real declarations
+     count. */
+  var live = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  ok(live.indexOf(".cm-scope :root") === -1,
+    "--thread-rail is declared under `.cm-scope :root`, a selector that can never match");
+});
+
+test("the elbow arm is derived from the rail, not hardcoded", function () {
+  var css = read("community.css");
+  ok(/\.telbow::after[\s\S]{0,300}width: calc\(var\(--thread-rail\)/.test(css),
+    "the elbow arm width is hardcoded and will not line up when the rail changes");
+});
+
+test("reply depth is clamped at render, not only in the guide rails", function () {
+  var js = read("community.js");
+  ok(js.indexOf("Math.min(depth + 1, MAX_REPLY_DEPTH)") > -1,
+    "emitAll no longer clamps depth, so a deep chain indents off screen");
+});
+
+test("the reply depth cap walks up to the cap instead of stepping once", function () {
+  var js = read("community.js");
+  ok(js.indexOf("while (anchor && pathToRoot(all, anchor.id).size - 1 >= MAX_REPLY_DEPTH") > -1,
+    "the depth cap steps up only one level, so data already past the cap stays past it");
+  ok(js.indexOf("hops < 64") > -1, "the depth-cap walk has no cycle guard");
+});
+
+test("three visual layers maximum", function () {
+  ok(read("community.js").indexOf("var MAX_REPLY_DEPTH = 2;") > -1,
+    "MAX_REPLY_DEPTH changed; the tree is no longer capped at three layers");
+});
+
 /* ---------- render pipeline ---------- */
 
 test("every authored public asset is copied by the Render build", function () {
