@@ -672,7 +672,30 @@
     syncCommentCount(c.genId);
     persist();
     notify("Comment deleted.", "Undo", function () { restoreComment(id); });
-    refreshDetail(c.genId);
+    /* Deleting one comment used to rebuild the whole detail page. That threw
+       away the composer node mid-edit - a draft the user had typed vanished
+       with no warning and the Post button went dead - and reset every thread
+       they had opened. A comment changing state is a thread-level event, so
+       only the thread is repainted when the page is already up. */
+    refreshThreadOnly(c.genId);
+  }
+
+  /* Repaint the thread in place, preserving the composer (and its draft) and
+     the current expansion state. Falls back to a full render when the detail
+     page for this generation is not the thing on screen. */
+  function refreshThreadOnly(genId) {
+    var gen = genById(genId);
+    var listEl = $("cmCommentList");
+    if (gen && listEl && location.hash === "#/g/" + genId) {
+      /* The composer may be aimed at a comment that just became a tombstone;
+         replying to one is not a real state. */
+      if (replyingTo && isDeleted(commentById(replyingTo.id) || {})) clearReplyTarget();
+      renderThread(gen, listEl);
+      replaceCard(gen);
+      updateDiscussionTitle(gen);
+      return;
+    }
+    refreshDetail(genId);
   }
 
   function restoreComment(id) {
@@ -683,7 +706,7 @@
     syncCommentCount(c.genId);
     persist();
     notify("Comment restored.");
-    refreshDetail(c.genId);
+    refreshThreadOnly(c.genId);
   }
 
   function commentById(id) {
@@ -1219,6 +1242,16 @@
      their branch while it is targeted. Per page load, no persistence. */
   var replyingTo = null;
 
+  /* Drops the composer's reply target and hides the context bar. Lives at
+     module scope because delete and restore happen outside the composer's
+     closure but can invalidate its target. Does NOT touch the input value:
+     the user's typed draft is theirs and survives the target changing. */
+  function clearReplyTarget() {
+    replyingTo = null;
+    var bar = $("cmCommentCtx");
+    if (bar) bar.hidden = true;
+  }
+
   function commentRow(c, row, onPath) {
     var el = document.createElement("div");
     /* trow--open marks a row whose replies are currently revealed, which is
@@ -1274,21 +1307,36 @@
               esc(c.text) +
             "</p>" +
             '<div class="comment-ops">' +
-              /* One control, both jobs. Two buttons sitting side by side
-                 ("Reply" next to "4 replies") read as a choice between two
-                 destinations when they are really the same conversation.
-                 With replies present this button opens them AND aims the
-                 composer at this comment in a single tap; with none it is
-                 just Reply. The label carries the count so nothing is lost. */
+              /* ONE control per comment, but reading and writing are not the
+                 same intent and must never be fused. An earlier version made
+                 the count chip also aim the composer, so opening a thread to
+                 READ shoved a reply bar in the user's face and silently
+                 targeted a comment they never chose to answer.
+
+                 So: when a comment has replies the button's job is to open
+                 them, and nothing else. Replying to that comment is offered
+                 once its thread is open, as a quiet trailing action inside
+                 the branch it belongs to. A childless comment has nothing to
+                 open, so its single button is Reply. Exactly one button
+                 either way, and a tap never means two things. */
               '<button class="comment-reply-btn' + (kidCount > 0 ? " comment-reply-btn--thread" : "") +
-                '" data-reply="' + c.id + '"' +
+                '" ' +
                 (kidCount > 0
-                  ? ' data-expand="' + c.id + '" aria-expanded="' + String(expandedThreads.has(c.id)) + '"'
-                  : "") + ">" +
+                  ? 'data-expand="' + c.id + '" aria-expanded="' + String(expandedThreads.has(c.id)) + '"'
+                  : 'data-reply="' + c.id + '"') + ">" +
                 (kidCount > 0
                   ? '<i data-lucide="message-square"></i><span>' + kidCount + (kidCount === 1 ? " reply" : " replies") + "</span>"
                   : '<i data-lucide="corner-down-right"></i><span>Reply</span>') +
               "</button>" +
+              /* Answering a comment that has replies is offered only once its
+                 thread is open. Collapsed, the row is for reading and shows
+                 one button; open, the user is already inside the branch and
+                 a reply is a natural next step rather than an interruption. */
+              (kidCount > 0 && expandedThreads.has(c.id)
+                ? '<button class="comment-reply-btn" data-reply="' + c.id + '">' +
+                    '<i data-lucide="corner-down-right"></i><span>Reply</span>' +
+                  "</button>"
+                : "") +
               (c.own
                 ? '<button class="comment-del-btn" data-del="' + c.id + '" aria-label="Delete comment" title="Delete comment">' +
                     '<i data-lucide="trash-2"></i><span>Delete</span>' +
@@ -1307,6 +1355,25 @@
      ops row per comment, never a reply-looking row twice. expandedThreads
      holds every comment id whose children are currently revealed. */
   var expandedThreads = new Set();
+
+  /* Every id in the subtree rooted at rootId, that id included. Used to keep
+     expansion state consistent with what emitAll actually renders. */
+  function subtreeIds(genId, rootId) {
+    var all = commentsFor(genId);
+    var out = [rootId];
+    var frontier = [rootId];
+    var guard = 0;
+    while (frontier.length && guard++ < 5000) {
+      var cur = frontier.shift();
+      all.forEach(function (c) {
+        if (c.parentId === cur && out.indexOf(c.id) === -1) {
+          out.push(c.id);
+          frontier.push(c.id);
+        }
+      });
+    }
+    return out;
+  }
 
   function countDescendants(node) {
     var n = 0;
@@ -1378,17 +1445,25 @@
     /* Reply and reply-count expander run off one delegated listener so
        re-renders never rebind. */
     listEl.addEventListener("click", function (e) {
-      /* The merged control carries both data-expand and data-reply. Expand
-         first, then fall through to aim the composer, so one tap both
-         reveals the sub-thread and answers it. A tombstone's chip carries
-         data-expand alone and stops here: there is nothing to reply to. */
+      /* Expanding is a read. It reveals replies and returns; it must not
+         touch the composer. */
       var expandBtn = e.target.closest("[data-expand]");
       if (expandBtn) {
+        /* emitAll reveals the entire subtree in one tap, so the whole
+           subtree's state has to move with it. Toggling only the tapped id
+           left descendants rendered on screen while their own chips still
+           said aria-expanded="false" - the control lied about what the
+           reader was looking at, and collapsing a child then did nothing
+           visible because the parent was still force-showing it. */
         var rid = expandBtn.getAttribute("data-expand");
-        if (expandedThreads.has(rid)) expandedThreads.delete(rid);
-        else expandedThreads.add(rid);
+        var branch = subtreeIds(gen.id, rid);
+        if (expandedThreads.has(rid)) {
+          branch.forEach(function (bid) { expandedThreads.delete(bid); });
+        } else {
+          branch.forEach(function (bid) { expandedThreads.add(bid); });
+        }
         renderThread(gen, listEl);
-        if (!expandBtn.hasAttribute("data-reply")) return;
+        return;
       }
       var delBtn = e.target.closest("[data-del]");
       if (delBtn) {
@@ -1399,9 +1474,7 @@
         deleteComment(delId);
         return;
       }
-      /* Read the id before any re-render: the expand branch above may have
-         already replaced this node, leaving the captured element detached. */
-      var replyBtn = expandBtn || e.target.closest("[data-reply]");
+      var replyBtn = e.target.closest("[data-reply]");
       if (replyBtn) {
         var wantId = replyBtn.getAttribute("data-reply");
         var target = null;
@@ -1425,8 +1498,7 @@
     }
 
     function clearReply() {
-      replyingTo = null;
-      if (ctxBar) ctxBar.hidden = true;
+      clearReplyTarget();
       renderThread(gen, listEl);
     }
 

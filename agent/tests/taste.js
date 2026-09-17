@@ -582,26 +582,73 @@ test("a generation page shows no second, higher-level navigation", function () {
     "the back header is now the top chrome, so it owns the notch inset");
 });
 
-test("one comment control does both jobs", function () {
-  /* Two buttons side by side ("Reply" next to "4 replies") read as a choice
-     between two destinations when they are the same conversation. */
-  /* Scope to the live-comment branch: a tombstone keeps a plain count chip
-     (there is nothing to reply to), which is correct and must not match. */
+test("reading replies never hijacks the composer", function () {
+  /* The regression this replaces: the count chip also carried data-reply, so
+     opening a thread to READ aimed the composer at a comment the user never
+     chose to answer and shoved a reply bar in their face. Reading and
+     writing are separate intents; one tap must never mean both. */
   var i = communityJs.indexOf('class="comment-ops"');
   var ops = communityJs.slice(i, communityJs.indexOf("comment-del-btn", i));
-  ok(ops.indexOf("comment-replies-btn") === -1,
-    "the separate reply-count button must be gone from live comments");
-  ok(ops.indexOf("data-reply=") !== -1 && ops.indexOf("c.id") !== -1,
-    "the one button still aims the composer");
-  ok(ops.indexOf('data-expand="') !== -1, "and still reveals the sub-thread");
-  ok(ops.indexOf("comment-reply-btn--thread") !== -1,
-    "it takes a distinct look once it carries a count");
+  /* Isolate the chip's own attribute expression: it must choose expand OR
+     reply, never emit both onto the one element. */
+  var chip = ops.slice(ops.indexOf("'<button class=\"comment-reply-btn'"));
+  chip = chip.slice(0, chip.indexOf("</button>"));
+  ok(/\? 'data-expand="/.test(chip) && /: 'data-reply="/.test(chip),
+    "the chip picks one intent by kidCount, it does not carry both");
+  ok(chip.indexOf('data-expand="' + "' + c.id + '" + '" aria-expanded') !== -1,
+    "with replies it expands");
   var h = communityJs.indexOf('e.target.closest("[data-expand]")');
-  var handler = communityJs.slice(h, h + 1600);
-  ok(handler.indexOf('if (!expandBtn.hasAttribute("data-reply")) return;') !== -1,
-    "expanding must fall through to the reply aim, not stop at it");
-  ok(handler.indexOf('getAttribute("data-reply")') !== -1,
-    "the id must be read from the attribute: the re-render detaches the node");
+  var handler = communityJs.slice(h, h + 1200);
+  ok(handler.indexOf("hasAttribute(\"data-reply\")") === -1,
+    "the expand branch must not fall through into the reply branch");
+  ok(/renderThread\(gen, listEl\);\s*return;/.test(handler),
+    "expanding renders and returns, full stop");
+});
+
+test("a comment with replies still offers a reply, once opened", function () {
+  /* Removing the fusion must not strand the user: answering a parent stays
+     reachable, just not forced on them while they are only reading. */
+  var i = communityJs.indexOf('class="comment-ops"');
+  var ops = communityJs.slice(i, communityJs.indexOf("comment-del-btn", i));
+  ok(ops.indexOf("kidCount > 0 && expandedThreads.has(c.id)") !== -1,
+    "an open parent gets a trailing Reply");
+  ok(ops.indexOf('data-reply="' + "' + c.id + '" + '"') !== -1,
+    "and it aims at that comment");
+});
+
+test("expanding moves the whole subtree it reveals", function () {
+  /* emitAll renders the entire subtree on one tap, so state must move with
+     it or nested chips report aria-expanded="false" for rows that are
+     visibly on screen, and collapsing a child does nothing. */
+  ok(communityJs.indexOf("function subtreeIds") !== -1, "needs a subtree walker");
+  var h = communityJs.indexOf('e.target.closest("[data-expand]")');
+  var handler = communityJs.slice(h, h + 1200);
+  ok(handler.indexOf("subtreeIds(gen.id, rid)") !== -1,
+    "the toggle must apply to the branch, not just the tapped id");
+  ok(/branch\.forEach\(function \(bid\) \{ expandedThreads\.delete\(bid\); \}\)/.test(handler) &&
+     /branch\.forEach\(function \(bid\) \{ expandedThreads\.add\(bid\); \}\)/.test(handler),
+    "both directions move the whole branch");
+});
+
+test("deleting a comment does not destroy a draft in progress", function () {
+  /* deleteComment rebuilt the entire detail page, which replaced the
+     composer node: typed text vanished with no warning and Post went dead. */
+  var d = communityJs.indexOf("function deleteComment");
+  var body = communityJs.slice(d, d + 900);
+  ok(body.indexOf("refreshThreadOnly") !== -1 && body.indexOf("refreshDetail(") === -1,
+    "a comment changing state is a thread event, not a page rebuild");
+  ok(communityJs.indexOf("function refreshThreadOnly") !== -1, "needs the in-place path");
+  var r = communityJs.indexOf("function refreshThreadOnly");
+  var rb = communityJs.slice(r, r + 800);
+  ok(rb.indexOf("renderThread(") !== -1 && rb.indexOf("renderDetail(") === -1,
+    "it must repaint the thread, never the page that owns the composer");
+  ok(rb.indexOf("clearReplyTarget()") !== -1,
+    "a composer aimed at a fresh tombstone must lose its target");
+  ok(communityJs.indexOf("function clearReplyTarget") !== -1,
+    "delete lives outside the composer closure, so the target drop is hoisted");
+  var c = communityJs.indexOf("function clearReplyTarget");
+  ok(communityJs.slice(c, c + 320).indexOf(".value") === -1,
+    "dropping the target must not touch the user's typed text");
 });
 
 test("a reply connects visibly to the comment it answers", function () {
