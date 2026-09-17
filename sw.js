@@ -76,6 +76,7 @@ var PRECACHE = [
   "./agent/harness.js",
   "./agent/features.js",
   "./community.js",
+  "./community-data.js",
   "./agent/trace.css",
   "./community.css",
   "./lucide.min.js",
