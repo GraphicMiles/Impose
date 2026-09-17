@@ -87,7 +87,7 @@
     <div class="view-icon"><i data-lucide="key-round"></i></div>
     <div class="view-heading align-left">
       <h1>Reset your password</h1>
-      <p>Enter the email associated with your account and we'll send you a reset link.</p>
+      <p>Enter the email associated with your account and we'll send you a reset code.</p>
     </div>
     <form id="forgotForm" novalidate>
       <div class="field">
@@ -95,7 +95,7 @@
         <input id="forgotEmail" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required>
         <p class="field-error" data-error-for="forgotEmail"></p>
       </div>
-      <button class="primary-btn" type="submit">Send reset link</button>
+      <button class="primary-btn" type="submit">Send reset code</button>
     </form>
     <p class="switch-copy">Remembered it? <button class="link-btn" type="button" data-route="sign-in">Sign in</button></p>
   </section>
@@ -150,6 +150,9 @@
 <footer class="auth-footer"><i data-lucide="shield-check"></i><span>Keys and chats stay under your control.</span></footer>
 <div class="toast" id="authToast" role="status" hidden></div>
 <script src="./lucide.min.js"></script>
+<script src="./supabase.min.js"></script>
+<script src="./config.js"></script>
+<script src="./auth-client.js"></script>
 <script src="./auth.js"></script>
 </body>
 </html>

@@ -50,6 +50,12 @@ and idle control are optional and disabled by default.
 | `IDLE_STOP_MINUTES` | `5` | Idle minutes before an enabled stop. |
 | `IDLE_CHECK_MINUTES` | `5` | How often an enabled idle monitor checks. |
 | `LLM_GATEWAY_URL` | optional box root, no `/v1` | Add in the dashboard only when connecting a self-hosted model. |
+| `SENDLIB_API_KEY` | from sendlib | Sends the sign-up and password-reset codes. Without it the relay prints codes to its log instead of emailing them, which is fine locally and wrong in production. |
+| `SENDLIB_FROM` | your connected Gmail | The address Sendlib relays through. Must be a Gmail or Workspace account connected in the Sendlib dashboard. |
+| `SENDLIB_REPLY_TO` | optional support address | Where replies to the code emails go. |
+| `SENDLIB_URL` | optional | Defaults to `https://sendlib.samueltuoyo.com/api/send`. |
+| `OTP_PEPPER` | generated, 32+ random chars | Mixed into the code hash. Set it before launch: rotating it later invalidates every code in flight, which is harmless, but leaving it empty weakens the stored hashes. |
+| `APP_NAME` | `Impose` | Used in the email subject line. |
 | `LLM_GATEWAY_KEY` | optional box key | Lets the relay talk to that model gateway. |
 | `LIGHTNING_*` | optional | Needed only when `WAKE_STUDIO=1`. |
 

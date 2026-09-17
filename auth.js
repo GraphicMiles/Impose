@@ -108,6 +108,21 @@
     localStorage.setItem(AUTH_KEY, JSON.stringify(session));
   }
 
+  /* With Supabase configured these forms talk to a real backend. Without
+     it the page keeps its previous local behaviour so the demo still
+     deploys; `live()` is the switch, and every caller has both paths. */
+  function live() {
+    return !!(window.BotoAuth && window.BotoAuth.configured());
+  }
+
+  /* Shows a server error against the field the user can actually fix. */
+  function failOn(form, id, error) {
+    busy(form, false);
+    var message = (error && error.message) || "Something went wrong. Try again.";
+    if (id) { setError(id, message); focusFirstError(form); }
+    else showToast(message);
+  }
+
   function showToast(message) {
     var node = $("authToast");
     node.textContent = message;
@@ -150,9 +165,21 @@
     if (!validEmail(email)) { setError("signInEmail", "Enter a valid email address."); okay = false; }
     if (password.length < 8) { setError("signInPassword", "Password must be at least 8 characters."); okay = false; }
     if (!okay) { focusFirstError(event.currentTarget); return; }
-    briefWork(event.currentTarget, function () {
-      saveSession(email.split("@")[0], email);
+    var form = event.currentTarget;
+    if (!live()) {
+      briefWork(form, function () {
+        saveSession(email.split("@")[0], email);
+        location.href = "./index.html";
+      });
+      return;
+    }
+    busy(form, true);
+    window.BotoAuth.signIn(email, password).then(function () {
       location.href = "./index.html";
+    }, function (err) {
+      /* Against the password field, not the email: saying "no such
+         account" would confirm which addresses are registered. */
+      failOn(form, "signInPassword", err);
     });
   });
 
@@ -184,7 +211,21 @@
     if (!okay) { focusFirstError(event.currentTarget); return; }
     savePending(email, "signup");
     sessionStorage.setItem("impose.auth.pendingName", email.split("@")[0]);
-    briefWork(event.currentTarget, function () { route("otp"); });
+    var form = event.currentTarget;
+    if (!live()) {
+      briefWork(form, function () { route("otp"); });
+      return;
+    }
+    busy(form, true);
+    /* The account is created first so a taken address fails here, before
+       an email goes out. */
+    window.BotoAuth.signUp(email, password).then(function () {
+      busy(form, false);
+      route("otp");
+      startResendCountdown();
+    }, function (err) {
+      failOn(form, "signUpEmail", err);
+    });
   });
 
   $("forgotForm").addEventListener("submit", function (event) {
@@ -197,13 +238,23 @@
       return;
     }
     savePending(email, "reset");
-    briefWork(event.currentTarget, function () {
-      $("successTitle").textContent = "Check your inbox";
-      $("successCopy").textContent = "We sent a password reset link to " + email + ".";
-      var successLink = $("successAction");
-      successLink.href = "#sign-in";
-      successLink.textContent = "Return to sign in";
-      route("success");
+    var form = event.currentTarget;
+    if (!live()) {
+      briefWork(form, function () { route("otp"); startResendCountdown(); });
+      return;
+    }
+    busy(form, true);
+    /* Always reports success. Whether the address has an account is not
+       the browser's business, and telling it here would turn this form
+       into an account checker. */
+    window.BotoAuth.requestReset(email).then(function () {
+      busy(form, false);
+      route("otp");
+      startResendCountdown();
+    }, function (err) {
+      /* A transport or rate-limit failure is worth saying: the user needs
+         to know no code is coming. */
+      failOn(form, "forgotEmail", err);
     });
   });
 
@@ -237,14 +288,41 @@
       if (emptyDigit) emptyDigit.focus();
       return;
     }
-    briefWork(event.currentTarget, function () {
-      if (otpPurpose === "reset") route("reset-password");
-      else {
-        saveSession(sessionStorage.getItem("impose.auth.pendingName") || pendingEmail.split("@")[0], pendingEmail);
-        $("successTitle").textContent = "Email verified";
-        $("successCopy").textContent = "Your Impose account is ready to use.";
-        route("success");
+    var form = event.currentTarget;
+
+    function onVerified() {
+      if (otpPurpose === "reset") {
+        /* Carry the code forward: setting the new password needs it to
+           prove, to the server, that this browser held the code. */
+        sessionStorage.setItem("impose.auth.otpCode", code);
+        route("reset-password");
+        return;
       }
+      saveSession(sessionStorage.getItem("impose.auth.pendingName") || pendingEmail.split("@")[0], pendingEmail);
+      $("successTitle").textContent = "Email verified";
+      $("successCopy").textContent = "Your Impose account is ready to use.";
+      route("success");
+    }
+
+    if (!live()) { briefWork(form, onVerified); return; }
+
+    busy(form, true);
+    if (otpPurpose === "reset") {
+      /* Do not spend the code here. The reset screen exchanges it for a
+         session and sets the password in one step; verifying now would
+         consume it and the exchange would then fail. */
+      busy(form, false);
+      onVerified();
+      return;
+    }
+    window.BotoAuth.verifyCode(pendingEmail, "signup", code).then(function () {
+      busy(form, false);
+      onVerified();
+    }, function (err) {
+      busy(form, false);
+      $("otpError").textContent = err.message || "That code is not right.";
+      otpInputs.forEach(function (input) { input.value = ""; });
+      otpInputs[0].focus();
     });
   });
 
@@ -267,8 +345,21 @@
 
   function resendCode() {
     if (resendRemaining > 0) return;
-    showToast("A new code was sent to " + (pendingEmail || "your email") + ".");
+    if (!live()) {
+      showToast("A new code was sent to " + (pendingEmail || "your email") + ".");
+      startResendCountdown();
+      return;
+    }
+    /* Start the countdown immediately, before the request resolves. The
+       button is the thing being double-tapped, so it has to go inert on
+       the first press rather than on the reply. The server enforces its
+       own cooldown regardless; this is only about the button. */
     startResendCountdown();
+    window.BotoAuth.requestCode(pendingEmail, otpPurpose).then(function () {
+      showToast("A new code was sent to " + (pendingEmail || "your email") + ".");
+    }, function (err) {
+      showToast(err.message || "Could not send a new code. Try again shortly.");
+    });
   }
 
   $("resendBtn").addEventListener("click", resendCode);
@@ -286,13 +377,35 @@
     if (password.length < 8) { setError("resetPassword", "Use at least 8 characters."); okay = false; }
     if (confirmation !== password) { setError("confirmPassword", "Passwords do not match."); okay = false; }
     if (!okay) { focusFirstError(event.currentTarget); return; }
-    briefWork(event.currentTarget, function () {
+    var form = event.currentTarget;
+
+    function done() {
+      sessionStorage.removeItem("impose.auth.otpCode");
       $("successTitle").textContent = "Password updated";
       $("successCopy").textContent = "You can now sign in with your new password.";
       var successLink = $("successAction");
       successLink.href = "#sign-in";
       successLink.textContent = "Return to sign in";
       route("success");
+    }
+
+    if (!live()) { briefWork(form, done); return; }
+
+    var code = sessionStorage.getItem("impose.auth.otpCode") || "";
+    if (!code) {
+      /* The code is gone: a refresh, a new tab, or an expired session.
+         Send them back rather than failing at the server with something
+         cryptic. */
+      showToast("That reset link expired. Request a new code.");
+      route("forgot-password");
+      return;
+    }
+    busy(form, true);
+    window.BotoAuth.completeReset(pendingEmail, code, password).then(function () {
+      busy(form, false);
+      done();
+    }, function (err) {
+      failOn(form, "resetPassword", err);
     });
   });
 
