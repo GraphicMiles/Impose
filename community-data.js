@@ -395,8 +395,157 @@
     });
   }
 
+  /* ---------- the outbox ----------
+
+     You chose: an offline write queues and says so, rather than being
+     refused. That is the only honest way to keep one canonical database
+     and still accept a post on a flaky connection, and it costs a state
+     the reader has to be able to see. A post that looks published but
+     lives only in this browser is the failure mode worth avoiding.
+
+     The idempotency key is minted once, when the write is queued, and
+     survives every retry. That is what makes the queue safe: if the first
+     attempt reached Postgres and the response was lost, the retry returns
+     the original row instead of posting twice.
+
+     Persisted, because "queued" has to survive the tab closing. flow.txt
+     13: work is either lost, saved, resumed, cancelled or rolled back, and
+     never left undefined. */
+
+  var OUTBOX_KEY = "impose.cm.outbox.v1";
+  var outbox = [];
+  var draining = false;
+  var onChange = null;
+
+  /* Callbacks cannot be persisted: JSON.stringify drops functions, so a job
+     resumed after a reload used to reach Postgres and then have nothing to
+     reconcile the optimistic card with. It stayed "Sending" forever beside
+     the real row it had just created.
+
+     Handlers are registered by job type instead, so a resumed job settles
+     the same way a fresh one does. */
+  var handlers = { generation: null, comment: null };
+
+  function setJobHandler(type, onDone, onFail) {
+    handlers[type] = { done: onDone, fail: onFail };
+  }
+
+  function settle(job, kind, payload) {
+    var inline = kind === "done" ? job.onDone : job.onFail;
+    if (inline) { try { inline(payload, job); } catch (e) {} return; }
+    var h = handlers[job.type];
+    if (h && h[kind]) { try { h[kind](payload, job); } catch (e) {} }
+  }
+
+  function loadOutbox() {
+    try {
+      var raw = localStorage.getItem(OUTBOX_KEY);
+      outbox = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(outbox)) outbox = [];
+    } catch (e) { outbox = []; }
+    return outbox;
+  }
+
+  function saveOutbox() {
+    try {
+      /* Store the data, never the closures: they would serialise to
+         nothing and give a false impression that the job is complete. */
+      localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox.map(function (j) {
+        return {
+          type: j.type, key: j.key, fields: j.fields, genId: j.genId,
+          body: j.body, parentId: j.parentId, localId: j.localId,
+          queuedAt: j.queuedAt, attempts: j.attempts, error: j.error
+        };
+      })));
+    } catch (e) {}
+    if (onChange) { try { onChange(outbox.slice()); } catch (e) {} }
+  }
+
+  function queue(job) {
+    job.key = job.key || newKey();
+    job.queuedAt = Date.now();
+    job.attempts = 0;
+    job.error = "";
+    outbox.push(job);
+    saveOutbox();
+    return job;
+  }
+
+  function dropJob(key) {
+    outbox = outbox.filter(function (j) { return j.key !== key; });
+    saveOutbox();
+  }
+
+  function pending() { return outbox.slice(); }
+
+  function runJob(job) {
+    if (job.type === "generation") {
+      return createGeneration(job.key, job.fields);
+    }
+    if (job.type === "comment") {
+      return createComment(job.key, job.genId, job.body, job.parentId);
+    }
+    return Promise.resolve(fail({ message: "unknown job" }));
+  }
+
+  /* One at a time and in order, so a reply cannot reach the server before
+     the comment it answers. Stops on the first retryable failure rather
+     than burning the whole queue against a wall. */
+  /* Callers wait on the drain that is actually running, not on a fresh
+     resolved promise. Returning Promise.resolve() while a drain was
+     already in flight meant a caller chaining .then() ran before the queue
+     had settled, which is how an orphan sweep managed to run against a
+     queue that was about to empty. */
+  var drainPromise = null;
+
+  function drain() {
+    if (draining) return drainPromise || Promise.resolve();
+    if (!outbox.length || !configured()) return Promise.resolve();
+    draining = true;
+
+    function step() {
+      if (!outbox.length) { draining = false; return Promise.resolve(); }
+      var job = outbox[0];
+      job.attempts += 1;
+      return runJob(job).then(function (out) {
+        if (out.ok) {
+          dropJob(job.key);
+          settle(job, "done", out.data);
+          return step();
+        }
+        if (!out.retryable) {
+          /* A permanent failure must leave the queue, or it blocks every
+             write behind it forever. The caller is told so the card can
+             show why rather than sitting on "Sending" for good. */
+          job.error = out.error;
+          dropJob(job.key);
+          settle(job, "fail", out);
+          return step();
+        }
+        job.error = out.error;
+        saveOutbox();
+        draining = false;
+        return Promise.resolve();
+      });
+    }
+    drainPromise = step().then(function (v) { drainPromise = null; return v; });
+    return drainPromise;
+  }
+
+  function setOutboxListener(fn) { onChange = fn; }
+
+  loadOutbox();
+  /* Reconnecting is the moment queued work should move. */
+  window.addEventListener("online", function () { drain(); });
+
   window.BotoData = {
     configured: configured,
+    queue: queue,
+    drain: drain,
+    pending: pending,
+    dropJob: dropJob,
+    setOutboxListener: setOutboxListener,
+    setJobHandler: setJobHandler,
     PAGE_SIZE: PAGE_SIZE,
     newKey: newKey,
     currentUser: currentUser,

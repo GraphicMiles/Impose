@@ -309,8 +309,12 @@ test("community renders avatars through the shared helper", function () {
     communityJs.indexOf('avatar(c.creator, "avatar-sm")') !== -1);
 });
 test("addressesBot is the single source of truth for calling the agent", function () {
+  /* The call now carries the idempotency key, so the assertion pins the
+     branch rather than the exact argument list. */
   ok(communityJs.indexOf("function addressesBot") !== -1 &&
-    communityJs.indexOf("if (toBot) streamGeneration(gen)") !== -1);
+    /if \(toBot\) streamGeneration\(gen/.test(communityJs) &&
+    /if \(!toBot\) publishGeneration\(gen/.test(communityJs),
+    "one predicate decides both whether the agent runs and how the post is published");
 });
 test("a plain post never enters a streaming state", function () {
   ok(communityJs.indexOf('status: toBot ? "streaming" : "complete"') !== -1);
@@ -679,6 +683,38 @@ test("polling asks for a count and backs off", function () {
     "no invented posts once the feed is real");
 });
 
+test("a queued write is honest about not being sent", function () {
+  /* The offline choice was: queue and say so, rather than refuse. That is
+     only safe if the card admits its state, or an optimistic render
+     becomes a claim we cannot back. */
+  var view = read("community.js");
+  ok(view.indexOf("gen-pending") !== -1, "a pending card is marked");
+  ok(/isAddressed\(gen\) \? responseBlock[\s\S]{0,400}gen\.pending/.test(view),
+    "the badge is on the card, not in the response block: a plain post has " +
+    "no response block and is the kind most likely to be queued");
+  ok(view.indexOf("cmOutbox") !== -1, "and the feed says how much is waiting");
+  var data = read("community-data.js");
+  ok(data.indexOf("OUTBOX_KEY") !== -1, "the queue survives the tab closing");
+  ok(/localStorage\.setItem\(OUTBOX_KEY, JSON\.stringify\(outbox\.map/.test(data),
+    "it stores the data, never the closures, which serialise to nothing");
+  ok(/function settle\(job, kind, payload\)/.test(data) && /handlers\[job\.type\]/.test(data),
+    "a job resumed after a reload has no closures left, so settlement falls " +
+    "back to a handler registered by type");
+});
+
+test("a replaced row cannot be resurrected from disk", function () {
+  /* persist() merges anything on disk that is missing from memory, which
+     is right for another tab's row and wrong for a placeholder this tab
+     just swapped for the server's. Without a tombstone the optimistic row
+     came back on the very next save and sat there reading "Sending" next
+     to the real post. */
+  var view = read("community.js");
+  ok(view.indexOf("var retired") !== -1, "removals are remembered");
+  ok(/!have\[r\.id\] && !retired\[r\.id\]/.test(view),
+    "and the disk merge honours them");
+  ok(/retire\(localId\)/.test(view), "reconciliation retires the placeholder");
+});
+
 test("one module owns the server, so a swap is not twenty-one edits", function () {
   /* community.js renders. It asks community-data.js for data and never
      touches the SDK itself, which is the difference between changing a
@@ -886,7 +922,7 @@ test("a reply can never silently become a top-level comment", function () {
 
 test("comment counts are derived at every write, never incremented", function () {
   var pi = communityJs.indexOf("function post()");
-  var post = communityJs.slice(pi, pi + 4200);
+  var post = communityJs.slice(pi, pi + 6000);
   ok(post.indexOf("gen.counts.comment += 1") === -1,
     "a parallel counter drifts the moment a delete or a merge touches the set");
   ok(post.indexOf("syncCommentCount(gen.id)") !== -1, "derive it from the live comments");

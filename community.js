@@ -206,223 +206,12 @@
     return st;
   }
 
+  /* No fixtures. Every post and comment comes from Postgres now, and a
+     seeded row would be a post that exists on one device and nowhere else,
+     which is the divergence this whole cutover removes. An empty state is
+     the honest first-run experience. */
   function seed() {
-    var now = Date.now();
-    return {
-      visibility: "public",
-      generations: [
-        {
-          id: "g1", own: false,
-          creator: { name: "Miles", handle: "@miles" },
-          prompt: "Give me 5 business ideas for Nigerian developers.",
-          response: "1. **Payroll tooling for remote teams.** Nigerian firms hiring across Africa need compliant payout rails. Build the boring parts nobody enjoys.\n\n2. **Offline-first learning apps.** Data costs shape behavior here. Content that syncs on wifi and works fully offline wins real users.\n\n3. **Agency productization.** Many devs sell hours. Package one narrow service, like payment integration or WhatsApp ordering, as a fixed price product with a sales page.\n\n4. **Local language voice interfaces.** Yoruba, Hausa, and Igbo voice UX is underserved compared to English-first products.\n\n5. **Compliance trackers for small businesses.** Tax dates and filings get missed constantly. A simple reminder tool beats a bloated CRM.\n\nThe thread running through all five: pick a painful, frequent, local problem and let distribution decide the winner.",
-          status: "complete", kind: "original", parentId: null, rootId: "g1",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 18 * 60 * 1000,
-          counts: { remix: 1, challenge: 0, comment: 5, save: 4 }
-        },
-        {
-          id: "g2", own: false,
-          creator: { name: "Ada", handle: "@ada" },
-          prompt: "Explain why Lagos traffic is so difficult to solve.",
-          response: "Lagos traffic is a systems failure, not a single broken part.\n\n**Demand keeps outrunning supply.** The city adds vehicles and commuters faster than it adds road capacity, so every new expressway fills up within a few years. Induced demand is the tax on each expansion.\n\n**Roads carry jobs they were not designed for.** Danfos and okadas stop anywhere because formal transit never fully absorbed their routes. Every curb becomes a terminal, which converts moving lanes into queues.\n\n**Incidents have no shock absorbers.** One broken-down truck can lock an entire corridor because there are few alternative crossings of the lagoon and few parallel arterials.\n\nThe hard part is that each actor is behaving rationally. Drivers compete for space, operators stop where demand is, agencies optimize for their own budgets. Untangling it needs pricing, transit investment, and incident response to move together, which is why single projects keep disappointing.",
-          status: "complete", kind: "original", parentId: null, rootId: "g2",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 52 * 60 * 1000,
-          counts: { remix: 0, challenge: 1, comment: 2, save: 3 }
-        },
-        {
-          id: "g3", own: false,
-          creator: { name: "Kamsi", handle: "@kamsi" },
-          prompt: "Give me 5 business ideas for Nigerian developers that require less than 100,000 naira to start.",
-          response: "Tighter constraints, better list. All five stay under 100k in upfront cost.\n\n1. **WhatsApp storefront setup.** Small shops already sell in chat. Charge a fixed fee to structure their catalog, auto replies, and payment links.\n\n2. **Notion and Sheets consulting for SMEs.** Sell working systems, not hours: inventory trackers, invoice books, staff rosters. Templates are nearly free to replicate.\n\n3. **Landing pages on a subscription.** One niche, one stack, flat monthly fee. Churn math works if you pick clients with recurring campaigns.\n\n4. **Excel to automation rescue gigs.** Every office has a spreadsheet held together by one person. Charge to stabilize it, then a retainer to keep it alive.\n\n5. **Tutorial content in local context.** Teach tools using Nigerian business cases. Costs are time plus a mic; distribution compounds.\n\nRemix note: the 100k cap kills anything with inventory, logistics, or hardware. That is a feature. It forces service-shaped ideas with fast feedback loops.",
-          status: "complete", kind: "remix", parentId: "g1", rootId: "g1",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 9 * 60 * 1000,
-          counts: { remix: 0, challenge: 0, comment: 0, save: 2 }
-        },
-        {
-          id: "g4", own: false,
-          creator: { name: "Dami", handle: "@dami" },
-          prompt: "Model Lagos traffic as a pricing problem and propose the cheapest intervention that still works.",
-          response: "Same task, different approach.\n\nFrame: road space is a scarce good priced at zero, so it is overconsumed at peak hours. The cheapest real lever is not more asphalt, it is price signals on the scarcest corridors.\n\n**Cheapest intervention that still works:** cordon pricing on 3 to 5 bridges and expressway segments during 6:30 to 9:30 and 16:30 to 19:30, collected through existing toll and plate infrastructure.\n\nWhy this one:\n\n- It targets the actual bottleneck instead of the network average.\n- Revenue hypothecates directly into bus rapid transit frequency, so the alternative improves at the same moment driving gets pricier.\n- Exemptions for registered buses keep the system legible and politically survivable.\n\nFailure mode to watch: if enforcement is manual it leaks. Budget for automated plate reading from day one, or the cordon becomes a suggestion.",
-          status: "complete", kind: "challenge", parentId: "g2", rootId: "g2",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 4 * 60 * 1000,
-          counts: { remix: 0, challenge: 0, comment: 0, save: 1 }
-        },
-        {
-          id: "g5", own: true,
-          creator: YOU,
-          prompt: "Draft a cold email to a fintech CTO about pilot testing our developer tool.",
-          response: "Subject: 20 minute pilot on your payout reconciliation flow\n\nHi Ada,\n\nWe built a tool that flags payout mismatches before your settlement run, and I think it maps directly to the reconciliation pain you mentioned at the Lagos fintech meetup.\n\nWould your team be open to a two week pilot? We handle setup, you point us at a sandbox feed. If it does not catch anything useful, you keep the report and owe nothing.\n\nWorth a short call this week?\n\nBest,\nYou",
-          status: "complete", kind: "original", parentId: null, rootId: "g5",
-          locked: false, visibility: "private", saved: false,
-          createdAt: now - 2 * 60 * 60 * 1000,
-          counts: { remix: 0, challenge: 0, comment: 0, save: 0 }
-        },
-        /* Extended corpus so engagement ranking and pagination are visible.
-           Old-but-viral (g9) deliberately outranks fresh-but-quiet posts. */
-        {
-          id: "g6", own: false,
-          creator: { name: "Ireti", handle: "@ireti" },
-          prompt: "Design a 5 day sprint to validate a booking app for beauty salons.",
-          response: "Day 1: map the riskiest assumption, that salons will share live calendars.\n\nDay 2: landing page plus 10 manual booking DMs.\nDay 3: concierge bookings by hand for 5 salons.\nDay 4: fake the reschedule flow with a spreadsheet.\nDay 5: measure the no show rate and rebooking.\n\nIf no salon shares a calendar by Day 3, the product is dispatching, not booking.",
-          status: "complete", kind: "original", parentId: null, rootId: "g6",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 3 * 60 * 60 * 1000,
-          counts: { remix: 2, challenge: 0, comment: 0, save: 6 }
-        },
-        {
-          id: "g7", own: false,
-          creator: { name: "Tobi", handle: "@tobi" },
-          prompt: "Explain vector databases to a backend engineer who has only used Postgres.",
-          response: "Stop thinking of it as a new database. A vector db is Postgres with one extra trick: store an embedding per row, then index it so nearest neighbor search is fast.\n\nEverything else you know still applies. Rows, filters, transactions. The difference is the query: instead of WHERE exact match, you ask for the k closest vectors and get semantic search.",
-          status: "complete", kind: "original", parentId: null, rootId: "g7",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 5 * 60 * 60 * 1000,
-          counts: { remix: 1, challenge: 0, comment: 0, save: 4 }
-        },
-        {
-          id: "g8", own: false,
-          creator: { name: "Zainab", handle: "@zainab" },
-          prompt: "Roast my landing page headline: We make teams productive.",
-          response: "Verdict: the headline says nothing, slowly.\n\nThat line could be any tool from Excel to espresso. Rewrite: cut standup to 90 seconds with updates your team writes once. Specific beats clever. Name the outcome, not the vibe.",
-          status: "complete", kind: "original", parentId: null, rootId: "g8",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 7 * 60 * 60 * 1000,
-          counts: { remix: 6, challenge: 2, comment: 2, save: 9 }
-        },
-        {
-          id: "g9", own: false,
-          creator: { name: "Ada", handle: "@ada" },
-          prompt: "Is the 10x engineer real, or a hiring myth?",
-          response: "Both, depending on what you multiply.\n\nOne great engineer rarely writes 10x the code. But one great engineer regularly removes 10x of the rework: clearer interfaces, fewer dead end frameworks, docs that stop Slack arguments.\n\nTeams that hire for output get a myth. Teams that hire for leverage find the real thing.",
-          status: "complete", kind: "original", parentId: null, rootId: "g9",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 5 * 24 * 60 * 60 * 1000,
-          counts: { remix: 14, challenge: 6, comment: 3, save: 31 }
-        },
-        {
-          id: "g10", own: false,
-          creator: { name: "Miles", handle: "@miles" },
-          prompt: "Write a standup update for a week where everything slipped.",
-          response: "Yesterday: burned down 0 of 6. The auth migration discovered a second auth system.\nToday: unifying both into one, genuinely.\nBlockers: the original author left in 2023.\nMood: we now know why it was slow. That is progress, just the expensive kind.",
-          status: "complete", kind: "original", parentId: null, rootId: "g10",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 9 * 60 * 60 * 1000,
-          counts: { remix: 0, challenge: 1, comment: 0, save: 2 }
-        },
-        {
-          id: "g11", own: false,
-          creator: { name: "Kamsi", handle: "@kamsi" },
-          prompt: "Monolith first or microservices first for a 4 person team?",
-          response: "Monolith first, nearly always.\n\nFour people cannot pay the coordination tax of microservices: service discovery, distributed debugging, versioning contracts between services that all ship together anyway.\n\nThe escape hatch is not services. It is module boundaries inside the monolith, enforced in code review. When a module outgrows the team, that is your first extraction candidate.",
-          status: "complete", kind: "original", parentId: null, rootId: "g11",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 26 * 60 * 60 * 1000,
-          counts: { remix: 3, challenge: 2, comment: 1, save: 8 }
-        },
-        {
-          id: "g12", own: false,
-          creator: { name: "Dami", handle: "@dami" },
-          prompt: "Give me the 5 onboarding friction points every B2B SaaS has by user 50.",
-          response: "1. Signup asks for a credit card before value.\n2. First run shows an empty dashboard with no sample data.\n3. The one integration everyone needs is hidden in settings.\n4. Docs explain the API before the workflow.\n5. Nobody is told what success looks like in week 1.\n\nBy user 50 every one of these has cost you a team that would have paid.",
-          status: "complete", kind: "original", parentId: null, rootId: "g12",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 30 * 60 * 60 * 1000,
-          counts: { remix: 1, challenge: 0, comment: 0, save: 5 }
-        },
-        {
-          id: "g13", own: false,
-          creator: { name: "Chidi", handle: "@chidi" },
-          prompt: "Turn this bug report into a postmortem readers will actually finish.",
-          response: "Structure it like a story, not a spreadsheet.\n\nWhat broke, in one sentence a non engineer gets.\nWhat users felt, with timestamps.\nWhat we believed that was wrong. That line is the whole postmortem.\nWhat changed, each fix with an owner and a date.\n\nSkip blame, keep the wrong belief visible. Readers finish stories about beliefs.",
-          status: "complete", kind: "original", parentId: null, rootId: "g13",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 2 * 24 * 60 * 60 * 1000,
-          counts: { remix: 2, challenge: 1, comment: 0, save: 3 }
-        },
-        {
-          id: "g14", own: false,
-          creator: { name: "Ireti", handle: "@ireti" },
-          prompt: "Script a 60 second demo video for a CLI tool.",
-          response: "0 to 8s: the problem, one line of painful terminal output.\n8 to 20s: install, one command, no music yet.\n20 to 45s: the aha. Run it on a real file, show before and after side by side.\n45 to 55s: the flag everyone asks about.\n55 to 60s: repo URL, done.\n\nNo talking head. The terminal is the demo.",
-          status: "complete", kind: "original", parentId: null, rootId: "g14",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - (2 * 24 * 60 + 60) * 60 * 1000,
-          counts: { remix: 0, challenge: 0, comment: 0, save: 2 }
-        },
-        {
-          id: "g15", own: false,
-          creator: { name: "Zainab", handle: "@zainab" },
-          prompt: "What metrics prove a community feature is working in week one?",
-          response: "Week one proof, in order of honesty:\n\n1. A stranger comments without being tagged.\n2. Someone remixes the featured post instead of posting fresh.\n3. A thread goes two replies deep without the original poster.\n4. The same 10 people return unprompted.\n\nPage views and signups are vanity until number 3 happens.",
-          status: "complete", kind: "original", parentId: null, rootId: "g15",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 3 * 24 * 60 * 60 * 1000,
-          counts: { remix: 4, challenge: 3, comment: 2, save: 11 }
-        },
-        {
-          id: "g16", own: false,
-          creator: { name: "Tobi", handle: "@tobi" },
-          prompt: "Rewrite our pricing page so a tired founder understands it at 2am.",
-          response: "One page, three cards.\n\nFree: what it does, no asterisks.\nPro: the price, big, per month, not per seat math in footnotes.\nEnterprise: talk to us, no calculator.\n\nAbove the cards, one line: pay only when it saves you a hire. A tired founder reads the headline, picks the middle card, and goes to sleep.",
-          status: "complete", kind: "original", parentId: null, rootId: "g16",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - (3 * 24 * 60 + 120) * 60 * 1000,
-          counts: { remix: 1, challenge: 1, comment: 0, save: 4 }
-        },
-        {
-          id: "g17", own: false,
-          creator: { name: "Miles", handle: "@miles" },
-          prompt: "Design the empty state for a notes app people abandon after day one.",
-          response: "The empty state is the second onboarding.\n\nShow one prewritten note that answers the question every quitter had: what do I even write? Make it editable. Put the keyboard shortcut next to it.\n\nThen one line: people who write 3 notes on day 1 keep the app. Social proof with a job to do.",
-          status: "complete", kind: "original", parentId: null, rootId: "g17",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 4 * 24 * 60 * 60 * 1000,
-          counts: { remix: 2, challenge: 0, comment: 0, save: 6 }
-        },
-        {
-          id: "g18", own: false,
-          creator: { name: "Chidi", handle: "@chidi" },
-          prompt: "Explain why our API latency spikes only on Sundays.",
-          response: "Sundays are when the batch jobs run.\n\nMore precisely: Sunday is low traffic, so your p99 graph is dominated by cold starts and the weekly analytics rollup, not by users. Check cron first, cache hit rates second. Spiky p99 on the quietest day is almost never a code path problem.",
-          status: "complete", kind: "original", parentId: null, rootId: "g18",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - (4 * 24 * 60 + 180) * 60 * 1000,
-          counts: { remix: 0, challenge: 1, comment: 0, save: 2 }
-        },
-        {
-          id: "g19", own: false,
-          creator: { name: "Ada", handle: "@ada" },
-          prompt: "Plan a launch on a $0 budget with 200 followers.",
-          response: "With 200 followers you do not launch. You premiere.\n\nWeek 1: DM the 20 people who reply to you most. Hand them the thing personally.\nWeek 2: post a build log each day, one screenshot, one honest failure.\nLaunch day: the 20 people post their own results. You amplify.\n\nBudget 0 dollars. The currency is favors you already earned.",
-          status: "complete", kind: "original", parentId: null, rootId: "g19",
-          locked: false, visibility: "public", saved: false,
-          createdAt: now - 6 * 24 * 60 * 60 * 1000,
-          counts: { remix: 5, challenge: 2, comment: 1, save: 12 }
-        }
-      ],
-      comments: [
-        { id: "c1", genId: "g1", parentId: null, own: false, creator: { name: "Ada", handle: "@ada" }, replyingToName: null, text: "Number 3 is underrated. Fixed price beats hourly in this market.", createdAt: now - 14 * 60 * 1000 },
-        { id: "c2", genId: "g1", parentId: "c1", own: false, creator: { name: "Dami", handle: "@dami" }, replyingToName: "Ada", text: "Until the client tries to renegotiate mid project. Scope lock matters more than the price tag.", createdAt: now - 12 * 60 * 1000 },
-        { id: "c3", genId: "g1", parentId: "c2", own: false, creator: { name: "Ada", handle: "@ada" }, replyingToName: "Dami", text: "That is the real lesson. Fixed price without a change request rule is just hourly with extra steps.", createdAt: now - 10 * 60 * 1000 },
-        { id: "c4", genId: "g1", parentId: null, own: true, creator: YOU, replyingToName: null, text: "Tried the offline learning one last year. The sync logic basically was the product.", createdAt: now - 11 * 60 * 1000 },
-        { id: "c6", genId: "g1", parentId: "c1", own: false, creator: { name: "Miles", handle: "@miles" }, replyingToName: "Ada", text: "Agree on fixed price. The real unlock was making the package visible before the pitch, so nobody negotiates from zero.", createdAt: now - 9 * 60 * 1000 },
-        { id: "c5", genId: "g2", parentId: null, own: false, creator: { name: "Kamsi", handle: "@kamsi" }, replyingToName: null, text: "The demand side framing is the part most people skip when they argue about traffic.", createdAt: now - 40 * 60 * 1000 },
-        { id: "c7", genId: "g2", parentId: "c5", own: true, creator: YOU, replyingToName: "Kamsi", text: "Which is why the pricing challenge above land differently once you read this one first.", createdAt: now - 30 * 60 * 1000 },
-        { id: "c8", genId: "g9", parentId: null, own: false, creator: { name: "Miles", handle: "@miles" }, replyingToName: null, text: "The 10x engineer exists. It is one engineer who deletes meetings for nine others.", createdAt: now - 5 * 24 * 60 * 60 * 1000 },
-        { id: "c9", genId: "g9", parentId: "c8", own: false, creator: { name: "Ada", handle: "@ada" }, replyingToName: "Miles", text: "That reframing is doing more work than the original question.", createdAt: now - (5 * 24 * 60 - 30) * 60 * 1000 },
-        { id: "c10", genId: "g9", parentId: null, own: false, creator: { name: "Zainab", handle: "@zainab" }, replyingToName: null, text: "Hiring myth. The 10x was always leverage, not talent.", createdAt: now - (5 * 24 * 60 - 60) * 60 * 1000 },
-        { id: "c11", genId: "g8", parentId: null, own: false, creator: { name: "Kamsi", handle: "@kamsi" }, replyingToName: null, text: "Your rewrite is a promise. The original was a weather report.", createdAt: now - 6 * 60 * 60 * 1000 },
-        { id: "c12", genId: "g8", parentId: null, own: false, creator: { name: "Tobi", handle: "@tobi" }, replyingToName: null, text: "Try naming the outcome: ship releases without the group chat.", createdAt: now - 5 * 60 * 60 * 1000 },
-        { id: "c13", genId: "g15", parentId: null, own: false, creator: { name: "Miles", handle: "@miles" }, replyingToName: null, text: "Week one is activation, not retention. Did the second comment happen?", createdAt: now - 3 * 24 * 60 * 60 * 1000 },
-        { id: "c14", genId: "g15", parentId: "c13", own: false, creator: { name: "Ada", handle: "@ada" }, replyingToName: "Miles", text: "A second comment from a different person. That is the tell.", createdAt: now - (3 * 24 * 60 - 40) * 60 * 1000 },
-        { id: "c15", genId: "g19", parentId: null, own: false, creator: { name: "Dami", handle: "@dami" }, replyingToName: null, text: "The 0 dollar launch plan is just distribution you do yourself.", createdAt: now - 5 * 24 * 60 * 60 * 1000 },
-        { id: "c16", genId: "g11", parentId: null, own: false, creator: { name: "Ireti", handle: "@ireti" }, replyingToName: null, text: "Monolith first, but draw the module seams like you mean it.", createdAt: now - 20 * 60 * 60 * 1000 }
-      ]
-    };
+    return { visibility: "public", generations: [], comments: [] };
   }
 
   var state = load() || seed();
@@ -432,15 +221,17 @@
      on every keystroke-triggered save. */
   var persistBroken = false;
 
-  /* Merge any records another tab wrote since this tab last read, then write.
+  /* Ids this tab has deliberately removed. reconcileWithDisk merges back
+     anything on disk that is missing from memory, which is right for a
+     row another tab created and wrong for one this tab just replaced: the
+     optimistic placeholder was resurrected on the very next persist, and
+     reappeared as a card stuck on "Sending" beside the real post.
 
-     The storage event alone is not enough: it only fires after a write, so
-     two tabs opened before either posted still each hold a full snapshot and
-     the second save erases the first. Reconciling immediately before the
-     write closes that window. Generations and comments are append-mostly and
-     carry stable unique ids, so "keep every id either side knows about" is
-     both sufficient and safe; for records both sides have, the in-memory
-     copy wins, because it is the one the user is currently acting on. */
+     A tombstone is cheaper and safer than making the merge guess. */
+  var retired = Object.create(null);
+
+  function retire(id) { if (id) retired[id] = true; }
+
   function reconcileWithDisk() {
     var disk;
     try {
@@ -455,7 +246,7 @@
       var have = Object.create(null);
       mine.forEach(function (r) { if (r && r.id) have[r.id] = true; });
       theirs.forEach(function (r) {
-        if (r && r.id && !have[r.id]) mine.push(r);
+        if (r && r.id && !have[r.id] && !retired[r.id]) mine.push(r);
       });
       return mine;
     }
@@ -648,6 +439,19 @@
     gen.deleted = true;
     gen.deletedAt = Date.now();
     persist();
+    /* Local first so Undo is instant, server immediately after. If the
+       server refuses, the post comes back rather than being hidden here
+       and alive everywhere else. */
+    if (!gen.pending) {
+      BotoData.deleteGeneration(gen.id).then(function (out) {
+        if (out.ok) return;
+        gen.deleted = false;
+        delete gen.deletedAt;
+        persist();
+        renderFeed();
+        notify(out.error);
+      });
+    }
 
     var replies = state.generations.filter(function (g) {
       return g.parentId === id && !isDeleted(g);
@@ -669,6 +473,16 @@
     if (!gen || !isDeleted(gen)) return; /* idempotent: undo twice is a no-op */
     delete gen.deleted;
     delete gen.deletedAt;
+    if (!gen.pending) {
+      BotoData.restoreGeneration(gen.id).then(function (out) {
+        if (out.ok) return;
+        gen.deleted = true;
+        gen.deletedAt = Date.now();
+        persist();
+        renderFeed();
+        notify(out.error);
+      });
+    }
     persist();
     notify("Post restored.");
     renderFeed();
@@ -681,6 +495,21 @@
     c.deletedAt = Date.now();
     syncCommentCount(c.genId);
     persist();
+    /* The body is kept locally for the undo window: the server clears it
+       on delete, so restoring has to send it back. */
+    var keptBody = c.text;
+    if (!c.pending) {
+      BotoData.deleteComment(c.id).then(function (out) {
+        if (out.ok) return;
+        c.deleted = false;
+        delete c.deletedAt;
+        syncCommentCount(c.genId);
+        persist();
+        refreshThreadOnly(c.genId);
+        notify(out.error);
+      });
+    }
+    c.__body = keptBody;
     notify("Comment deleted.", "Undo", function () { restoreComment(id); });
     /* Deleting one comment used to rebuild the whole detail page. That threw
        away the composer node mid-edit - a draft the user had typed vanished
@@ -719,6 +548,17 @@
     if (!c || !isDeleted(c)) return;
     delete c.deleted;
     delete c.deletedAt;
+    if (!c.pending) {
+      BotoData.restoreComment(c.id, c.__body || c.text).then(function (out) {
+        if (out.ok) return;
+        c.deleted = true;
+        c.deletedAt = Date.now();
+        syncCommentCount(c.genId);
+        persist();
+        refreshThreadOnly(c.genId);
+        notify(out.error);
+      });
+    }
     syncCommentCount(c.genId);
     persist();
     notify("Comment restored.");
@@ -1071,6 +911,12 @@
           esc(gen.prompt) +
         "</p>" +
         (isAddressed(gen) ? responseBlock(gen, detail) : "") +
+        /* On the card, not in the response block: a plain post has no
+           response block, and a plain post is exactly the kind most likely
+           to be queued offline. The badge was invisible for them. */
+        (gen.pending ? '<span class="gen-pending"><i data-lucide="clock"></i>Sending</span>' : "") +
+        (gen.errorText && gen.status === "failed" && !isAddressed(gen)
+          ? '<span class="gen-failed">' + esc(gen.errorText) + "</span>" : "") +
         actionRow(gen, detail) +
       "</div>";
     return article;
@@ -1832,13 +1678,33 @@
         }
         parentId = anchor ? anchor.id : null;
       }
-      state.comments.push({
-        id: uid(), genId: gen.id, own: true, creator: YOU,
+      /* Optimistic, then reconciled. A comment on a post that is itself
+         still pending is queued behind it, because the outbox runs in
+         order and the post's real id is patched into this job when it
+         lands. */
+      var ckey = BotoData.newKey();
+      var optimistic = {
+        id: ckey, pending: true,
+        genId: gen.id, own: true, creator: YOU,
         text: text,
         parentId: parentId,
         replyingToName: replyingTo ? replyingTo.creator.name : null,
         createdAt: Date.now()
+      };
+      state.comments.push(optimistic);
+      BotoData.queue({
+        type: "comment", key: ckey, localId: ckey,
+        genId: gen.id, body: text, parentId: parentId,
+        onDone: function (row) { adoptServerComment(ckey, row); },
+        onFail: function (out) {
+          var local = commentById(ckey);
+          if (local) { local.pending = false; local.failed = true; local.errorText = out.error; }
+          persist();
+          refreshThreadOnly(gen.id);
+          notify(out.error);
+        }
       });
+      BotoData.drain();
       /* A fresh reply must be visible: reveal every ancestor in its chain
          (each level gates its own children), plus the reply target itself. */
       if (replyingTo) {
@@ -2172,15 +2038,24 @@
       }
     }
 
+    /* Optimistic, with the truth attached. The card appears immediately
+       because waiting on a round trip to see your own words is worse, but
+       it says "Sending" until Postgres has it, so nothing on screen claims
+       to be published when it is not.
+
+       The id is temporary and the server's replaces it on success. Every
+       reference to the local id is rewritten at that point, which is why
+       nothing may persist a relationship to a post that is still pending. */
+    var key = BotoData.newKey();
     var gen = {
-      id: uid(),
+      id: key,
+      pending: true,
       own: true,
       creator: YOU,
       prompt: prompt,
       /* addressed: this post asked the agent for something. A plain post
          has no response block, is never streamed, and never reaches the
-         demo engine or (in production) the provider layer. Stored on the
-         object so a reload keeps the distinction. */
+         demo engine or (in production) the provider layer. */
       addressed: toBot,
       response: "",
       status: toBot ? "streaming" : "complete",
@@ -2195,10 +2070,6 @@
       counts: { remix: 0, challenge: 0, comment: 0, save: 0 }
     };
     state.generations.push(gen);
-    /* An addressed post pins itself to the top while it streams. A plain
-       post is complete the instant it is made, so without a pin it would
-       sort on engagement it has not earned and vanish as you posted it.
-       The pin is session scoped so it cannot survive a reload. */
     if (!toBot) pinForThisView(gen.id);
     persist();
 
@@ -2208,9 +2079,161 @@
     syncSendIntent();
     clearContext();
     renderFeed();
-    /* The one place the agent is invoked. A plain post is already in its
-       terminal state, so there is nothing to run and nothing to await. */
-    if (toBot) streamGeneration(gen);
+
+    /* A plain post is final the moment it is made, so it can go now. An
+       addressed one has to finish streaming first: sending an empty
+       response and updating it later would be two writes and a window in
+       which the feed shows a post with no answer. */
+    if (!toBot) publishGeneration(gen, key);
+    if (toBot) streamGeneration(gen, key);
+  }
+
+  /* Hands a finished post to the outbox and reconciles the optimistic card
+     with whatever the server says it is. */
+  function publishGeneration(gen, key) {
+    BotoData.queue({
+      type: "generation",
+      key: key,
+      localId: gen.id,
+      fields: {
+        prompt: gen.prompt,
+        response: gen.response,
+        addressed: gen.addressed,
+        status: gen.status,
+        visibility: gen.visibility,
+        kind: gen.kind,
+        remixOf: gen.parentId || null
+      },
+      /* Bound to the key, not to gen.id. gen.id is read when the callback
+         fires, and by then it may already be the server's value: the
+         lookup then matched nothing and the optimistic row was left
+         pending forever, rendering as a ghost card beside the real one. */
+      onDone: function (row) { adoptServerRow(key, row); },
+      onFail: function (out) { markFailed(key, out.error); }
+    });
+    BotoData.drain();
+    syncOutboxChrome();
+  }
+
+  /* The local id was a placeholder. Everything pointing at it has to move
+     to the real one in the same breath, or a comment written while the
+     post was in flight would be orphaned. */
+  function adoptServerRow(localId, row) {
+    /* Drop the placeholder first, then insert the server row. Doing it in
+       that order makes the outcome identical whether the local row is
+       still present (the common case), was already replaced, or was lost
+       to a reload: there is exactly one row for this post afterwards
+       either way.
+
+       The earlier version branched on whether the placeholder was found
+       and the two branches drifted, which left a card stuck on "Sending"
+       beside the real post it had just become. One path is easier to keep
+       correct than two. */
+    var wasPinned = false;
+    retire(localId);
+    state.generations = state.generations.filter(function (g) {
+      if (g.id !== localId) return true;
+      wasPinned = isPinned(g);
+      return false;
+    });
+    state.generations = state.generations.filter(function (g) { return g.id !== row.id; });
+    state.generations.push(row);
+
+    state.comments.forEach(function (c) { if (c.genId === localId) c.genId = row.id; });
+    state.generations.forEach(function (g) {
+      if (g.parentId === localId) g.parentId = row.id;
+      if (g.rootId === localId) g.rootId = row.id;
+    });
+
+    var at = feedOrder.indexOf(localId);
+    if (at !== -1) feedOrder[at] = row.id;
+    else if (feedOrder.indexOf(row.id) === -1) feedOrder.unshift(row.id);
+    if (wasPinned) pinForThisView(row.id);
+
+    persist();
+    if (location.hash === "#/g/" + localId) location.hash = "#/g/" + row.id;
+    else renderFeed();
+    syncOutboxChrome();
+    return;
+  }
+
+  function adoptServerRowLegacy(localId, row) {
+    var idx = -1;
+    state.generations.forEach(function (g, i) { if (g.id === localId) idx = i; });
+
+    /* No local row to replace. That is the reload case: the optimistic row
+       was written to storage under the local id, the tab closed, and the
+       resumed job has just created the real one. Adding it and dropping
+       any stale placeholder is the same reconciliation, done late. */
+    if (idx === -1) {
+      state.generations = state.generations.filter(function (g) {
+        return g.id !== localId;
+      });
+      state.generations.push(row);
+      if (feedOrder.indexOf(row.id) === -1) feedOrder.unshift(row.id);
+      persist();
+      renderFeed();
+      syncOutboxChrome();
+      return;
+    }
+
+    var wasPinned = isPinned(state.generations[idx]);
+    state.generations[idx] = row;
+
+    state.comments.forEach(function (c) { if (c.genId === localId) c.genId = row.id; });
+    state.generations.forEach(function (g) {
+      if (g.parentId === localId) g.parentId = row.id;
+      if (g.rootId === localId) g.rootId = row.id;
+    });
+    var at = feedOrder.indexOf(localId);
+    if (at !== -1) feedOrder[at] = row.id;
+    else feedOrder.unshift(row.id);
+    if (wasPinned) pinForThisView(row.id);
+
+    persist();
+    if (location.hash === "#/g/" + localId) location.hash = "#/g/" + row.id;
+    else renderFeed();
+    syncOutboxChrome();
+  }
+
+  function adoptServerComment(localId, row) {
+    var found = false;
+    retire(localId);
+    state.comments.forEach(function (c) { if (c.parentId === localId) c.parentId = row.id; });
+    for (var i = 0; i < state.comments.length; i++) {
+      if (state.comments[i].id === localId) { state.comments[i] = row; found = true; break; }
+    }
+    if (!found) state.comments.push(row);
+    if (expandedThreads.has(localId)) { expandedThreads.delete(localId); expandedThreads.add(row.id); }
+    syncCommentCount(row.genId);
+    persist();
+    refreshThreadOnly(row.genId);
+    syncOutboxChrome();
+  }
+
+  /* A write the server refused for good. The post stays on screen carrying
+     the reason: silently deleting someone's words because a policy said no
+     is worse than showing them why. */
+  function markFailed(localId, reason) {
+    var gen = genById(localId);
+    if (!gen) return;
+    gen.pending = false;
+    gen.status = "failed";
+    gen.errorText = reason;
+    persist();
+    renderFeed();
+    syncOutboxChrome();
+  }
+
+  function syncOutboxChrome() {
+    var n = BotoData.pending().length;
+    var el = $("cmOutbox");
+    if (!el) return;
+    el.hidden = n === 0;
+    if (n) {
+      el.querySelector(".outbox-label").textContent =
+        n === 1 ? "1 post waiting to send" : n + " posts waiting to send";
+    }
   }
 
   /* Demo engine: deterministic canned responses shaped by the prompt.
@@ -2235,7 +2258,7 @@
     return out;
   }
 
-  function streamGeneration(gen) {
+  function streamGeneration(gen, key) {
     streamingNow = true;
     syncSend();
     var full = replyFor(gen);
@@ -2259,6 +2282,9 @@
       if (el) {
         el.innerHTML = rich(gen.response) + '<span class="gen-cursor"></span>';
       }
+      /* Local only while it streams. This used to persist every 700ms,
+         which as a server write would be a row update every few
+         characters: the answer is not a fact until it is finished. */
       var now = Date.now();
       if (now - lastSave > 700) { lastSave = now; persist(); }
       if (pos >= full.length) {
@@ -2274,9 +2300,8 @@
       streamingNow = false;
       syncSend();
       replaceCard(gen);
-      if (gen.visibility === "public") {
-        /* published state is implicit: it sits in the public feed now */
-      }
+      /* One write, at the point the post is actually what it will be. */
+      if (key) publishGeneration(gen, key);
     }
   }
 
@@ -2304,10 +2329,24 @@
     e.stopPropagation();
 
     if (act === "save") {
-      gen.saved = !gen.saved;
-      gen.counts.save += gen.saved ? 1 : -1;
+      if (gen.pending) { notify("Wait for the post to send first."); return; }
+      /* Optimistic, and reverted on refusal. The count is nudged locally
+         only so the number under the thumb matches the icon; the server
+         recomputes it from the saves table and the next read corrects any
+         drift. */
+      var next = !gen.saved;
+      gen.saved = next;
+      gen.counts.save += next ? 1 : -1;
       persist();
       replaceCard(gen);
+      BotoData.setSaved(gen.id, next).then(function (out) {
+        if (out.ok) return;
+        gen.saved = !next;
+        gen.counts.save += next ? -1 : 1;
+        persist();
+        replaceCard(gen);
+        notify(out.error);
+      });
       return;
     }
     if (act === "menu") {
@@ -2319,9 +2358,18 @@
       return;
     }
     if (act === "lock" && gen.own) {
-      gen.locked = !gen.locked;
+      if (gen.pending) { notify("Wait for the post to send first."); return; }
+      var want = !gen.locked;
+      gen.locked = want;
       persist();
       replaceCard(gen);
+      BotoData.setLocked(gen.id, want).then(function (out) {
+        if (out.ok) return;
+        gen.locked = !want;
+        persist();
+        replaceCard(gen);
+        notify(out.error);
+      });
       return;
     }
     if (act === "remix" || act === "challenge") {
@@ -2545,6 +2593,64 @@
     initAccessGate();
     initComposer();
     initModeSeg();
+    /* Work queued before the tab closed resumes here. flow.txt 13: it is
+       saved and resumed, not silently lost. */
+    /* A pending row whose job is no longer queued is a ghost: the write
+       either finished after the tab closed, or the queue was cleared while
+       the optimistic row stayed behind. Either way it describes something
+       that is not happening, and left alone it renders forever as a card
+       stuck on "Sending" beside the real post it duplicates.
+
+       Reconciled against the outbox rather than against the server,
+       because the outbox is the record of what is actually in flight. If
+       the write did land, the next feed page brings the real row in. */
+    function reapOrphanedPending() {
+      if (!window.BotoData) return;
+      var queued = Object.create(null);
+      BotoData.pending().forEach(function (j) {
+        queued[j.localId || j.key] = true;
+      });
+      var before = state.generations.length + state.comments.length;
+      state.generations = state.generations.filter(function (g) {
+        if (!g.pending || queued[g.id]) return true;
+        retire(g.id);
+        return false;
+      });
+      state.comments = state.comments.filter(function (c) {
+        if (!c.pending || queued[c.id]) return true;
+        retire(c.id);
+        return false;
+      });
+      if (state.generations.length + state.comments.length !== before) {
+        persist();
+        renderFeed();
+      }
+    }
+
+    if (window.BotoData) {
+      /* A job that outlived the tab has no closures left, so settlement
+         goes through these. Same path, whether the write was queued a
+         second ago or a session ago. */
+      BotoData.setJobHandler("generation",
+        function (row, job) { adoptServerRow(job.localId || job.key, row); },
+        function (out, job) { markFailed(job.localId || job.key, out.error); });
+      BotoData.setJobHandler("comment",
+        function (row, job) { adoptServerComment(job.localId || job.key, row); },
+        function (out, job) {
+          var local = commentById(job.localId || job.key);
+          if (local) { local.pending = false; local.failed = true; local.errorText = out.error; }
+          persist();
+          refreshThreadOnly(job.genId);
+        });
+      BotoData.setOutboxListener(syncOutboxChrome);
+      syncOutboxChrome();
+      /* Drain first, then sweep. Reaping before the queue runs looks at an
+         outbox that has not been given a chance to settle, so a job about
+         to succeed is indistinguishable from one that vanished. Sweeping
+         afterwards means every pending row left over is genuinely orphaned:
+         nothing is in flight to claim it. */
+      BotoData.drain().then(reapOrphanedPending);
+    }
     initPill();
     initFeedRetry();
     initPullRefresh();
