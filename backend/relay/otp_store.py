@@ -1,37 +1,29 @@
 """Durable one-time codes, held in Supabase.
 
-The in-memory version in otp.py was correct for a single always-on process
-and wrong for where this actually runs. Render's free tier sleeps, and a
-restart between "send me a code" and "here is the code" left the user
-holding a code the server had forgotten, with no way to tell them why. It
-also could not survive a second relay instance.
+Every decision here is made by the database in a single statement, not by
+this module across several round trips. That is not a style preference: the
+previous version read the attempt count, added one, and wrote it back, so
+guesses issued in parallel all read the same value and the five-attempt cap
+never fired. Measured against real Postgres, ten concurrent wrong guesses
+recorded as one attempt and the code stayed live. An attacker with a
+hundred parallel connections would have walked through it.
 
-Rows live in public.auth_codes, which has RLS on and no policies, so the
-service role is the only thing that can read or write them.
+So issue and verify are both RPCs (see 0003_auth_hardening.sql):
 
-The guarantees are the same ones the memory version had, re-established
-against a database rather than a lock:
+  issue_auth_code    upsert plus cooldown, under a row lock, so two resends
+                     cannot both decide they are the first.
+  consume_auth_code  lock, compare, and either delete or increment in the
+                     same transaction. One call per attempt, one outcome,
+                     and every branch costs the same round trip so response
+                     timing does not say which branch was taken.
 
-  HASHED AT REST   sha256(code + pepper). The pepper is in the relay's
-    environment, so the table alone does not brute force.
-
-  SINGLE USE       Verification deletes the row in the same statement that
-    matches it, using DELETE ... RETURNING. Two racing requests cannot both
-    succeed, because only one of them gets a row back.
-
-  ATTEMPT CAP      A wrong guess increments atomically and the row is
-    deleted on the fifth, so a burned code cannot be retried even with the
-    right value.
-
-  ONE LIVE CODE    Primary key (email, purpose). A resend overwrites, so
-    there is never a question of which of two codes is real.
+The code itself is hashed with a pepper before it is ever sent to the
+database, so the table is useless on its own.
 """
 from __future__ import annotations
 
 import hashlib
-import hmac
 import os
-from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -52,7 +44,13 @@ class OtpError(Exception):
 
 
 def _pepper() -> str:
-    return os.environ.get("OTP_PEPPER", "")
+    pepper = os.environ.get("OTP_PEPPER", "")
+    if not pepper:
+        # Refusing is the right failure. Without a pepper the stored hash is
+        # sha256 of eight digits, which is a rainbow table, and running
+        # anyway would hide that behind a flow that looks like it works.
+        raise OtpError("Accounts are not configured on the server.", status=503)
+    return pepper
 
 
 def hash_code(code: str) -> str:
@@ -66,166 +64,126 @@ def normalize_purpose(value: str) -> str:
     return purpose
 
 
-def _rest_url() -> str:
+def _base() -> str:
     base = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
     if not base:
         raise OtpError("Accounts are not configured on the server.", status=503)
-    return base + "/rest/v1/auth_codes"
+    return base
 
 
-def _headers(extra: dict | None = None) -> dict:
+def _headers() -> dict:
     key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
     if not key:
         raise OtpError("Accounts are not configured on the server.", status=503)
-    headers = {
+    return {
         "apikey": key,
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
-    if extra:
-        headers.update(extra)
-    return headers
 
 
-async def _req(method: str, *, params=None, json_body=None, extra_headers=None):
+async def _rpc(name: str, payload: dict):
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            response = await client.request(
-                method, _rest_url(), headers=_headers(extra_headers),
-                params=params, json=json_body,
+            response = await client.post(
+                f"{_base()}/rest/v1/rpc/{name}", headers=_headers(), json=payload
             )
     except httpx.HTTPError as exc:
         raise OtpError("Could not reach the server. Try again shortly.", status=502) from exc
     if response.status_code >= 400:
-        print(f"[otp] store {method} -> {response.status_code} {response.text[:300]}")
+        # Body to the log, never to the caller.
+        print(f"[otp] rpc {name} -> {response.status_code} {response.text[:300]}")
         raise OtpError("Could not reach the server. Try again shortly.", status=502)
-    if not response.content:
-        return []
     try:
         return response.json()
     except ValueError:
         return []
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+async def issue(email: str, purpose: str, code: str, user_id: str | None = None) -> dict:
+    """Store a code, or report that a live one is still in its cooldown.
 
-
-def _parse(ts: str) -> datetime:
-    value = str(ts or "").replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return _now()
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
-async def peek(email: str, purpose: str) -> dict | None:
-    rows = await _req(
-        "GET",
-        params={
-            "email": f"eq.{email.strip().lower()}",
-            "purpose": f"eq.{purpose}",
-            "select": "email,purpose,attempts,issued_at,expires_at",
-        },
-    )
-    return rows[0] if rows else None
-
-
-async def issue(email: str, purpose: str, code: str, password_hash: str | None) -> dict:
-    """Store a code, or report that a live one is still inside its cooldown.
-
-    Returns {"reused": bool, "resend_in": int}. A reused result means the
-    caller must not send another email: the code already in the inbox is
-    still the valid one, and minting a rival would invalidate it.
+    reused=True means an email must NOT be sent: the code already in the
+    inbox is still valid, and minting a rival would invalidate it.
     """
     purpose = normalize_purpose(purpose)
-    address = email.strip().lower()
-    now = _now()
-
-    existing = await peek(address, purpose)
-    if existing and _parse(existing["expires_at"]) > now:
-        elapsed = (now - _parse(existing["issued_at"])).total_seconds()
-        if elapsed < RESEND_COOLDOWN_SECONDS:
-            return {
-                "reused": True,
-                "resend_in": int(RESEND_COOLDOWN_SECONDS - elapsed) + 1,
-            }
-
-    row = {
-        "email": address,
-        "purpose": purpose,
-        "code_hash": hash_code(code),
-        "password_hash": password_hash,
-        "attempts": 0,
-        "issued_at": now.isoformat(),
-        "expires_at": (now + timedelta(seconds=CODE_TTL_SECONDS)).isoformat(),
+    rows = await _rpc("issue_auth_code", {
+        "p_email": email.strip().lower(),
+        "p_purpose": purpose,
+        "p_hash": hash_code(code),
+        "p_user_id": user_id,
+        "p_ttl": CODE_TTL_SECONDS,
+        "p_cooldown": RESEND_COOLDOWN_SECONDS,
+    })
+    row = rows[0] if isinstance(rows, list) and rows else (rows or {})
+    return {
+        "reused": bool(row.get("reused")),
+        "resend_in": int(row.get("resend_in") or RESEND_COOLDOWN_SECONDS),
     }
-    # merge-duplicates makes a resend replace the live row, which is what
-    # keeps "one live code per address per purpose" true.
-    await _req(
-        "POST", json_body=row,
-        extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
-    )
-    return {"reused": False, "resend_in": RESEND_COOLDOWN_SECONDS}
 
 
 async def verify(email: str, purpose: str, code: str) -> dict:
-    """Consume the code and return the row, or raise.
+    """Consume the code. Returns {'user_id': ...} or raises.
 
-    The delete-and-return is the single-use guarantee: the row is matched
-    and removed in one statement, so a second request finds nothing.
+    One RPC. The lock, the comparison, the delete and the attempt
+    increment all happen inside it, so there is no window in which two
+    requests can disagree about the state of the row.
     """
     purpose = normalize_purpose(purpose)
-    address = email.strip().lower()
     supplied = "".join(ch for ch in str(code or "") if ch.isdigit())
 
-    row = await peek(address, purpose)
-    if not row:
-        raise OtpError("That code has expired. Request a new one.", status=410)
-    if _parse(row["expires_at"]) <= _now():
-        await _delete(address, purpose)
-        raise OtpError("That code has expired. Request a new one.", status=410)
-    if int(row.get("attempts", 0)) >= MAX_ATTEMPTS:
-        await _delete(address, purpose)
+    rows = await _rpc("consume_auth_code", {
+        "p_email": email.strip().lower(),
+        "p_purpose": purpose,
+        "p_hash": hash_code(supplied),
+        "p_max": MAX_ATTEMPTS,
+    })
+    row = rows[0] if isinstance(rows, list) and rows else (rows or {})
+    outcome = row.get("outcome")
+
+    if outcome == "ok":
+        return {"user_id": row.get("user_id")}
+    if outcome == "locked":
         raise OtpError("Too many incorrect attempts. Request a new code.", status=429)
-
-    # Delete by hash: only the correct code matches, and the delete is what
-    # consumes it. A wrong code deletes nothing and falls through to the
-    # attempt counter below.
-    deleted = await _req(
-        "DELETE",
-        params={
-            "email": f"eq.{address}",
-            "purpose": f"eq.{purpose}",
-            "code_hash": f"eq.{hash_code(supplied)}",
-        },
-        extra_headers={"Prefer": "return=representation"},
-    )
-    if deleted:
-        return deleted[0]
-
-    attempts = int(row.get("attempts", 0)) + 1
-    if attempts >= MAX_ATTEMPTS:
-        await _delete(address, purpose)
-        raise OtpError("Too many incorrect attempts. Request a new code.", status=429)
-    await _req(
-        "PATCH",
-        params={"email": f"eq.{address}", "purpose": f"eq.{purpose}"},
-        json_body={"attempts": attempts},
-        extra_headers={"Prefer": "return=minimal"},
-    )
-    left = MAX_ATTEMPTS - attempts
-    raise OtpError(
-        f"That code is not right. {left} attempt{'s' if left != 1 else ''} left."
-    )
+    if outcome == "wrong":
+        left = int(row.get("attempts_left") or 0)
+        raise OtpError(
+            f"That code is not right. {left} attempt{'s' if left != 1 else ''} left."
+        )
+    # 'expired' also covers "no pending code", deliberately: telling those
+    # apart would say whether a signup was in flight for that address.
+    raise OtpError("That code has expired. Request a new one.", status=410)
 
 
-async def _delete(email: str, purpose: str) -> None:
-    await _req(
-        "DELETE",
-        params={"email": f"eq.{email}", "purpose": f"eq.{purpose}"},
-        extra_headers={"Prefer": "return=minimal"},
-    )
+async def issue_ticket(email: str, token: str, user_id: str | None, ttl: int = 600) -> None:
+    """Record a reset ticket. Stored hashed, for the same reason codes are."""
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(
+                f"{_base()}/rest/v1/auth_tickets",
+                headers={**_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+                json={
+                    "token_hash": hash_code(token),
+                    "email": email.strip().lower(),
+                    "user_id": user_id,
+                    "expires_at": _iso_in(ttl),
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise OtpError("Could not reach the server. Try again shortly.", status=502) from exc
+    if response.status_code >= 400:
+        print(f"[otp] ticket insert -> {response.status_code} {response.text[:200]}")
+        raise OtpError("Could not reach the server. Try again shortly.", status=502)
+
+
+async def redeem_ticket(token: str) -> dict | None:
+    """Spend a reset ticket. The delete is the single-use guarantee."""
+    rows = await _rpc("redeem_auth_ticket", {"p_hash": hash_code(token)})
+    if isinstance(rows, list) and rows:
+        return rows[0]
+    return None
+
+
+def _iso_in(seconds: int) -> str:
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()

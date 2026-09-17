@@ -1061,60 +1061,6 @@ async def file_proxy(request: Request):
 # --------------------------------------------------------------------------- #
 
 
-def _seal_password(password: str) -> str:
-    """Encrypt the pending password for its short stay in the codes table.
-
-    Not a password hash: this has to be reversible, because Supabase needs
-    the plaintext to create the account once the code is verified. It is
-    encrypted rather than stored raw so that the row is useless without
-    OTP_PEPPER, which lives only in this process's environment. The value
-    exists for at most ten minutes and is deleted as the code is consumed.
-
-    AES would be better. This is a keyed stream built from the pepper,
-    chosen because it adds no dependency to a free-tier box; it is enough
-    to make the database alone insufficient, which is the threat being
-    addressed. Flagged as the weakest link in this file.
-    """
-    pepper = os.environ.get("OTP_PEPPER", "")
-    if not pepper:
-        raise HTTPException(status_code=503, detail="accounts are not configured on the server")
-    nonce = secrets.token_bytes(16)
-    raw = password.encode("utf-8")
-    stream = b""
-    counter = 0
-    while len(stream) < len(raw):
-        stream += hashlib.sha256(pepper.encode() + nonce + counter.to_bytes(4, "big")).digest()
-        counter += 1
-    sealed = bytes(a ^ b for a, b in zip(raw, stream))
-    tag = hmac.new(pepper.encode(), nonce + sealed, hashlib.sha256).hexdigest()[:32]
-    return base64.b64encode(nonce + sealed).decode() + "." + tag
-
-
-def _unseal_password(sealed: str | None) -> str:
-    if not sealed or "." not in str(sealed):
-        return ""
-    pepper = os.environ.get("OTP_PEPPER", "")
-    body, tag = str(sealed).rsplit(".", 1)
-    try:
-        blob = base64.b64decode(body)
-    except Exception:
-        return ""
-    nonce, payload = blob[:16], blob[16:]
-    expected = hmac.new(pepper.encode(), nonce + payload, hashlib.sha256).hexdigest()[:32]
-    # Rejects a row edited in the database as well as a wrong pepper.
-    if not hmac.compare_digest(expected, tag):
-        return ""
-    stream = b""
-    counter = 0
-    while len(stream) < len(payload):
-        stream += hashlib.sha256(pepper.encode() + nonce + counter.to_bytes(4, "big")).digest()
-        counter += 1
-    try:
-        return bytes(a ^ b for a, b in zip(payload, stream)).decode("utf-8")
-    except UnicodeDecodeError:
-        return ""
-
-
 def _otp_email(data: dict) -> str:
     email = str(data.get("email", "")).strip().lower()
     if not email or len(email) > 254 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
@@ -1162,31 +1108,36 @@ async def otp_request(request: Request):
     if not supabase_admin.configured():
         raise HTTPException(status_code=503, detail="accounts are not configured on the server")
 
-    password_hash = None
+    pending_user_id = None
     if purpose == "signup":
         password = _otp_password(data)
-        # Refuse a taken address before sending anything. Supabase is the
-        # only thing that knows, and finding out after the email has gone
-        # is a worse experience than finding out now.
         existing = await supabase_admin.find_user_by_email(email)
         if existing:
-            raise HTTPException(
-                status_code=409,
-                detail="That address already has an account. Try signing in.",
-            )
-        # The password waits in the codes table, hashed, until the code is
-        # verified. Keeping it in relay memory would not survive the free
-        # tier going to sleep mid-signup.
-        password_hash = _seal_password(password)
-    else:
-        # Reset deliberately does not check whether the account exists. A
-        # different answer for a known address turns this endpoint into an
-        # account checker.
-        pass
+            if existing.get("email_confirmed_at"):
+                raise HTTPException(
+                    status_code=409,
+                    detail="That address already has an account. Try signing in.",
+                )
+            # An unconfirmed row is an abandoned or retried signup, not a
+            # real account. Replace it so a half-finished attempt cannot
+            # squat an address, and so the password in Supabase matches the
+            # one just typed.
+            await supabase_admin.delete_user(existing["id"])
+
+        # Created disabled. Supabase hashes the password on arrival, which
+        # is why nothing here has to keep it: the old design encrypted it
+        # into the codes table for ten minutes, making OTP_PEPPER a key
+        # whose loss was a breach.
+        try:
+            created = await supabase_admin.create_pending_user(email, password)
+        except supabase_admin.AdminError as exc:
+            print(f"[auth] could not stage signup for {email}: {exc.detail}")
+            raise HTTPException(status_code=exc.status, detail=exc.safe)
+        pending_user_id = created.get("id")
 
     code = _issued_code()
     try:
-        issued = await otp_store.issue(email, purpose, code, password_hash)
+        issued = await otp_store.issue(email, purpose, code, pending_user_id)
     except otp_store.OtpError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message)
 
@@ -1195,6 +1146,10 @@ async def otp_request(request: Request):
             await send_code(email, code, purpose, otp_store.CODE_TTL_SECONDS)
         except MailFailed as exc:
             print(f"[otp] delivery failed for {email}: {exc}")
+            # No code can arrive, so the staged account would block the
+            # address on every retry. Remove it rather than leave a ghost.
+            if pending_user_id:
+                await supabase_admin.delete_user(pending_user_id)
             raise HTTPException(status_code=502, detail="could not send the email just now; try again shortly")
 
     return {
@@ -1232,31 +1187,32 @@ async def otp_verify(request: Request):
 
     if purpose == "reset":
         # Proof of inbox control, good for ten minutes and one password
-        # change. Not a session: it cannot read or write anything.
+        # change. Not a session: it cannot read or write anything. Stored
+        # hashed in the database rather than a process dict, so a restart
+        # or a second instance does not silently invalidate it.
         ticket = secrets.token_urlsafe(32)
-        _reset_tickets[ticket] = {"email": email, "expires": time.time() + 600}
+        try:
+            await otp_store.issue_ticket(email, ticket, row.get("user_id"))
+        except otp_store.OtpError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.message)
         return {"ok": True, "email": email, "purpose": purpose, "ticket": ticket}
 
-    password = _unseal_password(row.get("password_hash"))
-    if not password:
-        raise HTTPException(
-            status_code=410,
-            detail="That signup expired. Start again.",
-        )
+    # Signup. The account already exists, disabled, created when the code
+    # was requested. Verification flips the one flag that makes it usable,
+    # so nothing had to remember the password.
+    user_id = row.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=410, detail="That signup expired. Start again.")
 
     try:
-        await supabase_admin.create_confirmed_user(email, password)
-        session = await supabase_admin.issue_session(email, password)
+        await supabase_admin.confirm_user(user_id)
     except supabase_admin.AdminError as exc:
-        print(f"[auth] signup failed for {email}: {exc.detail}")
+        print(f"[auth] confirm failed for {email}: {exc.detail}")
         raise HTTPException(status_code=exc.status, detail=exc.safe)
 
-    return {"ok": True, "email": email, "purpose": purpose, "session": session}
-
-
-# Reset tickets are short lived and single use, so a dict is the right
-# shape: losing them on restart costs one re-verification.
-_reset_tickets: dict = {}
+    # The browser gets a session by signing in normally. The relay does not
+    # mint tokens: Supabase stays the authority on what a valid session is.
+    return {"ok": True, "email": email, "purpose": purpose, "confirmed": True}
 
 
 @app.post("/v1/auth/password/reset")
@@ -1273,27 +1229,31 @@ async def password_reset(request: Request):
     ticket = str(data.get("ticket", ""))
     password = _otp_password(data)
 
-    held = _reset_tickets.pop(ticket, None)
-    if not held or held["expires"] < time.time():
-        raise HTTPException(status_code=403, detail="That reset expired. Request a new code.")
-
     if not supabase_admin.configured():
         raise HTTPException(status_code=503, detail="accounts are not configured on the server")
 
     try:
-        user = await supabase_admin.find_user_by_email(held["email"])
-        if not user:
-            # The address had no account. Said plainly only now, after a
-            # code proved the caller owns the inbox, so this cannot be used
-            # to enumerate addresses.
-            raise HTTPException(status_code=404, detail="That address has no account.")
-        await supabase_admin.set_password(user["id"], password)
-        session = await supabase_admin.issue_session(held["email"], password)
+        held = await otp_store.redeem_ticket(ticket)
+    except otp_store.OtpError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message)
+    if not held:
+        raise HTTPException(status_code=403, detail="That reset expired. Request a new code.")
+
+    try:
+        user_id = held.get("user_id")
+        if not user_id:
+            user = await supabase_admin.find_user_by_email(held["email"])
+            if not user:
+                # Only said now, after a code proved the caller owns the
+                # inbox, so this cannot be used to enumerate addresses.
+                raise HTTPException(status_code=404, detail="That address has no account.")
+            user_id = user["id"]
+        await supabase_admin.set_password(user_id, password)
     except supabase_admin.AdminError as exc:
         print(f"[auth] reset failed: {exc.detail}")
         raise HTTPException(status_code=exc.status, detail=exc.safe)
 
-    return {"ok": True, "session": session}
+    return {"ok": True}
 
 
 @app.post("/v1/fetch")
