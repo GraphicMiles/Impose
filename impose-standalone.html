@@ -2034,15 +2034,39 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 #wsContent { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 .modebar {
-  flex: none;
+  /* The Community navbar is a floating layer, not a solid strip: the feed
+     scrolls beneath it and posts fade out under a blurred gradient. The
+     capsule switch stays fully opaque; only the layer around it fades.
+     Mobile first: clear the notch via the safe-area inset. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60; /* above the feed and its overlays, below pops (85+) */
   display: flex;
   justify-content: center;
-  /* This row IS the Community navbar: it sits at the very top of the
-     screen, so it clears the notch/status bar itself. Mobile first. */
-  padding: max(8px, env(safe-area-inset-top)) 12px 8px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border-soft);
+  padding: max(10px, env(safe-area-inset-top)) 12px 22px;
+  pointer-events: none; /* the fade zone lets taps reach the feed below */
 }
+
+/* The blurred gradient itself: solid behind the switch, fading to nothing
+   so outgoing posts dissolve instead of stopping at a hard bar edge. */
+.modebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    var(--bg) 0%,
+    color-mix(in srgb, var(--bg) 60%, transparent) 100%
+  );
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+}
+
+.modebar .modeseg { pointer-events: auto; }
 
 /* Mode gates. The two surfaces are different entities with different UI:
    Community's header is ONLY the mode switch row - no topbar, no profile,
@@ -2064,6 +2088,9 @@ body:not(.community-mode) .modebar { display: none; }
   background: var(--bg);
 }
 .cm-view { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The modebar floats above the feed; content starts below it and then
+   scrolls underneath, fading out through the bar's blur gradient. */
+.cm-scope .cm-view { padding-top: calc(60px + env(safe-area-inset-top)); }
 
 /* feed sizing tokens that only Community uses */
 .cm-scope {
@@ -2190,9 +2217,8 @@ body:not(.community-mode) .modebar { display: none; }
 .modeseg {
   position: relative;
   display: flex;
-  /* No outer shell: the switch floats directly on the Community navbar,
-     the active tab's glide pill is the only chrome. Padding stays so the
-     glide offsets (top/left/bottom 3px) keep aligning with the tabs. */
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
   border-radius: var(--r-pill);
   padding: 3px;
 }
@@ -2832,11 +2858,11 @@ body:not(.community-mode) .modebar { display: none; }
    ========================================================================== */
 
 /* Fixed overlay offsets (new posts pill, pull to refresh): the Community
-   header is just the modebar (~53px + notch inset), so both overlays park
-   just under it. They must follow the base rules above or the cascade
-   drops them. */
-.cm-scope .new-posts-pill { top: calc(61px + env(safe-area-inset-top)); }
-.cm-scope .pull-refresh { top: calc(63px + env(safe-area-inset-top)); }
+   navbar floats at the top (~66px + notch inset), so both overlays park
+   just under its solid part. They must follow the base rules above or the
+   cascade drops them. */
+.cm-scope .new-posts-pill { top: calc(72px + env(safe-area-inset-top)); }
+.cm-scope .pull-refresh { top: calc(70px + env(safe-area-inset-top)); }
 
 </style>
 <style>
