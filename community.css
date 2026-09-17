@@ -473,7 +473,15 @@ body:not(.community-mode) .modebar { display: none; }
 }
 
 .cm-scope .gen-expand {
-  margin-top: 6px;
+  /* Was a 66x20px hit area with no padding, below the 24px floor and well
+     under the 44px touch guideline. The -12px margin cancels .gen-resp's
+     12px padding exactly, so the label keeps the text edge it had before
+     the hit area grew and the card layout does not shift. */
+  margin: 6px -12px 0;
+  padding: 7px 12px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
   font-size: 13px;
   color: var(--link);
 }

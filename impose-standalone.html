@@ -2513,7 +2513,15 @@ body:not(.community-mode) .modebar { display: none; }
 }
 
 .cm-scope .gen-expand {
-  margin-top: 6px;
+  /* Was a 66x20px hit area with no padding, below the 24px floor and well
+     under the 44px touch guideline. The -12px margin cancels .gen-resp's
+     12px padding exactly, so the label keeps the text edge it had before
+     the hit area grew and the card layout does not shift. */
+  margin: 6px -12px 0;
+  padding: 7px 12px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
   font-size: 13px;
   color: var(--link);
 }
@@ -15542,8 +15550,118 @@ window.BotoConfig = {
       if (!raw) return null;
       var parsed = JSON.parse(raw);
       if (!parsed || !Array.isArray(parsed.generations)) return null;
-      return parsed;
+      /* Migration: freshPinned was persisted by an earlier build, so stored
+         posts can carry a pin that would otherwise sit at the top of the
+         feed forever. Pins are session state now, so strip any that were
+         written to disk. Harmless for users who never had them. */
+      parsed.generations.forEach(function (gen) {
+        if (gen && gen.freshPinned) delete gen.freshPinned;
+      });
+      return normalizeState(parsed);
     } catch (e) { return null; }
+  }
+
+
+  /* ---------- defensive normalisation ----------
+
+     Everything below the load boundary is allowed to assume a generation has
+     a creator with a name and a handle, an object of numeric counts, a string
+     prompt and a string response. Nothing above it can guarantee that: the
+     store is localStorage, which a user can hand-edit, another tab can write,
+     a half-finished migration can mangle, and a future server response can
+     disagree with.
+
+     Before this, a single malformed record threw inside the render loop and
+     took the rest of the feed down with it: one null creator rendered five
+     cards instead of ten and killed pagination from that point on. The blast
+     radius of bad data is now one card, not the page.
+
+     This runs once at load rather than as a guard at every call site, so the
+     invariant holds in one place instead of being re-argued in a dozen. */
+
+  var UNKNOWN = { name: "Unknown", handle: "@unknown" };
+
+  function normCreator(c) {
+    if (!c || typeof c !== "object") return { name: UNKNOWN.name, handle: UNKNOWN.handle };
+    var name = typeof c.name === "string" && c.name ? c.name : null;
+    var handle = typeof c.handle === "string" && c.handle ? c.handle : null;
+    /* Derive whichever half is missing from the half that survived, so a
+       partial record still reads as one coherent person. */
+    if (!name && handle) name = handle.replace(/^@/, "") || UNKNOWN.name;
+    if (!handle && name) handle = "@" + String(name).toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return { name: name || UNKNOWN.name, handle: handle || UNKNOWN.handle };
+  }
+
+  function normCounts(c) {
+    var out = { remix: 0, challenge: 0, comment: 0, save: 0 };
+    if (!c || typeof c !== "object") return out;
+    Object.keys(out).forEach(function (k) {
+      var n = Number(c[k]);
+      /* Negative or non-finite counts are display lies; clamp rather than
+         propagate them into the UI. */
+      out[k] = isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    });
+    return out;
+  }
+
+  function normTime(t) {
+    var n = Number(t);
+    return isFinite(n) && n > 0 ? n : Date.now();
+  }
+
+  function normalizeState(st) {
+    if (!st || typeof st !== "object") return st;
+    var seen = Object.create(null);
+    st.generations = (Array.isArray(st.generations) ? st.generations : []).filter(function (g) {
+      /* A record with no usable id cannot be addressed, deleted, replied to
+         or deduped, so it is dropped rather than half-supported. */
+      if (!g || typeof g !== "object" || !g.id || seen[g.id]) return false;
+      seen[g.id] = true;
+      return true;
+    }).map(function (g) {
+      g.creator = normCreator(g.creator);
+      g.counts = normCounts(g.counts);
+      g.prompt = typeof g.prompt === "string" ? g.prompt : "";
+      g.response = typeof g.response === "string" ? g.response : "";
+      /* "failed" is a real terminal state that owns the retry affordance;
+         coercing it to "complete" would strand the post with an empty
+         response and no way to recover it. */
+      g.status = (g.status === "streaming" || g.status === "failed") ? g.status : "complete";
+      g.visibility = g.visibility === "private" ? "private" : "public";
+      g.createdAt = normTime(g.createdAt);
+      /* A post that is its own parent would spin the lineage walk forever. */
+      if (g.parentId === g.id) g.parentId = null;
+      return g;
+    });
+
+    var ids = Object.create(null);
+    st.generations.forEach(function (g) { ids[g.id] = true; });
+
+    var cseen = Object.create(null);
+    st.comments = (Array.isArray(st.comments) ? st.comments : []).filter(function (c) {
+      if (!c || typeof c !== "object" || !c.id || cseen[c.id]) return false;
+      cseen[c.id] = true;
+      /* A comment whose generation no longer exists can never be rendered
+         or reached; keeping it only inflates counts. */
+      return !!ids[c.genId];
+    }).map(function (c) {
+      c.creator = normCreator(c.creator);
+      c.text = typeof c.text === "string" ? c.text : "";
+      c.createdAt = normTime(c.createdAt);
+      if (c.parentId === c.id) c.parentId = null;
+      return c;
+    });
+
+    /* Counts are derived for comments, so repair them here too: a hand
+       edited or partially migrated store should not leave the discussion
+       chip disagreeing with the thread underneath it. */
+    var tally = Object.create(null);
+    st.comments.forEach(function (c) {
+      if (c.deleted) return;
+      tally[c.genId] = (tally[c.genId] || 0) + 1;
+    });
+    st.generations.forEach(function (g) { g.counts.comment = tally[g.id] || 0; });
+    return st;
   }
 
   function seed() {
@@ -15768,8 +15886,113 @@ window.BotoConfig = {
   var state = load() || seed();
   var streamingNow = false;
 
+  /* True once a write has failed, so the warning is shown once rather than
+     on every keystroke-triggered save. */
+  var persistBroken = false;
+
+  /* Merge any records another tab wrote since this tab last read, then write.
+
+     The storage event alone is not enough: it only fires after a write, so
+     two tabs opened before either posted still each hold a full snapshot and
+     the second save erases the first. Reconciling immediately before the
+     write closes that window. Generations and comments are append-mostly and
+     carry stable unique ids, so "keep every id either side knows about" is
+     both sufficient and safe; for records both sides have, the in-memory
+     copy wins, because it is the one the user is currently acting on. */
+  function reconcileWithDisk() {
+    var disk;
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      disk = JSON.parse(raw);
+    } catch (e) { return; }
+    if (!disk || !Array.isArray(disk.generations)) return;
+
+    function mergeById(mine, theirs) {
+      if (!Array.isArray(theirs)) return mine;
+      var have = Object.create(null);
+      mine.forEach(function (r) { if (r && r.id) have[r.id] = true; });
+      theirs.forEach(function (r) {
+        if (r && r.id && !have[r.id]) mine.push(r);
+      });
+      return mine;
+    }
+    mergeById(state.generations, disk.generations);
+    mergeById(state.comments, disk.comments);
+    /* Counts for comments are derived, so recompute rather than trusting
+       either side's copy after a merge. */
+    state.generations.forEach(function (g) {
+      g.counts.comment = liveCommentCount(g.id);
+    });
+  }
+
   function persist() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { /* storage full or blocked */ }
+    try {
+      reconcileWithDisk();
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      persistBroken = false;
+      return true;
+    } catch (e) {
+      /* Storage full, or blocked by private-mode / cookie settings. This was
+         swallowed silently, so the UI happily rendered a post that was never
+         written: it looked saved until the next reload, when it vanished
+         with no explanation. Failing loudly is the honest outcome, and the
+         in-memory state is still usable for this session. */
+      if (!persistBroken) {
+        persistBroken = true;
+        notify("Could not save to this browser. Your posts will disappear when you reload.");
+      }
+      return false;
+    }
+  }
+
+  /* ---------- cross-tab coherence ----------
+
+     Two tabs each held their own copy of state and wrote it back whole, so
+     whichever saved last erased everything the other had done. The storage
+     event fires only in the *other* tabs, which makes it exactly the signal
+     needed: adopt their write, then re-render so this tab stops showing a
+     timeline that no longer exists.
+
+     Reloading the store rather than merging field by field keeps one writer
+     model and avoids inventing a conflict resolution scheme this product
+     does not need; the loser of a race is the tab that was not being used. */
+  function adoptExternalState() {
+    var known = Object.create(null);
+    state.generations.forEach(function (g) { known[g.id] = true; });
+
+    var fresh = load();
+    if (!fresh) return;
+    state = fresh;
+
+    if (location.hash.indexOf("#/g/") === 0) {
+      /* The post being read may now be a tombstone or gone entirely. */
+      route();
+      return;
+    }
+
+    /* Anything this tab has not seen before is announced through the same
+       pill the demo poller uses, rather than being spliced into the feed
+       under the reader's thumb. Re-rendering in place would reshuffle the
+       timeline mid-scroll, which is exactly what the pill exists to avoid.
+       Posts already known are just re-rendered, so edits and deletes from
+       the other tab still land immediately. */
+    var arrivals = state.generations.filter(function (g) {
+      return !known[g.id] && !g.own && !isDeleted(g);
+    });
+    if (arrivals.length) {
+      arrivals.forEach(function (g) {
+        if (pendingGens.indexOf(g) === -1) pendingGens.push(g);
+        /* Pin so the merge actually surfaces them. The demo poller sets
+           freshPinned on the records it invents; arrivals from another tab
+           are already-persisted records, so they are pinned for this view
+           instead of having a flag written back to disk. */
+        pinForThisView(g.id);
+      });
+      syncPill();
+    } else {
+      renderFeed();
+    }
   }
 
   /* Interrupted streams from a refresh or closed tab become failed generations
@@ -16250,6 +16473,12 @@ window.BotoConfig = {
      posts surface where the reader looks first, then steady state is pure
      engagement: viral means it earned remixes, challenges, discussion and
      saves, recency only breaks ties. */
+  /* Needs the reader's attention now: still arriving, or stalled and
+     waiting on them to retry it. */
+  function urgent(gen) {
+    return gen.status === "streaming" || (gen.status === "failed" && gen.own);
+  }
+
   function visibleGenerations() {
     var list = state.generations.filter(function (gen) {
       /* A deleted post leaves the feed entirely. It still exists for its
@@ -16259,11 +16488,17 @@ window.BotoConfig = {
       return gen.visibility === "public" || gen.own;
     });
     list.sort(function (a, b) {
-      var pa = a.status === "streaming" ? 1 : 0;
-      var pb = b.status === "streaming" ? 1 : 0;
+      /* Streaming and failed posts both pin to the top. Failed is not
+         cosmetic: it is the only state that carries a retry control, and a
+         freshly interrupted post has no engagement, so ranking it normally
+         buried it below the fold on reload and the user could never reach
+         the recovery path for their own post. Only the author's, because
+         nobody else can retry it. */
+      var pa = urgent(a) ? 1 : 0;
+      var pb = urgent(b) ? 1 : 0;
       if (pa !== pb) return pb - pa;
-      var fa = a.freshPinned ? 1 : 0;
-      var fb = b.freshPinned ? 1 : 0;
+      var fa = isPinned(a) ? 1 : 0;
+      var fb = isPinned(b) ? 1 : 0;
       if (fa !== fb) return fb - fa;
       if (fa && fb) return b.createdAt - a.createdAt;
       return score(b) - score(a) || b.createdAt - a.createdAt;
@@ -16660,6 +16895,27 @@ window.BotoConfig = {
   var pendingGens = [];
   var pollCount = 0;
 
+  /* Ids pinned to the top for this page view only.
+
+     freshPinned used to live on the generation itself and be persisted. It
+     was documented as riding to the top "exactly once", but it only cleared
+     on a merge, so a plain post (which has no streaming phase and therefore
+     needs the pin to be seen at all) kept its pin across every reload. Four
+     plain posts meant four permanent tenants at the top of a feed that is
+     supposed to rank on engagement.
+
+     Holding the set in memory makes "once" true by construction: a reload
+     starts empty, so the pin cannot outlive the view that created it. */
+  var sessionPins = Object.create(null);
+
+  function pinForThisView(id) { sessionPins[id] = true; }
+  function isPinned(gen) {
+    return !!sessionPins[gen.id] || !!gen.freshPinned;
+  }
+  function clearPins() {
+    sessionPins = Object.create(null);
+  }
+
   var ARRIVAL_POOL = [
     { creator: { name: "Kamsi", handle: "@kamsi" },
       prompt: "Review this product spec like a hostile VP of Engineering.",
@@ -16715,6 +16971,7 @@ window.BotoConfig = {
 
   function mergeFresh() {
     pendingGens.length = 0;
+    clearPins();
     state.generations.forEach(function (gen) { gen.freshPinned = false; });
     persist();
     $("cmNewPostsPill").hidden = true;
@@ -16743,9 +17000,13 @@ window.BotoConfig = {
 
   function initPill() {
     $("cmNewPostsPill").addEventListener("click", function () {
-      renderFeed(); /* freshPinned gens land on top in this render */
+      renderFeed(); /* pinned arrivals land on top in this render */
       mergeFresh();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      /* The feed scrolls inside #cmFeedView; window.scrollTo does nothing
+         here, so the reader stayed where they were after tapping a pill
+         that promises to take them to the new posts. */
+      var box = feedScroller();
+      if (box) box.scrollTo({ top: 0, behavior: "smooth" });
     });
   }
 
@@ -16904,13 +17165,7 @@ window.BotoConfig = {
       addressed: toBot,
       response: "",
       status: toBot ? "streaming" : "complete",
-      /* An addressed post pins itself to the top while it streams. A plain
-         post is complete the instant it is made, so with no pin it would
-         sort on engagement it has not earned yet and drop out of view the
-         moment you posted it. freshPinned is the existing "ride to the top
-         exactly once" flag, and it clears on the next merge just like any
-         other new arrival. */
-      freshPinned: !toBot,
+
       kind: kind,
       parentId: parentId,
       rootId: rootId,
@@ -16921,6 +17176,11 @@ window.BotoConfig = {
       counts: { remix: 0, challenge: 0, comment: 0, save: 0 }
     };
     state.generations.push(gen);
+    /* An addressed post pins itself to the top while it streams. A plain
+       post is complete the instant it is made, so without a pin it would
+       sort on engagement it has not earned and vanish as you posted it.
+       The pin is session scoped so it cannot survive a reload. */
+    if (!toBot) pinForThisView(gen.id);
     persist();
 
     input.value = "";
@@ -17284,6 +17544,13 @@ window.BotoConfig = {
     var scrollBox = feedScroller();
     if (scrollBox) scrollBox.addEventListener("scroll", fillViewport, { passive: true });
     window.addEventListener("scroll", fillViewport, { passive: true });
+    /* Fires only in other tabs, so this is the cross-tab write signal.
+       Guarded on the key because the workspace and the access gate share
+       this origin's storage. */
+    window.addEventListener("storage", function (e) {
+      if (e.key && e.key !== LS_KEY) return;
+      adoptExternalState();
+    });
     window.addEventListener("hashchange", route);
     route();
     route();

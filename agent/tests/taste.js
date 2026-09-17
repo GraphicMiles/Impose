@@ -323,7 +323,62 @@ test("only addressed cards show the @bot chip and a response block", function ()
     communityJs.indexOf('isAddressed(gen) ? responseBlock(gen, detail) : ""') !== -1);
 });
 test("plain posts pin once so they do not sink on zero engagement", function () {
-  ok(communityJs.indexOf("freshPinned: !toBot") !== -1);
+  ok(communityJs.indexOf("if (!toBot) pinForThisView(gen.id);") !== -1);
+});
+
+test("the pin is session state and cannot survive a reload", function () {
+  ok(communityJs.indexOf("var sessionPins") !== -1);
+  ok(communityJs.indexOf("freshPinned: !toBot") === -1,
+    "a persisted pin stacked plain posts at the top of the feed forever");
+  ok(communityJs.indexOf("if (gen && gen.freshPinned) delete gen.freshPinned;") !== -1,
+    "stores written by the old build must be migrated");
+});
+
+test("a failed own generation surfaces so its retry is reachable", function () {
+  ok(communityJs.indexOf("function urgent") !== -1);
+  ok(communityJs.indexOf('gen.status === "failed" && gen.own') !== -1);
+});
+
+test("malformed stored records cannot take the feed down", function () {
+  ok(communityJs.indexOf("function normalizeState") !== -1);
+  ok(communityJs.indexOf("function normCreator") !== -1);
+  ok(communityJs.indexOf("function normCounts") !== -1);
+  ok(communityJs.indexOf("return normalizeState(parsed);") !== -1,
+    "normalisation must happen at the load boundary, not per call site");
+});
+
+test("normalisation preserves the failed state", function () {
+  ok(communityJs.indexOf('g.status === "streaming" || g.status === "failed"') !== -1,
+    "coercing failed to complete would strand the post with no retry");
+});
+
+test("a failed write is reported instead of silently losing the post", function () {
+  ok(communityJs.indexOf("Could not save to this browser") !== -1);
+  ok(communityJs.indexOf("persistBroken") !== -1);
+});
+
+test("concurrent tabs cannot clobber each other", function () {
+  ok(communityJs.indexOf("function reconcileWithDisk") !== -1);
+  ok(communityJs.indexOf('addEventListener("storage"') !== -1);
+  ok(communityJs.indexOf("function adoptExternalState") !== -1);
+});
+
+test("another tab's posts arrive through the pill, not a feed reshuffle", function () {
+  ok(communityJs.indexOf("pinForThisView(g.id);") !== -1);
+  ok(communityJs.indexOf("syncPill();") !== -1);
+});
+
+test("the pill scrolls the element that actually scrolls", function () {
+  ok(communityJs.indexOf("box.scrollTo({ top: 0, behavior: \"smooth\" })") !== -1,
+    "window.scrollTo is a no-op for this feed");
+});
+
+test("the show-more control meets the touch target floor", function () {
+  var i = communityCss.indexOf(".cm-scope .gen-expand {");
+  ok(i !== -1);
+  var rule = communityCss.slice(i, i + 700);
+  ok(rule.indexOf("min-height: 34px") !== -1);
+  ok(rule.indexOf("padding: 7px 12px") !== -1);
 });
 test("composer highlight layer exists and is hidden from assistive tech", function () {
   ok(indexHtml.indexOf('id="cmInputHl"') !== -1 &&
