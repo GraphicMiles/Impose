@@ -385,6 +385,9 @@ body:not(.nav-open) .sidebar-inner {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
+  /* The workspace's only header divider: the Community row below it is
+     display:none here, so the topbar edge closes the chrome. */
+  border-bottom: 1px solid var(--border-soft);
 }
 .top-left, .top-right { display: flex; align-items: center; gap: 4px; }
 
@@ -403,21 +406,6 @@ body:not(.nav-open) .sidebar-inner {
 .model-btn .lucide, .model-btn i[data-lucide] { width: 16px; height: 16px; color: var(--text-3); }
 .model-btn .chev { transition: transform 180ms var(--ease-out); }
 .model-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
-
-.share-btn {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 7px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 999px;
-  transition: transform 160ms var(--ease-out), background-color 140ms ease, border-color 140ms ease;
-}
-@media (hover: hover) { .share-btn:hover { background: var(--hover); border-color: var(--border); } }
-.share-btn:active { transform: scale(0.96); }
-.share-btn .lucide, .share-btn i[data-lucide] { width: 15px; height: 15px; }
 
 /* ---------- chat scroll / empty state ---------- */
 
@@ -746,6 +734,8 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
 .pop-item:active { transform: scale(0.98); }
 .pop-item .lucide, .pop-item i[data-lucide] { width: 17px; height: 17px; color: var(--text-2); }
 .pop-item.danger, .pop-item.danger .lucide { color: var(--danger); }
+.pop-item[disabled] { opacity: 0.45; cursor: default; }
+.pop-item[disabled]:hover { background: none; }
 
 .pop-model {
   display: flex;
@@ -1050,8 +1040,6 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
   .sidebar-inner { width: 100%; }
   body:not(.nav-open) .sidebar-inner { opacity: 1; transform: none; }
 
-  .share-btn span { display: none; }
-  .share-btn { padding: 8px; }
   .settings-tabs { overflow-x: auto; scrollbar-width: none; }
   .settings-tabs::-webkit-scrollbar { display: none; }
   .settings-tabs button { flex: none; }
@@ -1987,7 +1975,6 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 .composer,
 .btn,
 .btn.danger,
-.share-btn,
 .chip,
 .plan-card,
 .pill-btn,
@@ -2007,7 +1994,6 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   background: var(--hover);
 }
 .btn.danger { background: var(--danger-soft); }
-.share-btn,
 .chip,
 .plan-card { background: var(--border-soft); }
 .text-input,
@@ -2052,17 +2038,23 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   display: flex;
   justify-content: center;
   padding: 8px 12px 8px;
-  border-bottom: 1px solid var(--border-soft);
+  /* Community sits between the topbar edge above and #wsContent's own
+     border below; Workspace hides this row entirely and keeps only the
+     topbar's border from styles.css. */
   background: var(--bg);
 }
 
-/* Community mode hides the workspace-only chrome; the topbar itself stays */
+/* Mode gates. Workspace chrome (sidebar etc.) shows only in workspace;
+   the Community | Workspace switch row shows only in Community. In
+   Workspace the topbar carries a mode icon (users-round) in its right
+   cluster, so nothing overlaps anything. */
 body.community-mode #openSidebarBtn,
 body.community-mode #modelBtn,
 body.community-mode #chatParamsBtn,
-body.community-mode #shareBtn { display: none; }
+body.community-mode #wsModeBtn { display: none; }
 body.community-mode .sidebar,
 body.community-mode .backdrop { display: none !important; }
+body:not(.community-mode) .modebar { display: none; }
 
 /* Community root: column with scrolling views above an in-flow composer
    dock, mirroring the workspace layout */
@@ -3429,8 +3421,8 @@ try {
         <button class="icon-btn" id="chatParamsBtn" title="Chat settings" aria-label="Chat settings">
           <i data-lucide="sliders-horizontal"></i>
         </button>
-        <button class="share-btn" id="shareBtn">
-          <i data-lucide="share"></i><span>Share</span>
+        <button class="icon-btn" id="wsModeBtn" title="Community feed" aria-label="Switch to the Community feed">
+          <i data-lucide="users-round"></i>
         </button>
         <button class="avatar avatar-btn" id="avatarBtn" title="Account" aria-label="Account" aria-haspopup="menu">Y</button>
       </div>
@@ -3643,7 +3635,9 @@ try {
       <span class="acct-sub" id="acctSub">Local profile</span>
     </div>
   </div>
-  <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
+    <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
+    <button class="pop-item" id="acctShare" role="menuitem" disabled><i data-lucide="share"></i><span>Share chat</span></button>
+    <button class="pop-item" id="acctCommunity" role="menuitem"><i data-lucide="users-round"></i><span>Community feed</span></button>
   <button class="pop-item" id="acctSettings" role="menuitem"><i data-lucide="settings"></i><span>Settings</span></button>
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
   <button class="pop-item" id="acctAbout" role="menuitem"><i data-lucide="file-text"></i><span>About &amp; privacy</span></button>
@@ -6594,6 +6588,15 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 (function () {
   "use strict";
 
+  /* A bare mode hash (#/ or #/workspace) is not a workspace bookmark: #/
+     means Community. Strip it here, before community.js's router reads the
+     URL, so a reload or share lands on the default surface instead of a
+     stale mode. Chat deep links (#chat=...) are real addresses and stay.
+     Runs at script-eval time because community.js routes at parse time. */
+  if (/^#\/(?:workspace)?$/.test(window.location.hash)) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+
   var STORE_KEY = "impose.clone.v1";
   var LEGACY_STORE_KEY = "nova.clone.v1";
   var MAX_PROMPT_CHARS = 200000;
@@ -9427,6 +9430,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     composerDock.hidden = true;
     emptySlot.appendChild(composerBlock);
     applyChipsVisibility();
+    syncShareItem();
   }
 
   function showDock() {
@@ -9434,6 +9438,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     messagesEl.hidden = false;
     composerDock.hidden = false;
     dockSlot.appendChild(composerBlock);
+    syncShareItem();
   }
 
   function applyChipsVisibility() {
@@ -12593,6 +12598,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     window.location.href = window.location.protocol === "file:" ? "./about.html" : "./about";
   });
 
+  $("acctCommunity").addEventListener("click", function () {
+    hidePop(true);
+    window.location.hash = "#/";
+  });
+
   var wipeArmed = false;
   var wipeTimer = null;
   function disarmWipe() {
@@ -12743,9 +12753,20 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
   })();
 
 
-  $("shareBtn").addEventListener("click", function () {
+  /* Share lives in the account menu now; the item disables itself when
+     there is no chat (or an empty one) to share. */
+  function syncShareItem() {
     var chat = getChat(activeId);
-    if (!chat || !chat.messages.length) { toast("Nothing to share yet."); return; }
+    var b = $("acctShare");
+    if (!b) return;
+    var shareable = !!(chat && chat.messages.length);
+    b.disabled = !shareable;
+    b.title = shareable ? "Share this chat" : "Nothing to share yet";
+  }
+
+  $("acctShare").addEventListener("click", function () {
+    if ($("acctShare").disabled) { toast("Nothing to share yet."); return; }
+    var chat = getChat(activeId);
     var text = chat.title + "\n\n" + chat.messages.map(function (m) {
       return (m.role === "user" ? "You: " : "Botocracy: ") + m.content;
     }).join("\n\n");
@@ -12758,6 +12779,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     } else {
       copyText(text, "Chat copied to clipboard");
     }
+    hidePop(true);
+  });
+
+  /* Workspace -> Community from the topbar icon. */
+  $("wsModeBtn").addEventListener("click", function () {
+    window.location.hash = "#/";
   });
 
   /* ---------- chat item menu: rename + delete ---------- */
@@ -14569,6 +14596,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     }
     maybeOnboard();
     function restoreFromHistory() {
+      /* Mode switches (#/, #/workspace, or a stripped hash) must not disturb
+         the open chat; only a chat deep link (#chat=...) opens one and only
+         leaving one (back from #chat=) starts fresh. */
+      var h = window.location.hash || "";
+      if (h === "" || h === "#/" || h === "#/workspace") return;
       var id = chatIdFromLocation();
       if (id && getChat(id)) {
         if (id !== activeId) openChat(id, false);
@@ -14975,6 +15007,11 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
 
   function moveGlide(tab) {
     var glide = $("cmModeGlide");
+    /* The switch row is display:none while Workspace is front; measuring
+       hidden tabs yields 0px and would park the glide mis-sized for when
+       Community reappears. showMode/setModeTab re-run this after the row
+       is visible again, so skipping here is safe. */
+    if (!glide || !tab || !tab.getClientRects().length) return;
     glide.style.width = tab.offsetWidth + "px";
     glide.style.transform = "translateX(" + (tab.offsetLeft - 3) + "px)";
   }

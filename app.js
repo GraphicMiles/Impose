@@ -3,6 +3,15 @@
 (function () {
   "use strict";
 
+  /* A bare mode hash (#/ or #/workspace) is not a workspace bookmark: #/
+     means Community. Strip it here, before community.js's router reads the
+     URL, so a reload or share lands on the default surface instead of a
+     stale mode. Chat deep links (#chat=...) are real addresses and stay.
+     Runs at script-eval time because community.js routes at parse time. */
+  if (/^#\/(?:workspace)?$/.test(window.location.hash)) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+
   var STORE_KEY = "impose.clone.v1";
   var LEGACY_STORE_KEY = "nova.clone.v1";
   var MAX_PROMPT_CHARS = 200000;
@@ -2836,6 +2845,7 @@
     composerDock.hidden = true;
     emptySlot.appendChild(composerBlock);
     applyChipsVisibility();
+    syncShareItem();
   }
 
   function showDock() {
@@ -2843,6 +2853,7 @@
     messagesEl.hidden = false;
     composerDock.hidden = false;
     dockSlot.appendChild(composerBlock);
+    syncShareItem();
   }
 
   function applyChipsVisibility() {
@@ -6002,6 +6013,11 @@
     window.location.href = window.location.protocol === "file:" ? "./about.html" : "./about";
   });
 
+  $("acctCommunity").addEventListener("click", function () {
+    hidePop(true);
+    window.location.hash = "#/";
+  });
+
   var wipeArmed = false;
   var wipeTimer = null;
   function disarmWipe() {
@@ -6152,9 +6168,20 @@
   })();
 
 
-  $("shareBtn").addEventListener("click", function () {
+  /* Share lives in the account menu now; the item disables itself when
+     there is no chat (or an empty one) to share. */
+  function syncShareItem() {
     var chat = getChat(activeId);
-    if (!chat || !chat.messages.length) { toast("Nothing to share yet."); return; }
+    var b = $("acctShare");
+    if (!b) return;
+    var shareable = !!(chat && chat.messages.length);
+    b.disabled = !shareable;
+    b.title = shareable ? "Share this chat" : "Nothing to share yet";
+  }
+
+  $("acctShare").addEventListener("click", function () {
+    if ($("acctShare").disabled) { toast("Nothing to share yet."); return; }
+    var chat = getChat(activeId);
     var text = chat.title + "\n\n" + chat.messages.map(function (m) {
       return (m.role === "user" ? "You: " : "Botocracy: ") + m.content;
     }).join("\n\n");
@@ -6167,6 +6194,12 @@
     } else {
       copyText(text, "Chat copied to clipboard");
     }
+    hidePop(true);
+  });
+
+  /* Workspace -> Community from the topbar icon. */
+  $("wsModeBtn").addEventListener("click", function () {
+    window.location.hash = "#/";
   });
 
   /* ---------- chat item menu: rename + delete ---------- */
@@ -7978,6 +8011,11 @@
     }
     maybeOnboard();
     function restoreFromHistory() {
+      /* Mode switches (#/, #/workspace, or a stripped hash) must not disturb
+         the open chat; only a chat deep link (#chat=...) opens one and only
+         leaving one (back from #chat=) starts fresh. */
+      var h = window.location.hash || "";
+      if (h === "" || h === "#/" || h === "#/workspace") return;
       var id = chatIdFromLocation();
       if (id && getChat(id)) {
         if (id !== activeId) openChat(id, false);

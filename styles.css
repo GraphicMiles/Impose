@@ -353,6 +353,9 @@ body:not(.nav-open) .sidebar-inner {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
+  /* The workspace's only header divider: the Community row below it is
+     display:none here, so the topbar edge closes the chrome. */
+  border-bottom: 1px solid var(--border-soft);
 }
 .top-left, .top-right { display: flex; align-items: center; gap: 4px; }
 
@@ -371,21 +374,6 @@ body:not(.nav-open) .sidebar-inner {
 .model-btn .lucide, .model-btn i[data-lucide] { width: 16px; height: 16px; color: var(--text-3); }
 .model-btn .chev { transition: transform 180ms var(--ease-out); }
 .model-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
-
-.share-btn {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 7px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 999px;
-  transition: transform 160ms var(--ease-out), background-color 140ms ease, border-color 140ms ease;
-}
-@media (hover: hover) { .share-btn:hover { background: var(--hover); border-color: var(--border); } }
-.share-btn:active { transform: scale(0.96); }
-.share-btn .lucide, .share-btn i[data-lucide] { width: 15px; height: 15px; }
 
 /* ---------- chat scroll / empty state ---------- */
 
@@ -714,6 +702,8 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
 .pop-item:active { transform: scale(0.98); }
 .pop-item .lucide, .pop-item i[data-lucide] { width: 17px; height: 17px; color: var(--text-2); }
 .pop-item.danger, .pop-item.danger .lucide { color: var(--danger); }
+.pop-item[disabled] { opacity: 0.45; cursor: default; }
+.pop-item[disabled]:hover { background: none; }
 
 .pop-model {
   display: flex;
@@ -1018,8 +1008,6 @@ h4.md-h, h5.md-h { font-size: 15.5px; }
   .sidebar-inner { width: 100%; }
   body:not(.nav-open) .sidebar-inner { opacity: 1; transform: none; }
 
-  .share-btn span { display: none; }
-  .share-btn { padding: 8px; }
   .settings-tabs { overflow-x: auto; scrollbar-width: none; }
   .settings-tabs::-webkit-scrollbar { display: none; }
   .settings-tabs button { flex: none; }
@@ -1955,7 +1943,6 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 .composer,
 .btn,
 .btn.danger,
-.share-btn,
 .chip,
 .plan-card,
 .pill-btn,
@@ -1975,7 +1962,6 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   background: var(--hover);
 }
 .btn.danger { background: var(--danger-soft); }
-.share-btn,
 .chip,
 .plan-card { background: var(--border-soft); }
 .text-input,

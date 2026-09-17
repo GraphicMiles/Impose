@@ -370,6 +370,11 @@
 
   function moveGlide(tab) {
     var glide = $("cmModeGlide");
+    /* The switch row is display:none while Workspace is front; measuring
+       hidden tabs yields 0px and would park the glide mis-sized for when
+       Community reappears. showMode/setModeTab re-run this after the row
+       is visible again, so skipping here is safe. */
+    if (!glide || !tab || !tab.getClientRects().length) return;
     glide.style.width = tab.offsetWidth + "px";
     glide.style.transform = "translateX(" + (tab.offsetLeft - 3) + "px)";
   }

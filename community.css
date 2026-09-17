@@ -17,17 +17,23 @@
   display: flex;
   justify-content: center;
   padding: 8px 12px 8px;
-  border-bottom: 1px solid var(--border-soft);
+  /* Community sits between the topbar edge above and #wsContent's own
+     border below; Workspace hides this row entirely and keeps only the
+     topbar's border from styles.css. */
   background: var(--bg);
 }
 
-/* Community mode hides the workspace-only chrome; the topbar itself stays */
+/* Mode gates. Workspace chrome (sidebar etc.) shows only in workspace;
+   the Community | Workspace switch row shows only in Community. In
+   Workspace the topbar carries a mode icon (users-round) in its right
+   cluster, so nothing overlaps anything. */
 body.community-mode #openSidebarBtn,
 body.community-mode #modelBtn,
 body.community-mode #chatParamsBtn,
-body.community-mode #shareBtn { display: none; }
+body.community-mode #wsModeBtn { display: none; }
 body.community-mode .sidebar,
 body.community-mode .backdrop { display: none !important; }
+body:not(.community-mode) .modebar { display: none; }
 
 /* Community root: column with scrolling views above an in-flow composer
    dock, mirroring the workspace layout */
