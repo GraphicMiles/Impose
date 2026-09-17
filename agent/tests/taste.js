@@ -607,6 +607,44 @@ test("reading replies never hijacks the composer", function () {
     "expanding renders and returns, full stop");
 });
 
+test("action rows sit on one centre line", function () {
+  /* Taste skill 9.C: mathematically perfect padding, no floating elements
+     with awkward gaps. Count buttons set their height from a text line box
+     while icon-only buttons collapsed, so the post row rendered 32px and
+     28px controls side by side. */
+  var g = communityCss.indexOf(".cm-scope .gen-act {");
+  var gen = communityCss.slice(g, g + 620);
+  ok(gen.indexOf("min-height: 32px") !== -1, "one fixed height for every post control");
+  ok(gen.indexOf("line-height: 1") !== -1, "text must not push the box taller than the icons");
+  ok(communityCss.indexOf(".cm-scope .gen-act--icon { width: 32px; padding: 0; }") !== -1,
+    "icon-only controls are square at that height");
+  ok(communityCss.indexOf(":has(.act-cnt)") === -1,
+    ":has() is not safe to rely on for layout here; use the explicit class");
+  var r = communityCss.indexOf(".cm-scope .comment-reply-btn {");
+  ok(communityCss.slice(r, r + 420).indexOf("min-height: 34px") !== -1,
+    "the comment row shares one height across Reply, the toggle and the kebab");
+  ok(/\.comment-kebab i\[data-lucide\] \{ width: 14px/.test(communityCss),
+    "the kebab icon matches the 14px icons beside it, not the 16px post scale");
+});
+
+test("the kebab menu stays attached to its trigger", function () {
+  var o = communityJs.indexOf("function openKebabMenu");
+  var body = communityJs.slice(o, o + 3400);
+  ok(body.indexOf("var GAP = 6") !== -1 && body.indexOf("r.bottom + GAP") !== -1,
+    "the menu hangs a fixed 6px off the icon, not wherever there is room");
+  ok(body.indexOf("spaceBelow") !== -1 && body.indexOf("spaceAbove") !== -1,
+    "it flips only when the space genuinely runs out, comparing both sides");
+  ok(body.indexOf('placeAbove ? "bottom right" : "top right"') !== -1,
+    "and scales out of the corner nearest the trigger");
+  /* The feed and detail page scroll inside containers; those events do not
+     reach window. */
+  ok(/document\.addEventListener\("scroll"/.test(communityJs),
+    "scroll dismissal must be bound on document in capture, not window");
+  ok(communityJs.indexOf("Date.now() - menuOpenedAt < 350") !== -1,
+    "opening a partly off-screen kebab scrolls it into view; that programmatic " +
+    "scroll must not close the menu it just opened");
+});
+
 test("delete lives in exactly one place per object", function () {
   /* A kebab that duplicates a button still on the row is worse than either
      alone: two controls for one destructive action. */

@@ -545,13 +545,26 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .gen-act {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 8px;
+  /* One height for every control in the row. Buttons carrying a count were
+     32px because their text set the line box, while the icon-only lock and
+     kebab collapsed to 28px: the row read as two different sizes sitting on
+     one line. Fixing the height rather than the padding keeps them on a
+     shared centre line whatever they contain. */
+  min-height: 32px;
+  padding: 0 8px;
   border-radius: var(--r-3);
   font-size: 13px;
+  line-height: 1;
   color: var(--text-3);
   transition: transform 160ms var(--ease-out), background-color 140ms ease, color 140ms ease;
 }
+
+/* Icon-only controls are square at that same height, so the row's right end
+   reads as a pair of equal targets rather than two odd rectangles. An
+   explicit class, not :has(), which is not safe to depend on here. */
+.cm-scope .gen-act--icon { width: 32px; padding: 0; }
 
 .cm-scope .gen-act .lucide, .cm-scope .gen-act i[data-lucide] { width: 16px; height: 16px; }
 
@@ -842,8 +855,12 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .comment-reply-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  padding: 4px 8px;
+  /* Shares the row's single control height with the thread toggle and the
+     kebab, so all three sit on one centre line. */
+  min-height: 34px;
+  padding: 0 8px;
   border-radius: var(--r-2);
   font-size: 13px;
   color: var(--text-3);
@@ -898,8 +915,10 @@ body:not(.community-mode) .modebar { display: none; }
   transition: background-color 140ms ease, color 140ms ease;
 }
 
+/* 14px to match the Reply icon beside it. At 16 the kebab read as a
+   heavier, different-family control on the same line. */
 .cm-scope .comment-kebab .lucide,
-.cm-scope .comment-kebab i[data-lucide] { width: 16px; height: 16px; }
+.cm-scope .comment-kebab i[data-lucide] { width: 14px; height: 14px; }
 
 @media (hover: hover) {
   .cm-scope .comment-kebab:hover { background: var(--hover); color: var(--text); }

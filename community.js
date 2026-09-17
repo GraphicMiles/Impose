@@ -1009,7 +1009,7 @@
       html += '<span class="gen-visibility-note"><i data-lucide="eye-off"></i>Only you</span>';
     }
     if (gen.own) {
-      html += '<button class="gen-act' + (gen.locked ? " on" : "") + '" data-act="lock" aria-label="' +
+      html += '<button class="gen-act gen-act--icon' + (gen.locked ? " on" : "") + '" data-act="lock" aria-label="' +
         (gen.locked ? "Unlock this generation" : "Lock this generation") + '" aria-pressed="' + gen.locked + '" title="' +
         (gen.locked ? "Unlock" : "Lock") + '">' +
         '<i data-lucide="' + (gen.locked ? "lock" : "lock-open") + '"></i></button>';
@@ -1018,7 +1018,7 @@
          same reason it does on a comment: it is destructive and does not
          belong in the row of counts the reader taps to browse. */
       if (gen.status !== "streaming") {
-        html += '<button class="gen-act gen-kebab" data-act="menu" aria-label="More actions" ' +
+        html += '<button class="gen-act gen-act--icon gen-kebab" data-act="menu" aria-label="More actions" ' +
           'aria-haspopup="menu" aria-expanded="false"><i data-lucide="ellipsis"></i></button>';
       }
     }
@@ -1279,6 +1279,7 @@
   var commentMenuFor = null;
   var commentMenuTrigger = null;
   var commentMenuOnPick = null;
+  var menuOpenedAt = 0;
 
   function closeCommentMenu() {
     if (commentMenuTrigger) commentMenuTrigger.setAttribute("aria-expanded", "false");
@@ -1325,17 +1326,35 @@
     commentMenuEl.hidden = false;
     refreshIcons();
 
-    /* Anchor to the kebab, flipping up or left when the viewport would clip
-       it. position:fixed, so these are viewport coordinates. */
+    /* Anchor to the kebab. position:fixed, so these are viewport
+       coordinates, and the menu must stay visually attached to the icon
+       that opened it: right edges flush, 6px below, flipping above only
+       when there is genuinely no room below. The flip is measured against
+       the space available on each side rather than assuming below-first,
+       so a kebab near the bottom of the screen gets a menu that still
+       touches it instead of one stranded across the viewport. */
     var r = trigger.getBoundingClientRect();
     var mw = commentMenuEl.offsetWidth || 190;
     var mh = commentMenuEl.offsetHeight || 44;
-    var left = Math.min(r.right - mw, window.innerWidth - mw - 8);
-    var top = r.bottom + 6;
-    if (top + mh > window.innerHeight - 8) top = r.top - mh - 6;
-    commentMenuEl.style.left = Math.max(8, left) + "px";
-    commentMenuEl.style.top = Math.max(8, top) + "px";
-    commentMenuEl.style.setProperty("--origin", "top right");
+    var GAP = 6;
+    var EDGE = 8;
+
+    var spaceBelow = window.innerHeight - r.bottom - GAP - EDGE;
+    var spaceAbove = r.top - GAP - EDGE;
+    var placeAbove = mh > spaceBelow && spaceAbove > spaceBelow;
+
+    var top = placeAbove ? r.top - mh - GAP : r.bottom + GAP;
+    /* Clamp into the viewport without letting it drift off the trigger. */
+    top = Math.max(EDGE, Math.min(top, window.innerHeight - mh - EDGE));
+
+    /* Right edges flush with the kebab, then clamped to the screen. */
+    var left = Math.max(EDGE, Math.min(r.right - mw, window.innerWidth - mw - EDGE));
+
+    commentMenuEl.style.left = Math.round(left) + "px";
+    commentMenuEl.style.top = Math.round(top) + "px";
+    /* Scale out from the corner nearest the trigger. */
+    commentMenuEl.style.setProperty("--origin", placeAbove ? "bottom right" : "top right");
+    menuOpenedAt = Date.now();
     /* Next frame so the transition runs from the collapsed state. */
     requestAnimationFrame(function () { commentMenuEl.classList.add("open"); });
   }
@@ -1350,7 +1369,19 @@
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && commentMenuFor) closeCommentMenu();
   });
-  window.addEventListener("scroll", function () { if (commentMenuFor) closeCommentMenu(); }, true);
+  /* Scroll dismisses, because a fixed menu would otherwise slide away from
+     the icon it belongs to. Guarded by a timestamp: opening a kebab that is
+     partially off-screen scrolls it into view, and that programmatic scroll
+     was firing this handler and closing the menu in the same gesture. */
+  /* Bound on document in the capture phase: the feed and the detail page
+     scroll inside their own containers, and those scroll events do not
+     bubble to window, so a window-only listener never fired and the menu
+     rode along detached from its kebab. */
+  document.addEventListener("scroll", function () {
+    if (!commentMenuFor) return;
+    if (Date.now() - menuOpenedAt < 350) return;
+    closeCommentMenu();
+  }, true);
 
   /* Which comment the composer is currently replying to; replies highlight
      their branch while it is targeted. Per page load, no persistence. */
