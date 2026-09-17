@@ -570,6 +570,65 @@ test("the workspace empty state carries no starter cards", function () {
     "the greeting itself stays");
 });
 
+test("a generation page shows no second, higher-level navigation", function () {
+  ok(communityJs.indexOf("function setDetailChrome") !== -1,
+    "the detail view must be able to drop the mode switcher");
+  ok(/body\.cm-detail-mode \.modebar \{ display: none; \}/.test(communityCss),
+    "and the switcher must actually be hidden there");
+  ok(communityCss.indexOf("body.cm-detail-mode .cm-scope .cm-view") !== -1,
+    "the view must reclaim the space the floating bar was reserving");
+  var db = communityCss.indexOf(".cm-scope .detail-back {");
+  ok(communityCss.slice(db, db + 320).indexOf("env(safe-area-inset-top)") !== -1,
+    "the back header is now the top chrome, so it owns the notch inset");
+});
+
+test("one comment control does both jobs", function () {
+  /* Two buttons side by side ("Reply" next to "4 replies") read as a choice
+     between two destinations when they are the same conversation. */
+  /* Scope to the live-comment branch: a tombstone keeps a plain count chip
+     (there is nothing to reply to), which is correct and must not match. */
+  var i = communityJs.indexOf('class="comment-ops"');
+  var ops = communityJs.slice(i, communityJs.indexOf("comment-del-btn", i));
+  ok(ops.indexOf("comment-replies-btn") === -1,
+    "the separate reply-count button must be gone from live comments");
+  ok(ops.indexOf("data-reply=") !== -1 && ops.indexOf("c.id") !== -1,
+    "the one button still aims the composer");
+  ok(ops.indexOf('data-expand="') !== -1, "and still reveals the sub-thread");
+  ok(ops.indexOf("comment-reply-btn--thread") !== -1,
+    "it takes a distinct look once it carries a count");
+  var h = communityJs.indexOf('e.target.closest("[data-expand]")');
+  var handler = communityJs.slice(h, h + 1600);
+  ok(handler.indexOf('if (!expandBtn.hasAttribute("data-reply")) return;') !== -1,
+    "expanding must fall through to the reply aim, not stop at it");
+  ok(handler.indexOf('getAttribute("data-reply")') !== -1,
+    "the id must be read from the attribute: the re-render detaches the node");
+});
+
+test("a reply connects visibly to the comment it answers", function () {
+  ok(communityCss.indexOf(".cm-scope .trow--open > .trow-main > .comment::before") !== -1,
+    "a revealed parent needs a spine through its own avatar column, or the " +
+    "reply below hangs off empty space");
+  ok(communityJs.indexOf("trow--open") !== -1, "and the row must be marked when open");
+  /* The rail width IS the connector's x-position; narrowing it on mobile
+     moved the line off the avatar it descends from. */
+  ok(!/\.cm-scope \{ --thread-rail: 22px; \}/.test(communityCss),
+    "the mobile rail override put the line 8px left of the parent avatar");
+  ok(/\.cm-scope \{ --thread-rail: 30px; \}/.test(communityCss), "one rail at every width");
+  ok(/\.comment--reply \.avatar \{ width: 28px; height: 28px;/.test(communityCss),
+    "every avatar shares one diameter so the rail is centred at every depth");
+});
+
+test("the community top fade has no hard edge", function () {
+  var i = communityCss.indexOf(".modebar::before");
+  var bar = communityCss.slice(i, i + 1200);
+  ok((bar.match(/color-mix/g) || []).length >= 4,
+    "a two-stop ramp banded: the tint needs intermediate stops");
+  ok(bar.indexOf("rgba(0,0,0,0.72)") !== -1 && bar.indexOf("rgba(0,0,0,0.32)") !== -1,
+    "the mask must ease out with the tint so the blur does not end on a line");
+  ok(bar.indexOf("-webkit-mask-image") !== -1 && bar.indexOf("-webkit-backdrop-filter") !== -1,
+    "Safari needs both prefixed properties or the bar turns into a solid slab");
+});
+
 queue.forEach(function (entry) {
   try { entry[1](); passed++; console.log("PASS: " + entry[0]); }
   catch (e) { failed++; console.log("FAIL: " + entry[0] + "\n      " + e.message); }

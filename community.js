@@ -819,6 +819,16 @@
     moveGlide(isWorkspace ? $("cmTabWorkspace") : $("cmTabCommunity"));
   }
 
+  /* The mode switcher belongs to the two top-level surfaces. On a
+     generation page the user is one level down, inside a thread, and the
+     page already has its own "< Generation" header: showing a second,
+     higher-level switcher above it stacked two navigations and let a tap
+     throw away the reader's place in the thread. The detail view hides it
+     and the back arrow is the only way up. */
+  function setDetailChrome(on) {
+    document.body.classList.toggle("cm-detail-mode", !!on);
+  }
+
   function showMode(mode) {
     var isCommunity = mode === "community";
     /* while the chat is mid stream the workspace is just hidden, never torn
@@ -843,10 +853,12 @@
            server-side (RLS); this is the UX for that gate, not the gate. */
         if (hash !== "#/") history.replaceState(null, "", location.pathname + location.search + "#/");
         showMode("community");
+        setDetailChrome(false);
         if (window.BotoAccess && !BotoAccess.canUseWorkspace()) openAccessSheet();
         return;
       }
       showMode("workspace");
+      setDetailChrome(false);
       return;
     }
     var feedView = $("cmFeedView");
@@ -861,6 +873,7 @@
       if (!gen || isDeleted(gen)) {
         renderMissing(!!gen);
         showMode("community");
+        setDetailChrome(true);
         feedView.hidden = true;
         detailView.hidden = false;
         setGenDock(false);
@@ -871,6 +884,7 @@
         expandedThreads.clear(); /* fresh view: all chains start collapsed */
         renderDetail(gen);
         showMode("community");
+        setDetailChrome(true);
         feedView.hidden = true;
         detailView.hidden = false;
         /* The feed's generation composer is docked as a sibling of both
@@ -885,6 +899,7 @@
     }
     renderFeed();
     showMode("community");
+    setDetailChrome(false);
     feedView.hidden = false;
     detailView.hidden = true;
     setGenDock(true);
@@ -1206,7 +1221,11 @@
 
   function commentRow(c, row, onPath) {
     var el = document.createElement("div");
-    el.className = "trow" + (onPath.has(c.id) ? " trow--on-path" : "");
+    /* trow--open marks a row whose replies are currently revealed, which is
+       what earns it the spine down its own avatar column (community.css). */
+    el.className = "trow" +
+      (onPath.has(c.id) ? " trow--on-path" : "") +
+      (expandedThreads.has(c.id) && countDescendants(c) > 0 ? " trow--open" : "");
     el.dataset.depth = row.depth;
 
     var rails = "";
@@ -1255,14 +1274,21 @@
               esc(c.text) +
             "</p>" +
             '<div class="comment-ops">' +
-              '<button class="comment-reply-btn" data-reply="' + c.id + '">' +
-                '<i data-lucide="corner-down-right"></i><span>Reply</span>' +
+              /* One control, both jobs. Two buttons sitting side by side
+                 ("Reply" next to "4 replies") read as a choice between two
+                 destinations when they are really the same conversation.
+                 With replies present this button opens them AND aims the
+                 composer at this comment in a single tap; with none it is
+                 just Reply. The label carries the count so nothing is lost. */
+              '<button class="comment-reply-btn' + (kidCount > 0 ? " comment-reply-btn--thread" : "") +
+                '" data-reply="' + c.id + '"' +
+                (kidCount > 0
+                  ? ' data-expand="' + c.id + '" aria-expanded="' + String(expandedThreads.has(c.id)) + '"'
+                  : "") + ">" +
+                (kidCount > 0
+                  ? '<i data-lucide="message-square"></i><span>' + kidCount + (kidCount === 1 ? " reply" : " replies") + "</span>"
+                  : '<i data-lucide="corner-down-right"></i><span>Reply</span>') +
               "</button>" +
-              (kidCount > 0
-                ? '<button class="comment-replies-btn" data-expand="' + c.id + '" aria-expanded="' + String(expandedThreads.has(c.id)) + '">' +
-                    '<i data-lucide="message-square"></i><span>' + kidCount + (kidCount === 1 ? " reply" : " replies") + "</span>" +
-                  "</button>"
-                : "") +
               (c.own
                 ? '<button class="comment-del-btn" data-del="' + c.id + '" aria-label="Delete comment" title="Delete comment">' +
                     '<i data-lucide="trash-2"></i><span>Delete</span>' +
@@ -1352,13 +1378,17 @@
     /* Reply and reply-count expander run off one delegated listener so
        re-renders never rebind. */
     listEl.addEventListener("click", function (e) {
+      /* The merged control carries both data-expand and data-reply. Expand
+         first, then fall through to aim the composer, so one tap both
+         reveals the sub-thread and answers it. A tombstone's chip carries
+         data-expand alone and stops here: there is nothing to reply to. */
       var expandBtn = e.target.closest("[data-expand]");
       if (expandBtn) {
         var rid = expandBtn.getAttribute("data-expand");
         if (expandedThreads.has(rid)) expandedThreads.delete(rid);
         else expandedThreads.add(rid);
         renderThread(gen, listEl);
-        return;
+        if (!expandBtn.hasAttribute("data-reply")) return;
       }
       var delBtn = e.target.closest("[data-del]");
       if (delBtn) {
@@ -1369,10 +1399,13 @@
         deleteComment(delId);
         return;
       }
-      var replyBtn = e.target.closest("[data-reply]");
+      /* Read the id before any re-render: the expand branch above may have
+         already replaced this node, leaving the captured element detached. */
+      var replyBtn = expandBtn || e.target.closest("[data-reply]");
       if (replyBtn) {
+        var wantId = replyBtn.getAttribute("data-reply");
         var target = null;
-        commentsFor(gen.id).forEach(function (c) { if (c.id === replyBtn.dataset.reply) target = c; });
+        commentsFor(gen.id).forEach(function (c) { if (c.id === wantId) target = c; });
         if (target) startReply(target);
       }
     });

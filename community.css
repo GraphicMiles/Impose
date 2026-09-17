@@ -35,16 +35,33 @@
   content: "";
   position: absolute;
   inset: 0;
+  /* Two hard edges used to show here: the tint ended at 28% opacity while
+     the blur was still at full strength, so posts scrolling out hit a
+     visible band where they went sharp again. Both the tint and the mask
+     now ease out on the same curve, with multiple stops rather than a
+     straight two-stop ramp, so the blur fades as the tint does and the
+     bar dissolves into the feed instead of ending on a line. */
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--bg) 72%, transparent) 0%,
-    color-mix(in srgb, var(--bg) 28%, transparent) 100%
+    color-mix(in srgb, var(--bg) 88%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 74%, transparent) 38%,
+    color-mix(in srgb, var(--bg) 40%, transparent) 68%,
+    color-mix(in srgb, var(--bg) 12%, transparent) 86%,
+    transparent 100%
   );
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  -webkit-mask-image: linear-gradient(180deg, #000 40%, transparent 96%);
-  mask-image: linear-gradient(180deg, #000 40%, transparent 96%);
+  backdrop-filter: blur(16px) saturate(125%);
+  -webkit-backdrop-filter: blur(16px) saturate(125%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,0.72) 66%, rgba(0,0,0,0.32) 84%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,0.72) 66%, rgba(0,0,0,0.32) 84%, transparent 100%);
 }
+
+/* On a generation page the switcher is hidden (see setDetailChrome): the
+   thread has its own back header and a second navigation above it is one
+   level too many. The floating layer goes with it, and the view reclaims
+   the space the bar was reserving. */
+body.cm-detail-mode .modebar { display: none; }
+body.cm-detail-mode .cm-scope .cm-view,
+.cm-scope body.cm-detail-mode .cm-view { padding-top: 0; }
 
 .modebar .modeseg { pointer-events: auto; }
 
@@ -568,7 +585,9 @@ body:not(.community-mode) .modebar { display: none; }
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 10px 8px;
+  /* Now the topmost chrome on this page, so it owns the safe-area inset
+     that the mode bar used to absorb. */
+  padding: max(10px, env(safe-area-inset-top)) 8px 10px;
   font-size: 14px;
   color: var(--text-2);
   border-bottom: 1px solid var(--border-soft);
@@ -662,9 +681,12 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope { --thread-rail: 30px; }
 
 @media (max-width: 420px) {
-  /* Narrow screens: tighten the columns so a depth-2 reply keeps a usable
-     text measure instead of being squeezed against the right edge. */
-  .cm-scope { --thread-rail: 22px; }
+  /* The rail used to narrow to 22px here to buy text measure, but the rail
+     width IS the connector's x-position: at 22px the line ran 8px to the
+     left of the parent avatar it was supposed to descend from, so every
+     reply looked pinned to nothing. The geometry has to win over the extra
+     8px of measure, and with the depth cap at 3 the deepest indent is only
+     60px. Keep one rail at every width. */
 }
 
 .cm-scope .trow {
@@ -728,6 +750,35 @@ body:not(.community-mode) .modebar { display: none; }
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
+  position: relative;
+}
+
+/* The segment that was missing entirely. A parent's connector used to begin
+   at the TOP of its first reply's row, which left the height of the parent's
+   own text as bare space between the avatar and the line below it: the reply
+   appeared to hang off nothing. This draws the spine through the parent's
+   own row, from just under its avatar to the row's bottom edge, where the
+   child's elbow picks it up with no seam. Only rows whose replies are
+   actually on screen get one. */
+.cm-scope .trow--open > .trow-main > .comment::before {
+  content: "";
+  position: absolute;
+  /* Avatar centre: 16px box padding + 14px half-avatar, less half the
+     1.5px stroke so the line is centred on it rather than beside it. */
+  left: 29.25px;
+  /* 12px box padding + the 28px avatar, plus a small breath. */
+  top: 44px;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--border);
+}
+
+/* A reply's box is shorter, so its avatar sits higher. */
+.cm-scope .trow--open > .trow-main > .comment--reply::before { top: 40px; }
+
+.cm-scope .trow--open.trow--on-path > .trow-main > .comment::before {
+  background: var(--link);
+  opacity: 0.55;
 }
 
 /* Highlight the branch the composer is aimed at. */
@@ -741,7 +792,10 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .comment--reply { padding: 8px 16px; }
 
-.cm-scope .comment--reply .avatar { width: 26px; height: 26px; font-size: 12px; flex: 0 0 26px; }
+/* 26px here put a reply avatar's centre 1px off the rail it hangs from, and
+   the error compounded with depth. Every avatar in the thread shares one
+   diameter so one rail position is correct at every level. */
+.cm-scope .comment--reply .avatar { width: 28px; height: 28px; font-size: 12px; flex: 0 0 28px; }
 
 .cm-scope .comment--reply .comment-text { font-size: 14px; }
 
