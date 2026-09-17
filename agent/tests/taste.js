@@ -620,6 +620,33 @@ test("reading replies never hijacks the composer", function () {
     "expanding renders and returns, full stop");
 });
 
+test("the service worker version tracks the files it caches", function () {
+  /* The debug panel fix shipped correct and invisible: the origin served
+     the new app.js and styles.css, and every returning visitor kept the
+     old ones because the worker precaches and its version string had not
+     changed. A fix nobody receives is not a fix.
+
+     This pins the version to a hash of the precached sources, so editing
+     any of them without bumping CACHE fails here rather than in someone's
+     stale browser. */
+  var sw = read("sw.js");
+  var m = sw.match(/var CACHE = "impose-shell-v(\d+)"/);
+  ok(!!m, "the cache name carries a version");
+
+  var crypto = require("crypto");
+  var watched = ["app.js", "community.js", "community-data.js", "debug-bus.js",
+                 "styles.css", "community.css", "ui-core.js", "index.html"];
+  var h = crypto.createHash("sha256");
+  watched.forEach(function (f) { h.update(read(f)); });
+  var digest = h.digest("hex").slice(0, 12);
+
+  var stamp = sw.match(/precache-fingerprint: ([0-9a-f]{12})/);
+  ok(!!stamp && stamp[1] === digest,
+    "sw.js records the fingerprint of what it caches (expected " + digest +
+    (stamp ? ", found " + stamp[1] : ", none recorded") +
+    "). Bump CACHE and update the fingerprint comment when a cached file changes.");
+});
+
 test("the debug log is reachable on every page and nothing covers it", function () {
   /* It was mounted only in index.html and hid itself until something had
      already failed, so on the auth and marketing pages the bus recorded

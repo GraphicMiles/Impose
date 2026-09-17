@@ -10,7 +10,18 @@
    composer highlight layer unstyled, so it rendered as a second visible copy
    of the text above the input. Version, precache list and asset list must
    move together. */
-var CACHE = "impose-shell-v45";
+/* BUMP THIS ON EVERY SHIPPED CHANGE TO A PRECACHED FILE.
+   The worker serves the precache first, so an unchanged version string
+   means returning visitors keep the old app.js and styles.css no matter
+   what is deployed. The debug panel fix shipped correct and invisible for
+   exactly this reason: the origin served the new files and the worker
+   never asked for them. build_inline.py --check now fails when a
+   precached file is newer than this line. */
+/* precache-fingerprint: 01b1e9db9ff1
+   A hash of the cached sources, checked by agent/tests/taste.js. If it
+   disagrees, a cached file changed without a version bump and returning
+   visitors would keep the old build. */
+var CACHE = "impose-shell-v46";
 var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
 var PUBLIC_ROUTE = {
   "/about": "./about.html",
