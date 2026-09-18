@@ -113,6 +113,13 @@ try {
           Workspace
         </button><span class="modeseg-glide" id="cmModeGlide" aria-hidden="true"></span>
       </div>
+      <!-- The inbox. In the mode bar because it belongs to Community and
+           must be reachable from the feed and a thread alike. -->
+      <button class="notif-btn" id="cmNotifBtn" type="button" hidden
+              aria-label="Notifications" title="Notifications">
+        <i data-lucide="bell"></i>
+        <span class="notif-dot" id="cmNotifDot" hidden></span>
+      </button>
     </nav>
 
     <div id="wsContent" hidden>
@@ -181,6 +188,16 @@ try {
 
       <div class="cm-view" id="cmDetailView" hidden>
         <div class="detail" id="cmDetail"></div>
+      </div>
+
+      <div class="cm-view" id="cmProfileView" hidden>
+        <div class="profile-head" id="cmProfile"></div>
+        <div class="feed-list" id="cmProfileList"></div>
+        <div class="feed-loader" id="cmProfileLoader" hidden role="status"
+             aria-label="Loading more posts"><span class="spinner"></span></div>
+        <div class="feed-empty" id="cmProfileEmpty" hidden>
+          <p class="feed-empty-sub">No posts yet.</p>
+        </div>
       </div>
 
       <div class="composer-dock cm-composer-dock" id="cmComposerDock">
@@ -717,6 +734,18 @@ try {
       </div>
     </div>
     <button class="btn wl-continue" id="accessContinue">Keep browsing Community</button>
+  </div>
+</div>
+
+<div class="overlay center" id="cmNotifSheet" hidden>
+  <div class="sheet notif-sheet" role="dialog" aria-modal="true" aria-label="Notifications">
+    <div class="settings-head">
+      <h2>Notifications</h2>
+      <button class="icon-btn" id="cmNotifClose" type="button" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="notif-list" id="cmNotifList"></div>
   </div>
 </div>
 
