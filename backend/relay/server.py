@@ -2004,6 +2004,90 @@ async def admin_grant(request: Request):
     }
 
 
+@app.post("/notify/grant")
+async def notify_grant(request: Request):
+    """Send the approval email for a grant that was already recorded.
+
+    This is the browser-facing half of granting: the admin panel calls the
+    database RPCs itself (an admin cannot grant anything the RPCs refuse),
+    and then asks here for the email. It is authenticated by the caller's
+    own Supabase session instead of CONTROL_KEY, because the panel runs in
+    a browser that must never hold the relay's key. Three checks, all
+    enforced here rather than hoped for:
+
+      1. GoTrue says the token is valid and names its owner.
+      2. is_admin(), evaluated with the caller's own token, returns true.
+      3. The workspace grant row already exists for the target account.
+
+    Check three matters: this endpoint can mail, but it can never grant.
+    An attacker with a valid session for any account still fails two and
+    three; an admin still cannot spam an address, because the grant row
+    has to exist first and the rate limit below is shared with /admin/grant.
+    """
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="missing session")
+    access_token = auth[7:].strip()
+    if not access_token:
+        raise HTTPException(status_code=401, detail="missing session")
+
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    email = _otp_email(data)
+
+    if not supabase_admin.configured():
+        raise HTTPException(status_code=503, detail="accounts are not configured on the server")
+
+    caller = await supabase_admin.verify_session(access_token)
+    if not caller:
+        raise HTTPException(status_code=401, detail="session is not valid")
+
+    try:
+        is_admin = await supabase_admin.session_is_admin(access_token)
+    except supabase_admin.AdminError as exc:
+        print(f"[admin] is_admin check failed: {exc.detail}")
+        raise HTTPException(status_code=exc.status, detail=exc.safe)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="admins only")
+
+    target = await supabase_admin.find_user_by_email(email)
+    if not target:
+        raise HTTPException(status_code=404, detail="no account uses that email yet")
+    try:
+        granted = await supabase_admin.has_workspace_grant(target["id"])
+    except supabase_admin.AdminError as exc:
+        print(f"[admin] grant check failed for {email}: {exc.detail}")
+        raise HTTPException(status_code=exc.status, detail=exc.safe)
+    if not granted:
+        raise HTTPException(status_code=409, detail="no grant recorded for that account; record the grant first")
+
+    # Shared bucket with /admin/grant: one address gets at most three
+    # approval emails per ten minutes across both paths.
+    if _rate_hit("grantmail", email, 3, 600.0):
+        raise HTTPException(status_code=429, detail="too many approval emails to this address; try again later")
+
+    delivery = "email" if mailer_configured() else "console"
+    try:
+        await send_grant(email)
+    except MailFailed as exc:
+        print(f"[admin] grant email failed for {email}: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail="the grant is recorded but the approval email failed; try again",
+        )
+    return {
+        "ok": True,
+        "user_id": target["id"],
+        "email": "sent",
+        "delivery": delivery,
+        "notified_by": caller.get("id"),
+    }
+
+
 @app.get("/admin/status")
 def admin_status(request: Request):
     _authed(request)

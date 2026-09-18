@@ -327,3 +327,93 @@ async def fetch_waitlist(status: str = "pending", limit: int = 100) -> list:
     except ValueError:
         rows = []
     return rows if isinstance(rows, list) else []
+
+
+# --- admin-actor checks, authenticated by the caller's own session -------
+#
+# The admin panel runs in a browser that must never hold the relay's
+# CONTROL_KEY. These helpers let the relay answer two questions about a
+# Supabase JWT instead: who owns it, and does that account sit in the
+# admins table. The service key is used only as the apikey PostgREST and
+# GoTrue require; the Authorization header always carries the caller's
+# token, so every check below is evaluated in the caller's own context.
+
+
+async def verify_session(access_token: str) -> dict | None:
+    """Ask GoTrue who owns this token. None means invalid or expired."""
+    url = _url() + "/auth/v1/user"
+    headers = {
+        "apikey": _service_key(),
+        "Authorization": f"Bearer {access_token}",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.get(url, headers=headers)
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"session verify transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body.get("user") if isinstance(body, dict) else None
+
+
+async def session_is_admin(access_token: str) -> bool:
+    """Evaluate is_admin() in the caller's own context.
+
+    The function itself checks auth.uid() against the admins table and is
+    executable only by the authenticated role, so neither a forged token
+    nor an ordinary account can get a true out of it.
+    """
+    url = _url() + "/rest/v1/rpc/is_admin"
+    headers = _headers()
+    headers["Authorization"] = f"Bearer {access_token}"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(url, headers=headers, json={})
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"is_admin transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        return False
+    try:
+        return response.json() is True
+    except ValueError:
+        return False
+
+
+async def has_workspace_grant(user_id: str) -> bool:
+    """Whether the workspace grant row exists. Service role only; the table
+    has no client policies, and this read is what lets /notify/grant refuse
+    to send mail for access that was never actually recorded."""
+    url = _url() + "/rest/v1/workspace_grants"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.get(
+                url,
+                headers=_postgrest_headers(),
+                params={"user_id": f"eq.{user_id}", "select": "user_id"},
+            )
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"grant read transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "The grant could not be checked. Try again shortly.",
+            f"grant read -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )
+    try:
+        rows = response.json()
+    except ValueError:
+        rows = []
+    return bool(rows) if isinstance(rows, list) else False

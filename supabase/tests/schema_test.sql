@@ -910,5 +910,98 @@ select test_denied('the thirty-first save in the minute is refused', $$
 
 reset role;
 
+-- ============ the admin role (0017) ============
+-- Privilege lives in the database: membership is a row, every action is
+-- a SECURITY DEFINER RPC that re-checks the caller, and no client can
+-- grant itself in. The owner admin is irremovable so the role can never
+-- be emptied. alice is seeded the admin, bob starts ordinary.
+reset role;
+insert into public.admins (user_id, email, owner)
+values ('11111111-1111-1111-1111-111111111111', 'alice@test.com', true);
+insert into public.waitlist (email) values ('waiter@company.com');
+
+set role anon;
+select test_denied('anon cannot even ask whether it is an admin', $$
+  select public.is_admin()$$);
+select test_denied('anon cannot read the admins table', $$
+  select * from public.admins$$);
+
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+select test_ok('an ordinary account is not an admin',
+  public.is_admin() = false);
+select test_denied('a non-admin cannot read the queue', $$
+  select * from public.admin_waitlist()$$);
+select test_denied('nor the roster', $$
+  select * from public.admin_roster()$$);
+select test_denied('nor the reports', $$
+  select public.admin_reports()$$);
+select test_denied('a non-admin cannot add admins', $$
+  select public.admin_add('bob@test.com')$$);
+select test_denied('a non-admin cannot grant workspace access', $$
+  select public.admin_grant('bob@test.com')$$);
+select test_denied('a non-admin cannot read the admins table', $$
+  select * from public.admins$$);
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+select test_ok('the seeded admin is an admin', public.is_admin());
+select test_ok('the queue shows who is waiting and whether they signed up',
+  (select count(*) from public.admin_waitlist() w
+    where w.email = 'waiter@company.com' and w.has_account = false) = 1);
+select test_ok('the roster lists the owner',
+  (select count(*) from public.admin_roster() r where r.owner) = 1);
+
+select test_ok('an admin can be added by email',
+  public.admin_add('bob@test.com') ->> 'status' = 'added');
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_ok('the new admin takes effect immediately',
+  public.is_admin() and (select count(*) from public.admin_waitlist() w
+    where w.email = 'waiter@company.com') = 1);
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_ok('adding the same admin again is idempotent',
+  public.admin_add('bob@test.com') ->> 'status' = 'already');
+select test_denied('adding an address with no account is refused', $$
+  select public.admin_add('ghost@test.com')$$);
+select test_denied('adding a malformed address is refused', $$
+  select public.admin_add('not-an-email')$$);
+
+select test_ok('a co-admin can be removed',
+  public.admin_remove('22222222-2222-2222-2222-222222222222') ->> 'status' = 'removed');
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_ok('removal strips the role immediately', public.is_admin() = false);
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_denied('the owner cannot be removed', $$
+  select public.admin_remove('11111111-1111-1111-1111-111111111111')$$);
+
+select test_denied('granting an address with no account is refused', $$
+  select public.admin_grant('waiter@company.com')$$);
+
+select test_ok('granting a real account records the grant',
+  public.admin_grant('bob@test.com') ->> 'status' = 'granted');
+select test_ok('regranting is idempotent',
+  public.admin_grant('bob@test.com') ->> 'status' = 'already');
+
+reset role;
+select test_ok('the grant row exists and the waitlist row is untouched',
+  (select count(*) from public.workspace_grants
+    where user_id = '22222222-2222-2222-2222-222222222222') = 1
+  and (select status from public.waitlist where email = 'waiter@company.com') = 'pending');
+
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_ok('reports are readable in-product, newest first, reporter embedded',
+  jsonb_array_length(public.admin_reports()) >= 1
+  and (public.admin_reports() -> 0) ? 'reporter');
+select test_denied('an unknown report status is refused', $$
+  select public.admin_reports('odd')$$);
+
+reset role;
+
 \echo ''
 \echo 'All schema assertions passed.'
