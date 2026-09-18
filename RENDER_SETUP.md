@@ -55,9 +55,27 @@ and idle control are optional and disabled by default.
 | `SENDLIB_API_KEY` | from sendlib | Sends the sign-up and password-reset codes. Without it the relay prints codes to its log instead of emailing them, which is fine locally and wrong in production. |
 | `SENDLIB_FROM` | your connected Gmail | The address Sendlib relays through. Must be a Gmail or Workspace account connected in the Sendlib dashboard. |
 | `SENDLIB_REPLY_TO` | optional support address | Where replies to the code emails go. |
+| `SENDLIB_ORIGIN` | optional | Sent as the `Origin` header so Sendlib can match its per-key allowlist. Defaults to `https://impose-relay.onrender.com`. **Add that exact value to the key's allowed origins in the Sendlib dashboard**, or sends are refused with `Origin not allowed: 'unknown'` even though the key is correct. |
 | `SENDLIB_URL` | optional | Defaults to `https://sendlib.samueltuoyo.com/api/send`. |
 | `OTP_PEPPER` | generated, 32+ random chars | Mixed into the code hash. Set it before launch: rotating it later invalidates every code in flight, which is harmless, but leaving it empty weakens the stored hashes. |
 | `APP_NAME` | `Impose` | Used in the email subject line. |
+
+### Checking it works
+
+`GET /admin/accounts` with the relay's `CONTROL_KEY` as a bearer token
+reports every dependency of the account flow: whether each credential is
+present, whether the code store is actually callable, and what the mail
+provider says when asked. Two outages so far looked identical from outside
+(a 502 with a deliberately vague message) and both were told apart by this
+one call: a missing database grant, then a Sendlib origin rejection.
+
+```
+curl https://impose-relay.onrender.com/admin/accounts -H "Authorization: Bearer $CONTROL_KEY"
+```
+
+`ready: true` means signup will reach the database. A non-`ok` `sendlib`
+value means codes will not be delivered, and the message is the provider's
+own words.
 
 ### Supabase dashboard, before any of this works
 

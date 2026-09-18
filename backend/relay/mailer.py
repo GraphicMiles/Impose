@@ -34,6 +34,28 @@ def configured() -> bool:
     return bool(os.environ.get("SENDLIB_API_KEY") and os.environ.get("SENDLIB_FROM"))
 
 
+def _origin() -> str:
+    """The origin Sendlib sees on our requests.
+
+    Sendlib scopes an API key to an allowlist of origins and reads the
+    Origin header to decide. A server-to-server call sends none, so it
+    logged ours as 'unknown' and refused with 403. Nothing was wrong with
+    the key; the request simply had no identity to match.
+
+    Sending one explicitly gives the dashboard something to allow.
+    SENDLIB_ORIGIN overrides it for a different deployment.
+    """
+    return os.environ.get("SENDLIB_ORIGIN", "").strip() or "https://impose-relay.onrender.com"
+
+
+def _auth_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {os.environ.get('SENDLIB_API_KEY', '')}",
+        "Content-Type": "application/json",
+        "Origin": _origin(),
+    }
+
+
 def _subject(purpose: str) -> str:
     if purpose == "reset":
         return f"Reset your {APP_NAME} password"
@@ -106,10 +128,7 @@ async def send_code(email: str, code: str, purpose: str, ttl_seconds: int) -> No
             response = await client.post(
                 SENDLIB_URL,
                 json=payload,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=_auth_headers(),
             )
     except httpx.HTTPError as exc:
         raise MailFailed(f"mail transport failed: {exc}") from exc
@@ -129,7 +148,6 @@ async def probe() -> str:
     sender is not connected" and "the provider is down", and those need
     different fixes. The message is truncated and the key never appears.
     """
-    api_key = os.environ.get("SENDLIB_API_KEY", "")
     sender = os.environ.get("SENDLIB_FROM", "")
     try:
         async with httpx.AsyncClient(timeout=SEND_TIMEOUT) as client:
@@ -138,11 +156,11 @@ async def probe() -> str:
                 json={"from": sender, "to": sender,
                       "subject": "Impose relay connectivity probe",
                       "text": "Ignore: verifying the relay can send."},
-                headers={"Authorization": f"Bearer {api_key}",
-                         "Content-Type": "application/json"},
+                headers=_auth_headers(),
             )
     except httpx.HTTPError as exc:
         return f"unreachable: {exc}"[:200]
     if r.status_code >= 400:
-        return f"rejected {r.status_code}: {r.text[:160]}"
+        return (f"rejected {r.status_code} (sent as origin {_origin()}): "
+                f"{r.text[:160]}")
     return "ok"

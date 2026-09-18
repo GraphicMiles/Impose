@@ -91,6 +91,10 @@ services:
         sync: false
       - key: SENDLIB_FROM
         sync: false
+      # Sent as the Origin header. Sendlib matches it against the key's
+      # allowlist and refuses anything it reads as 'unknown'.
+      - key: SENDLIB_ORIGIN
+        value: https://impose-relay.onrender.com
       - key: ALLOWED_ORIGINS
         # Locked to the site origin. "*" let any page on the internet send
         # your relay key's requests from anyone's browser. Add your own
