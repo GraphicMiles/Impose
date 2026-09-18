@@ -73,6 +73,13 @@ one call: a missing database grant, then a Sendlib origin rejection.
 curl https://impose-relay.onrender.com/admin/accounts -H "Authorization: Bearer $CONTROL_KEY"
 ```
 
+If `sendlib` is not `ok`, the reply now appends the action that resolves
+it. The Gmail connection in particular has two distinct failures that read
+similarly: `is not connected` means the address in `SENDLIB_FROM` was never
+linked, while `insufficient authentication scopes` means it is linked but
+was authorised before send permission existed, so it must be disconnected
+and reconnected with **Allow** pressed on the Gmail consent screen.
+
 `ready: true` means signup will reach the database. A non-`ok` `sendlib`
 value means codes will not be delivered, and the message is the provider's
 own words.
