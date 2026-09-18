@@ -310,3 +310,71 @@ report email digest (future), real @bot (future, needs key + model choice).
 migrations; pytest 156; node suites 51/63/14/24/7/113; standalone build
 current; service worker v55; live probes (rolled-back) confirm report,
 idempotent replay, enumeration refusal, and RLS denial.
+
+---
+
+## ROUND 4 EXECUTION ADDENDUM (2026-09-18, commit bcbf373)
+
+Scope set by the owner: two fix clusters, and "fixes only" this pass —
+the waitlist email/notification badge and any routing cosmetics stay
+recorded as Phase-C SHOULD_HAVE, not built now.
+
+**Cluster 1 — Community is read-only for signed-out visitors.** The
+reported hole was real but narrower than it looked: the server already
+refuses every anonymous write (RPC `not_authenticated` + RLS), so the
+leak was a UX lie, not a breach — a signed-out visitor could press
+send, watch an optimistic "Sending" row appear, then get a sign-up
+popup when the server refused it. Fixed at the source: every write path
+(post, comment, reply, save, remix, challenge) now checks the session
+*before* creating any optimistic record and shows a sign-in affordance
+instead (`requireSignIn`). The send button itself relabels to "Sign in
+to post" so the outcome is stated, never surprised.
+
+The second, genuinely private leak was the cache: Community persisted
+its whole state under one device-global key, so a previous signed-in
+person's posts — including private ones — resurfaced for whoever opened
+the app next. Fixed by scoping the cache per identity (each account its
+own key, plus one anonymous key), stripping private/foreign-`own`
+records on anonymous load, and migrating the old shared key once,
+keeping only content any viewer may see.
+
+**Cluster 2 — Workspace wired to a real per-account backend.**
+`public.workspace_state` (migration 0016) gives every account one row,
+RLS owner-only, written through the `save_workspace` RPC: size-capped
+at 3 MiB, rate-limited 30/min, `user_id` pinned to `auth.uid()` inside
+the definer so input can never address a foreign row. Anon gets no
+grant at all. `workspace-sync.js` makes the backend the record of truth
+and localStorage a transient per-account cache; boot hydrates from cache
+then adopts newer backend data.
+
+Two owner decisions shaped the key work: provider keys are **encrypted
+at rest** and **scoped per account**. Both tiers use AES-GCM and seal
+keys before they touch the cache *or* the backend — the server never
+sees plaintext. Default tier: a random device-local wrapping key.
+Optional tier: a PBKDF2 passphrase lock that stores nothing at all and
+keeps keys locked until unlocked (Settings → Data → Security). Honest
+caveat recorded: with a signed-in session on the device, keys decrypt in
+memory because they must be usable; the guarantee is at-rest, not
+in-session.
+
+**Clean session on sign-out.** Signing out resets the in-memory state,
+removes the per-account cache and sweeps other accounts' caches, and
+flushes pending writes *before* the session dies. Signing back in
+restores the account from the backend. The previous "your local chats
+are still here" behaviour is gone for accounts; it survives only for the
+device-local demo (ACCESS_MODE=open), and even then a signed-out account
+session can no longer overwrite it. Pre-account local chats are imported
+only by explicit one-time choice, never silently into the next account.
+
+**Verification at ship:** migration 0016 green in the scratch schema
+suite (anon denied, owner-only, foreign id refused, size cap, rate
+limit) and applied live with rolled-back probes matching local; REST
+probes return 401 to anon for both select and RPC; pytest 156; node
+suites 51/63/14/24/7/113; standalone build current; service worker v56
+(fingerprint 8226e0679baa); audit matrix 6360/6360 and relay
+1308/1308; new `tests/workspace_sync_roundtrip.js` asserts no plaintext
+key reaches the cache across both tiers (now in the CI gate).
+
+**Deferred (recorded, not discovered):** waitlist email + workspace
+notification badge (Phase-C SHOULD_HAVE); `/u/@handle/post/…`-style
+routing cosmetics. Push to origin still pending a fresh credential.
