@@ -195,6 +195,62 @@ test("the waitlist gate explains the Workspace in plain language", function () {
     "the access gate copy drifted from the plain-language version");
 });
 
+/* ---------- the /admin console (0018) ----------
+   The route is public by decision; the boundary is server-side. These
+   pin the parts that are quiet when they break: a lost rewrite rule
+   404s the console, a widened back parameter turns sign-in into an open
+   redirect, and a client-trusted isAdmin is exactly the bug class the
+   whole round exists to close. */
+
+test("the /admin path rewrites to the app ahead of the 404 catch-all", function () {
+  var y = read("render.yaml");
+  var adm = y.indexOf("source: /admin\n");
+  var catchall = y.indexOf("source: /*");
+  ok(adm > -1, "the /admin rewrite rule is gone; the console would 404");
+  ok(catchall > -1 && adm < catchall,
+    "the /admin rule must sit BEFORE the /* catch-all: Render matches in order");
+});
+
+test("the admin route boots from the database, never a client claim", function () {
+  var js = read("app.js");
+  ok(js.indexOf("/^\\/admin\\/?$/.test(window.location.pathname") > -1,
+    "the admin-route detection drifted; /admin may not engage at all");
+  ok(js.indexOf("BotoData.adminStatus()") > -1,
+    "bootAdminRoute must ask admin_bootstrap_status who this session is");
+  ok(js.indexOf('localStorage.getItem("isAdmin")') === -1,
+    "a browser-stored isAdmin is forgeable; the answer belongs to Postgres");
+});
+
+test("the sign-in return path cannot be aimed anywhere but /admin", function () {
+  var a = read("auth.js");
+  ok(a.indexOf('if (q === "/admin") return "./admin"') > -1,
+    "the back parameter must exact-match /admin and nothing else");
+  ok(!/function finishHref[\s\S]{0,700}return\s+back\s*;/.test(a),
+    "finishHref must never return the raw query value");
+});
+
+test("the denied state tells strangers nothing about the admin system", function () {
+  var html = read("index.html");
+  ok(html.indexOf("Not available to this account") > -1,
+    "the denied card drifted");
+  ok(html.indexOf("rfarouq") === -1,
+    "no admin address may appear in the shipped markup");
+});
+
+test("capability refusals are translated where every other refusal is", function () {
+  var d = read("community-data.js");
+  ok(d.indexOf("missing_capability") > -1 && d.indexOf("bootstrap_used") > -1,
+    "the 0018 refusals must be mapped in shape(), once, like all the rest");
+  ok(d.indexOf("admin_bootstrap_status") > -1 && d.indexOf("admin_bootstrap_claim") > -1,
+    "the bootstrap RPCs are not exported");
+});
+
+test("the grant email endpoint checks the same contract as the RPCs", function () {
+  var sv = read("backend/relay/server.py");
+  ok(sv.indexOf('"notify_grant"') > -1 && sv.indexOf("session_can") > -1,
+    "/notify/grant must ask can_do('notify_grant') of the database, not a private rule");
+});
+
 /* ---------- generation detail view ----------
    Three defects reported against the detail page: a duplicated composer, a
    collapsed comment-tree rail, and unbounded reply nesting. Each is pinned

@@ -479,3 +479,41 @@ the waitlist row untouched until approval, reports readable); pytest
 178 (11 new); node suites 51/63/14/24/7/113; workspace sync round trip
 green; standalone build current; service worker v58 (fingerprint
 21e5a0cf3e8c); audit matrix 6360/6360 and relay 1308/1308.
+
+## ROUND 7 ADDENDUM — the /admin console and capability authorization (2026-09-18)
+
+Brief: a dedicated /admin route on the existing Render app (no new
+service), publicly reachable, seeded-admin bootstrap that is one-time,
+generic denials for everyone else, capability-based per-action
+authorization server-side, and never a client-supplied isAdmin.
+
+Decisions:
+
+- /admin is a rewrite to index.html (before the 404 catch-all) and the
+  same document in admin mode: one bundle, one auth, no new precached
+  file. body.admin-route reveals a fixed .admin-page surface.
+- Migration 0018: admin_capabilities catalog, admin_caps grants,
+  admin_action_caps (the action -> capability contract the RPCs read at
+  runtime), admin_bootstrap (id = 1, exactly one claim ever), can_do(),
+  and the 0017 RPCs rewired from require_admin() to require_cap().
+  Undeclared actions fail closed. The owner holds everything
+  implicitly (has_cap), so no backfilled rows can go stale; removal
+  clears caps (0018 found the bug: caps keyed to auth.users outlived
+  the admins row); revoking to zero is refused; owner is untouchable.
+- Bootstrap: admin_bootstrap_status() is safe for any signed-in account
+  (four facts, zero identities); admin_bootstrap_claim() succeeds only
+  for the seeded owner and only once (unique_violation -> bootstrap_used).
+  Post-claim the question asked everywhere is "which capabilities does
+  this account hold", never "does this email match".
+- Relay: /notify/grant now asks can_do('notify_grant') with the caller's
+  JWT - the same contract table the RPCs enforce - and the refusal body
+  is generic; a test pins that it leaks no email/capability vocabulary.
+- UI: the round-6 settings tab was folded into /admin (one surface, no
+  drift). Sections appear from the session's capabilities; the roster
+  shows per-admin caps and the owner gets a checkbox editor wired to
+  admin_grant_cap / admin_revoke_cap. Sign-in return uses
+  ?back=/admin, exact-matched in auth.js (no open redirect).
+- taste.js adds six route/security pins; schema_test adds the full 0018
+  matrix (fail-closed, bootstrap replay, revocation immediacy, raw-table
+  denials). Gates: schema suite green; pytest 178; node suites green
+  after sw v60 fingerprint recompute.

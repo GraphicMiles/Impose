@@ -389,6 +389,36 @@ async def session_is_admin(access_token: str) -> bool:
         return False
 
 
+async def session_can(access_token: str, action: str) -> bool:
+    """Ask Postgres, in the caller's own context, whether this session may
+    perform the named action.
+
+    Capability-based authorization for session-authenticated endpoints:
+    the answer comes from can_do(), which resolves the action through the
+    admin_action_caps contract and checks the caller's grants, reading
+    auth.uid() off this very token. Neither a forged client nor an
+    ordinary account can produce a true, and the endpoint never
+    re-implements the rule the RPCs enforce.
+    """
+    url = _url() + "/rest/v1/rpc/can_do"
+    headers = _headers()
+    headers["Authorization"] = f"Bearer {access_token}"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(url, headers=headers, json={"p_action": action})
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"can_do transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        return False
+    try:
+        return response.json() is True
+    except ValueError:
+        return False
+
+
 async def has_workspace_grant(user_id: str) -> bool:
     """Whether the workspace grant row exists. Service role only; the table
     has no client policies, and this read is what lets /notify/grant refuse

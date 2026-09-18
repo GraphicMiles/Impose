@@ -29,6 +29,14 @@
       back = localStorage.getItem("impose.auth.returnTo") || "";
       localStorage.removeItem("impose.auth.returnTo");
     } catch (e) { /* private mode */ }
+    /* The admin console arrives through /sign-in?back=/admin. Exact-match
+       whitelist only: a caller-supplied destination that could name any
+       origin is the classic open-redirect hole, so anything that is not
+       this one known path is dropped. */
+    try {
+      var q = new URLSearchParams(location.search).get("back");
+      if (q === "/admin") return "./admin";
+    } catch (e) { /* no URLSearchParams, or nothing asked for */ }
     return "./index.html" + (/^#\//.test(back) ? back : "");
   }
 

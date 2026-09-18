@@ -2016,7 +2016,9 @@ async def notify_grant(request: Request):
     enforced here rather than hoped for:
 
       1. GoTrue says the token is valid and names its owner.
-      2. is_admin(), evaluated with the caller's own token, returns true.
+      2. can_do('notify_grant'), evaluated with the caller's own token,
+         returns true: the waitlist.manage capability is required, exactly
+         as the admin_grant RPC requires it.
       3. The workspace grant row already exists for the target account.
 
     Check three matters: this endpoint can mail, but it can never grant.
@@ -2046,13 +2048,17 @@ async def notify_grant(request: Request):
     if not caller:
         raise HTTPException(status_code=401, detail="session is not valid")
 
+    # The capability question is answered by Postgres, against the same
+    # admin_action_caps contract every RPC enforces; this endpoint cannot
+    # out-vote the database and the refusal says nothing an outsider could
+    # use to map the admin system.
     try:
-        is_admin = await supabase_admin.session_is_admin(access_token)
+        allowed = await supabase_admin.session_can(access_token, "notify_grant")
     except supabase_admin.AdminError as exc:
-        print(f"[admin] is_admin check failed: {exc.detail}")
+        print(f"[admin] can_do check failed: {exc.detail}")
         raise HTTPException(status_code=exc.status, detail=exc.safe)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="admins only")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="not available to this account")
 
     target = await supabase_admin.find_user_by_email(email)
     if not target:

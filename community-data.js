@@ -159,6 +159,29 @@
     if (/last_admin/i.test(text)) {
       return { message: "There has to be at least one admin.", retryable: false, code: "last_admin" };
     }
+    /* The 0018 capability refusals. The wording says what the account
+       lacks, never what the system contains: a stranger learns nothing
+       from a refusal. */
+    if (/missing_capability/i.test(text)) {
+      return { message: "Your admin account does not hold that permission.",
+               retryable: false, code: "missing_capability" };
+    }
+    if (/bootstrap_used/i.test(text)) {
+      return { message: "Setup was already completed on this installation.",
+               retryable: false, code: "bootstrap_used" };
+    }
+    if (/last_capability/i.test(text)) {
+      return { message: "That is their last permission. Remove the admin instead.",
+               retryable: false, code: "last_capability" };
+    }
+    if (/not_an_admin/i.test(text)) {
+      return { message: "Only accounts already on the admin list can hold permissions.",
+               retryable: false, code: "not_an_admin" };
+    }
+    if (/unknown_capability/i.test(text)) {
+      return { message: "That permission is not one this product knows.",
+               retryable: false, code: "unknown_capability" };
+    }
     /* Anything unrecognised is assumed transient: telling someone to retry
        a permanent failure wastes a tap, but telling them a transient one
        is permanent loses their work. */
@@ -517,6 +540,30 @@
 
   function adminGrant(email) {
     return adminRpc("admin_grant", { p_email: String(email || "").trim() });
+  }
+
+  /* Bootstrap and capabilities. Status is safe for any signed-in
+     account (four facts about the caller, no identities); the claim is
+     one-time and the database enforces both, never the page. */
+  function adminStatus() {
+    return adminRpc("admin_bootstrap_status");
+  }
+
+  function adminBootstrapClaim() {
+    return adminRpc("admin_bootstrap_claim");
+  }
+
+  function adminCapsFor(userId) {
+    return adminRpc("admin_caps_for",
+      userId ? { p_user_id: userId } : {});
+  }
+
+  function adminGrantCap(userId, cap) {
+    return adminRpc("admin_grant_cap", { p_user_id: userId, p_cap: cap });
+  }
+
+  function adminRevokeCap(userId, cap) {
+    return adminRpc("admin_revoke_cap", { p_user_id: userId, p_cap: cap });
   }
 
   /* The signed-in session token, for calls the relay authenticates by
@@ -967,6 +1014,11 @@
     adminAdd: adminAdd,
     adminRemove: adminRemove,
     adminGrant: adminGrant,
+    adminStatus: adminStatus,
+    adminBootstrapClaim: adminBootstrapClaim,
+    adminCapsFor: adminCapsFor,
+    adminGrantCap: adminGrantCap,
+    adminRevokeCap: adminRevokeCap,
     sessionToken: sessionToken
   };
 })();

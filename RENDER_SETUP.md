@@ -73,7 +73,33 @@ and idle control are optional and disabled by default.
 
 | Endpoint | What it does |
 | --- | --- |
-| `POST /notify/grant` | Sends the approval email for a grant the database has already recorded. Authenticated by the caller's own Supabase session: GoTrue must accept the token, `is_admin()` must return true for its owner, and the workspace grant row must already exist. This is the path the in-app Admin panel uses, so no browser ever holds CONTROL_KEY. Shares the grantmail rate limit with `/admin/grant` (three emails per address per ten minutes). |
+| `POST /notify/grant` | Sends the approval email for a grant the database has already recorded. Authenticated by the caller's own Supabase session: GoTrue must accept the token, `can_do('notify_grant')` must return true for its owner (which means the `waitlist.manage` capability per the `admin_action_caps` contract in Postgres), and the workspace grant row must already exist. This is the path the `/admin` console uses, so no browser ever holds CONTROL_KEY. Shares the grantmail rate limit with `/admin/grant` (three emails per address per ten minutes). |
+
+## The `/admin` console
+
+`/admin` is a rewrite to `index.html` (see the Blueprint routes; the rule
+sits before the `/*` 404 catch-all on purpose). The route is public and
+stays public: the page is a door, not a wall. `app.js` detects the path,
+asks `admin_bootstrap_status()` who this session is, and shows one of
+four views: sign-in prompt, a generic denial that names no admin, the
+one-time bootstrap claim (seeded owner only), or the console itself.
+
+Authorization after that is per action, in the database:
+
+- Every admin RPC runs `require_cap('<action>')`, which resolves the
+  action through `public.admin_action_caps` and then `has_cap()`. An
+  action with no declared capability is refused for everyone, the owner
+  included: fail closed.
+- The owner holds every capability implicitly and cannot be removed or
+  reduced. Co-admins start with `waitlist.manage` + `moderation.manage`
+  and nothing else; the owner widens from the Admins section.
+- Nobody can be reduced to zero capabilities; removal is the real verb.
+- The bootstrap claim is one row with `id = 1`: it cannot be replayed,
+  and only the seeded owner account can make it.
+
+Nothing in this list is mirrored in a client flag; the browser never
+stores an isAdmin bit, and the console hiding a section is presentation,
+not enforcement.
 
 ### Checking it works
 

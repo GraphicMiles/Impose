@@ -6774,13 +6774,6 @@
   }
 
   function switchTab(name) {
-    /* The admin pane only exists for accounts the database has placed in
-       the admins table. A hidden tab cannot be opened, by markup or by
-       code. */
-    if (name === "admin") {
-      var adminTab = $("settingsTabAdmin");
-      if (!adminTab || adminTab.hidden) name = "general";
-    }
     var tabs = settingsModal.querySelectorAll("[data-stab]");
     tabs.forEach(function (b) {
       b.setAttribute("aria-selected", b.dataset.stab === name ? "true" : "false");
@@ -6792,7 +6785,7 @@
     if (name === "usage") renderUsage();
     if (name === "prompts") renderLibrary();
     if (name === "providers") renderRelayCard();
-    if (name === "admin") renderAdminPanel();
+    if (name === "general") refreshAdminTab();
   }
 
   /* First-run onboarding: once, and only for people with nothing set up. */
@@ -8160,30 +8153,107 @@
     box.innerHTML = html;
   }
 
-  /* ---------- admin panel ----------
-     The tab exists in the markup but stays hidden until the signed-in
-     account is proven to sit in the admins table. Every read and write
-     goes through SECURITY DEFINER RPCs that re-check the caller server
-     side, so the panel is a convenience, never the boundary. The one
-     relay call here - the approval email - authenticates with this
+  /* ---------- admin console (/admin) ----------
+     The route is public and stays that way: it is a door, not a wall.
+     Which view the door shows is decided by the database (admin_bootstrap_
+     status: is this an admin, is the bootstrap claimed, what capabilities
+     does the session hold), and every read and write afterwards is a
+     SECURITY DEFINER RPC that re-checks the caller's capabilities per
+     action. Hiding a section here is presentation; the refusal that would
+     back it up exists server-side whether this file likes it or not. The
+     one relay call - the approval email - authenticates with this
      session's own token; CONTROL_KEY never enters the browser. */
+
+  var ADMIN = {
+    route: /^\/admin\/?$/.test(window.location.pathname || ""),
+    caps: [],
+    view: null
+  };
+
+  function adminHasCap(cap) {
+    return ADMIN.caps.indexOf(cap) > -1;
+  }
 
   function adminAccountReady() {
     return !!(window.WSync && WSync.accountMode()) &&
            !!(window.BotoData && BotoData.configured());
   }
 
-  function refreshAdminTab() {
-    var tab = $("settingsTabAdmin");
-    if (!tab) return;
-    if (!adminAccountReady()) { tab.hidden = true; return; }
-    BotoData.isAdmin().then(function (yes) {
-      tab.hidden = !yes;
-      /* Losing the role while the panel is open (removed by another
-         admin) drops the viewer back out instead of leaving a dead pane. */
-      if (!yes && tab.getAttribute("aria-selected") === "true") switchTab("general");
+  var ADMIN_VIEWS = ["adminBooting", "adminSignedOut", "adminDenied",
+                     "adminBootstrap", "adminDash"];
+
+  function showAdminView(id) {
+    ADMIN.view = id;
+    ADMIN_VIEWS.forEach(function (v) {
+      var el = $(v);
+      if (el) el.hidden = v !== id;
+    });
+    refreshIcons();
+  }
+
+  function bootAdminRoute() {
+    if (!ADMIN.route) return;
+    document.body.classList.add("admin-route");
+    var app = $("adminApp");
+    if (!app) return;
+    app.hidden = false;
+    showAdminView("adminBooting");
+    if (!adminAccountReady()) { showAdminView("adminSignedOut"); return; }
+    try {
+      var acct = JSON.parse(localStorage.getItem("impose.auth.v1") || "null");
+      var who = $("adminWho");
+      if (who && acct && acct.email) who.textContent = "signed in as " + acct.email;
+    } catch (e) { /* no account cache; the line stays blank */ }
+    BotoData.adminStatus().then(function (out) {
+      if (!out.ok) { showAdminView("adminSignedOut"); return; }
+      var st = out.data || {};
+      ADMIN.caps = st.caps || [];
+      if (!st.is_admin) { showAdminView("adminDenied"); return; }
+      if (st.pending) { showAdminView("adminBootstrap"); return; }
+      showAdminView("adminDash");
+      renderAdminSections();
     });
   }
+
+  /* The settings pointer row: shown only when the database still says
+     this account is an admin. Losing the role while signed in hides it;
+     the console itself re-checks on every action regardless. */
+  function refreshAdminTab() {
+    var row = $("adminLinkSection");
+    if (row) row.hidden = true;
+    if (!adminAccountReady()) { ADMIN.caps = []; return; }
+    BotoData.adminStatus().then(function (out) {
+      ADMIN.caps = (out.ok && out.data && out.data.caps) || [];
+      if (row) row.hidden = !(out.ok && out.data && out.data.is_admin);
+      /* The console is a live view on /admin; a revoked role should drop
+         out of it rather than sit on dead sections. */
+      if (ADMIN.route && ADMIN.view === "adminDash" && !(out.ok && out.data && out.data.is_admin)) {
+        showAdminView("adminDenied");
+      }
+    });
+    /* The console is a served route; a file:// copy has nothing to open.
+       Hide the pointer rather than offer a dead link. */
+    if (window.location.protocol === "file:" && row) row.hidden = true;
+  }
+
+  $("adminBootstrapGo").addEventListener("click", function () {
+    var btn = $("adminBootstrapGo");
+    btn.disabled = true;
+    BotoData.adminBootstrapClaim().then(function (out) {
+      btn.disabled = false;
+      if (!out.ok) {
+        toast(out.error || "That did not work.", null, null, 4200, "warn");
+        if (out.code === "bootstrap_used") bootAdminRoute();
+        return;
+      }
+      toast("Owner role claimed. The bootstrap is closed.", null, null, 4000, "success");
+      BotoData.adminStatus().then(function (res) {
+        if (res.ok && res.data) ADMIN.caps = res.data.caps || ADMIN.caps;
+        showAdminView("adminDash");
+        renderAdminSections();
+      });
+    });
+  });
 
   function adminPaneNote(box, text) {
     box.innerHTML = "";
@@ -8344,11 +8414,23 @@
         var name = document.createElement("strong");
         name.textContent = a.email;
         var sub = document.createElement("span");
-        sub.textContent = (a.owner ? "owner · " : "") + "added " + fmtAdminDate(a.created_at);
+        var held = (a.caps || []).join(", ");
+        sub.textContent = (a.owner ? "owner · holds everything · " : (held || "no capabilities") + " · ") +
+          "added " + fmtAdminDate(a.created_at);
         left.appendChild(name);
         left.appendChild(sub);
         row.appendChild(left);
         if (!a.owner) {
+          var acts = document.createElement("div");
+          acts.className = "admin-row-acts";
+          if (adminHasCap("admins.manage")) {
+            var edit = document.createElement("button");
+            edit.type = "button";
+            edit.className = "btn small";
+            edit.textContent = "Permissions";
+            edit.addEventListener("click", function () { openCapEditor(a); });
+            acts.appendChild(edit);
+          }
           var x = document.createElement("button");
           x.type = "button";
           x.className = "icon-btn sm";
@@ -8360,16 +8442,126 @@
               BotoData.adminRemove(a.user_id).then(function (res) {
                 toast(res.ok ? a.email + " is no longer an admin." : (res.error || "That did not work."),
                       null, null, 4000, res.ok ? "success" : "warn");
-                if (res.ok) renderAdminRoster();
+                if (res.ok) { closeCapEditor(); renderAdminRoster(); }
               });
             }, 8000, "warn");
           });
-          row.appendChild(x);
+          acts.appendChild(x);
+          row.appendChild(acts);
         }
         box.appendChild(row);
       });
       refreshIcons();
     });
+  }
+
+  /* ---- capability editor ----
+     The checkbox list is convenience; the grant/revoke RPCs each
+     re-verify admins.manage against the database, and admin_revoke_cap
+     keeps its own invariants (nobody to zero, never the owner) no matter
+     what this form submits. */
+  var capEditorUid = null;
+
+  function closeCapEditor() {
+    capEditorUid = null;
+    var box = $("adminCapEditor");
+    if (box) { box.hidden = true; box.innerHTML = ""; }
+  }
+
+  function openCapEditor(a) {
+    var box = $("adminCapEditor");
+    if (!box) return;
+    if (capEditorUid === a.user_id) { closeCapEditor(); return; }
+    capEditorUid = a.user_id;
+    box.hidden = false;
+    adminPaneNote(box, "Loading permissions for " + a.email + "…");
+    BotoData.adminCapsFor(a.user_id).then(function (out) {
+      if (capEditorUid !== a.user_id) return; /* superseded by a later open */
+      box.innerHTML = "";
+      if (!out.ok) { adminPaneNote(box, out.error || "Could not load permissions."); closeCapEditor(); return; }
+      var data = out.data || {};
+      var granted = data.granted || [];
+      var title = document.createElement("h3");
+      title.textContent = "Permissions · " + a.email;
+      box.appendChild(title);
+      if (a.owner) {
+        var onote = document.createElement("p");
+        onote.className = "fhelp";
+        onote.textContent = "The owner holds everything, cannot be reduced, and cannot be removed.";
+        box.appendChild(onote);
+        box.appendChild(doneBtn());
+        refreshIcons();
+        return;
+      }
+      var boxes = [];
+      (data.catalog || []).forEach(function (c) {
+        var lab = document.createElement("label");
+        lab.className = "admin-cap-row";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = granted.indexOf(c.cap) > -1;
+        cb.dataset.cap = c.cap;
+        var txt = document.createElement("span");
+        var strong = document.createElement("strong");
+        strong.textContent = c.label || c.cap;
+        var em = document.createElement("em");
+        em.textContent = c.description || "";
+        txt.appendChild(strong);
+        txt.appendChild(em);
+        lab.appendChild(cb);
+        lab.appendChild(txt);
+        box.appendChild(lab);
+        boxes.push(cb);
+      });
+      var save = document.createElement("button");
+      save.type = "button";
+      save.className = "btn primary small";
+      save.textContent = "Save permissions";
+      save.addEventListener("click", function () {
+        var want = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.dataset.cap; });
+        var add = want.filter(function (c) { return granted.indexOf(c) < 0; });
+        var drop = granted.filter(function (c) { return want.indexOf(c) < 0; });
+        if (!add.length && !drop.length) { closeCapEditor(); return; }
+        save.disabled = true;
+        var step = function (list, fn) {
+          return list.reduce(function (p, cap) {
+            return p.then(function (acc) {
+              return fn(a.user_id, cap).then(function (res) {
+                if (!res.ok) throw new Error(res.error || "That did not work.");
+                return acc + 1;
+              });
+            });
+          }, Promise.resolve(0));
+        };
+        step(add, BotoData.adminGrantCap).then(function () {
+          return step(drop, BotoData.adminRevokeCap);
+        }).then(function () {
+          save.disabled = false;
+          closeCapEditor();
+          renderAdminRoster();
+          /* The editor can change what this very session may do. */
+          BotoData.adminStatus().then(function (res) {
+            if (res.ok && res.data) { ADMIN.caps = res.data.caps || []; renderAdminSections(); }
+          });
+          toast("Permissions updated.", null, null, 3200, "success");
+        }).catch(function (err) {
+          save.disabled = false;
+          renderAdminRoster();
+          toast(err.message || "Some changes were refused; the rest were applied.", null, null, 5200, "warn");
+        });
+      });
+      box.appendChild(save);
+      refreshIcons();
+    });
+  }
+
+  function doneBtn() {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn small";
+    b.textContent = "Close";
+    b.addEventListener("click", closeCapEditor);
+    return b;
   }
 
   function renderAdminReports() {
@@ -8400,20 +8592,23 @@
     });
   }
 
-  function renderAdminPanel() {
-    if (!adminAccountReady()) return;
-    /* Re-check the role every open: a tab cached visible must not outlive
-       the membership that made it visible. */
-    BotoData.isAdmin().then(function (yes) {
-      if (!yes) {
-        if (!$("settingsTabAdmin").hidden) refreshAdminTab();
-        return;
-      }
-      renderAdminWaitlist();
-      renderAdminApproved();
-      renderAdminRoster();
-      renderAdminReports();
-    });
+  /* Section visibility follows the capabilities the database reported at
+     boot. That is the same answer every RPC enforces for itself; hiding a
+     section here is only so the console does not offer work this session
+     cannot finish. */
+  function renderAdminSections() {
+    if (!ADMIN.route || ADMIN.view !== "adminDash") return;
+    var queue = adminHasCap("waitlist.manage");
+    $("adminSecWaitlist").hidden = !queue;
+    $("adminSecApproved").hidden = !queue;
+    if (queue) { renderAdminWaitlist(); renderAdminApproved(); }
+    $("adminSecAdmins").hidden = !adminHasCap("admins.manage");
+    if (adminHasCap("admins.manage")) renderAdminRoster();
+    $("adminSecReports").hidden = !adminHasCap("moderation.manage");
+    if (adminHasCap("moderation.manage")) renderAdminReports();
+    var none = !(queue || adminHasCap("admins.manage") || adminHasCap("moderation.manage"));
+    var note = $("adminNoCaps");
+    if (note) note.hidden = !none;
   }
 
   $("adminAddBtn").addEventListener("click", function () {
@@ -8708,6 +8903,7 @@
     }
     syncWorkspaceBadge();
     refreshAdminTab();
+    bootAdminRoute();
 
     /* Signed-in boot: the cache copy rendered above is the fast path.
        Now make it correct: unlock provider keys, adopt newer backend

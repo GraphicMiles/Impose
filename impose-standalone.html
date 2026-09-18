@@ -1744,8 +1744,87 @@ html.reduce-motion .send-ring-fill { transition: none; }
    action the role allows on that row. */
 .admin-row .admin-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .admin-row .admin-row-text strong { font-size: 13px; overflow-wrap: anywhere; }
-.admin-row .admin-row-text span { flex: none; font-size: 12px; color: var(--text-3); }
+.admin-row .admin-row-text span { flex: none; font-size: 12px; color: var(--text-3); overflow-wrap: anywhere; }
 .admin-row .btn.small, .admin-row .icon-btn { flex: none; }
+.admin-row .admin-row-acts { display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* ---------- admin console (/admin) ----------------------------------------
+   A full-page surface, not a dialog: it sits above the modal layer and
+   below toasts, scrolls on its own, and keeps every card on the sheets'
+   filled-surface language (no borders, radius from the locked scale). */
+.admin-page {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.admin-inner {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  padding: 30px 18px 72px;
+}
+.admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.admin-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.admin-mark {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-4);
+  background: var(--press);
+}
+.admin-mark .lucide, .admin-mark i[data-lucide] { width: 20px; height: 20px; }
+.admin-brand-copy { min-width: 0; }
+.admin-brand-copy strong { display: block; font-size: 16px; letter-spacing: -0.01em; }
+.admin-brand-copy span { display: block; font-size: 12.5px; color: var(--text-3); overflow-wrap: anywhere; }
+.admin-card {
+  margin-top: 16px;
+  padding: 18px 20px 20px;
+  border-radius: var(--r-6);
+  background: var(--pop);
+}
+.admin-card h2 { margin: 0 0 4px; font-size: 16px; line-height: 1.3; letter-spacing: -0.01em; }
+.admin-help { margin: 0 0 14px; font-size: 13px; line-height: 1.55; color: var(--text-2); }
+.admin-card .btn.primary { margin-top: 4px; }
+.admin-bootstrap-list { display: grid; gap: 9px; margin: 12px 0 16px; padding: 0; list-style: none; }
+.admin-bootstrap-list li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.admin-bootstrap-list .lucide, .admin-bootstrap-list i[data-lucide] { width: 16px; height: 16px; margin-top: 3px; color: var(--text-3); }
+.admin-cap-editor { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.admin-cap-editor h3 { margin: 0 0 6px; font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+.admin-cap-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 9px 0;
+  border-top: 1px solid var(--border-soft);
+  cursor: pointer;
+}
+.admin-cap-row:first-of-type { border-top: 0; }
+.admin-cap-row input[type="checkbox"] { width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--text); }
+.admin-cap-row strong { display: block; font-size: 13.5px; font-weight: 500; }
+.admin-cap-row em { display: block; margin-top: 2px; font-style: normal; font-size: 12px; line-height: 1.45; color: var(--text-3); }
+.admin-cap-editor .btn { margin-top: 12px; }
+.admin-nocaps { margin-top: 16px; }
+@media (max-width: 480px) {
+  .admin-inner { padding: 20px 14px 60px; }
+  .admin-head { flex-wrap: wrap; }
+}
 
 .lib-row {
   display: flex;
@@ -4476,10 +4555,16 @@ try {
       <button type="button" data-stab="prompts" role="tab" aria-selected="false">Prompts</button>
       <button type="button" data-stab="usage" role="tab" aria-selected="false">Usage</button>
       <button type="button" data-stab="data" role="tab" aria-selected="false">Data</button>
-      <button type="button" data-stab="admin" role="tab" aria-selected="false" id="settingsTabAdmin" hidden>Admin</button>
     </div>
     <div class="settings-body">
       <div data-pane="general">
+
+        <section class="settings-section" id="adminLinkSection" hidden>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Admin console</strong><span>Waitlist, admins and reports, at /admin</span></div>
+            <a class="btn" id="adminConsoleLink" href="./admin"><i data-lucide="shield"></i><span>Open</span></a>
+          </div>
+        </section>
 
         <section class="settings-section">
           <h3>Messages</h3>
@@ -4579,32 +4664,84 @@ try {
         </section>
         <p class="version">Botocracy 1.2. Keys and chats stay in this browser.</p>
       </div>
-      <div data-pane="admin" hidden>
-        <section class="settings-section">
-          <h3>Waitlist</h3>
-          <p class="fhelp">Granting records workspace access at once and sends the promised approval email. Only addresses with a signed-up account can be granted.</p>
-          <div id="adminWaitlist"></div>
-        </section>
-        <section class="settings-section">
-          <h3>Approved</h3>
-          <p class="fhelp">Already granted. Resend from here if the approval email did not land the first time.</p>
-          <div id="adminApproved"></div>
-        </section>
-        <section class="settings-section">
-          <h3>Admins</h3>
-          <p class="fhelp">Admins approve the waitlist and manage this list. An admin must already have an account. The owner cannot be removed.</p>
-          <div id="adminRoster"></div>
-          <div class="mem-add">
-            <input type="email" class="text-input" id="adminAddEmail" placeholder="Add an admin by email" autocomplete="off" maxlength="254">
-            <button class="btn" id="adminAddBtn" type="button"><i data-lucide="plus"></i><span>Add admin</span></button>
-          </div>
-        </section>
-        <section class="settings-section">
-          <h3>Reports</h3>
-          <p class="fhelp">What readers flagged. Reviewing a report is done by an operator; this view is read-only.</p>
-          <div id="adminReports"></div>
-        </section>
+    </div>
+  </div>
+</div>
+
+<!-- Admin console: same application, its own surface at /admin. The route
+     is public by design; the boundary is not. Every read and write goes
+     through SECURITY DEFINER RPCs that re-check this session's capabilities
+     in the database, so which sections appear here is presentation, and
+     what they can do is decided server-side, per action. -->
+<div class="admin-page" id="adminApp" hidden>
+  <div class="admin-inner">
+    <header class="admin-head">
+      <div class="admin-brand">
+        <span class="admin-mark"><i data-lucide="shield"></i></span>
+        <div class="admin-brand-copy">
+          <strong>Impose admin</strong>
+          <span id="adminWho">&nbsp;</span>
+        </div>
       </div>
+      <a class="btn" id="adminExit" href="./"><span>Back to Community</span></a>
+    </header>
+
+    <section class="admin-card" id="adminBooting">
+      <p class="pane-note">Checking this account&hellip;</p>
+    </section>
+
+    <section class="admin-card" id="adminSignedOut" hidden>
+      <h2>Sign in to continue</h2>
+      <p class="admin-help">The console runs on your normal Impose account. Nothing is trusted from the browser: every action re-checks what this account may do, every time.</p>
+      <a class="btn primary" id="adminSignIn" href="./sign-in?back=/admin"><span>Sign in</span></a>
+    </section>
+
+    <section class="admin-card" id="adminDenied" hidden>
+      <h2>Not available to this account</h2>
+      <p class="admin-help">This is the workspace administration console. If you think this account should hold it, ask whoever manages this installation.</p>
+      <a class="btn" href="./"><span>Back to Community</span></a>
+    </section>
+
+    <section class="admin-card admin-bootstrap" id="adminBootstrap" hidden>
+      <h2>One-time setup</h2>
+      <p class="admin-help">You are the seeded owner. Completing setup claims the owner role for this account and closes the bootstrap permanently: it cannot be replayed, from here or anywhere else. Afterwards, authority is only ever "which capabilities does this account hold".</p>
+      <ul class="admin-bootstrap-list">
+        <li><i data-lucide="key-round"></i><span>You hold every capability, including adding and reducing other admins.</span></li>
+        <li><i data-lucide="shield-check"></i><span>Your admin row cannot be removed or stripped. There is no lockout path by design.</span></li>
+        <li><i data-lucide="users"></i><span>Admins you add start with queue rights only, until you widen them.</span></li>
+      </ul>
+      <button class="btn primary" id="adminBootstrapGo" type="button">Claim ownership</button>
+    </section>
+
+    <div id="adminDash" hidden>
+      <div class="admin-nocaps" id="adminNoCaps" hidden>
+        <p class="pane-note">Your admin account holds no console permissions yet. The owner grants them from the Admins section.</p>
+      </div>
+      <section class="admin-card" id="adminSecWaitlist" hidden>
+        <h2>Waitlist</h2>
+        <p class="admin-help">Granting records workspace access at once and sends the promised approval email. Only addresses with a signed-up account can be granted.</p>
+        <div id="adminWaitlist"></div>
+      </section>
+      <section class="admin-card" id="adminSecApproved" hidden>
+        <h2>Approved</h2>
+        <p class="admin-help">Already granted. Resend from here if the approval email did not land the first time.</p>
+        <div id="adminApproved"></div>
+      </section>
+      <section class="admin-card" id="adminSecAdmins" hidden>
+        <h2>Admins</h2>
+        <p class="admin-help">Admins must already have an account. Each one acts only within their capabilities; the owner can widen or reduce them here. The owner cannot be removed or reduced.</p>
+        <div id="adminRoster"></div>
+        <div class="mem-add">
+          <input type="email" class="text-input" id="adminAddEmail" placeholder="Add an admin by email" autocomplete="off" maxlength="254">
+          <button class="btn" id="adminAddBtn" type="button"><i data-lucide="plus"></i><span>Add admin</span></button>
+        </div>
+        <div class="admin-cap-editor" id="adminCapEditor" hidden></div>
+      </section>
+      <section class="admin-card" id="adminSecReports" hidden>
+        <h2>Reports</h2>
+        <p class="admin-help">What readers flagged. Acting on a report is done by an operator; this view is read-only.</p>
+        <div id="adminReports"></div>
+      </section>
     </div>
   </div>
 </div>
@@ -15763,13 +15900,6 @@ window.BotoConfig = {
   }
 
   function switchTab(name) {
-    /* The admin pane only exists for accounts the database has placed in
-       the admins table. A hidden tab cannot be opened, by markup or by
-       code. */
-    if (name === "admin") {
-      var adminTab = $("settingsTabAdmin");
-      if (!adminTab || adminTab.hidden) name = "general";
-    }
     var tabs = settingsModal.querySelectorAll("[data-stab]");
     tabs.forEach(function (b) {
       b.setAttribute("aria-selected", b.dataset.stab === name ? "true" : "false");
@@ -15781,7 +15911,7 @@ window.BotoConfig = {
     if (name === "usage") renderUsage();
     if (name === "prompts") renderLibrary();
     if (name === "providers") renderRelayCard();
-    if (name === "admin") renderAdminPanel();
+    if (name === "general") refreshAdminTab();
   }
 
   /* First-run onboarding: once, and only for people with nothing set up. */
@@ -17149,30 +17279,107 @@ window.BotoConfig = {
     box.innerHTML = html;
   }
 
-  /* ---------- admin panel ----------
-     The tab exists in the markup but stays hidden until the signed-in
-     account is proven to sit in the admins table. Every read and write
-     goes through SECURITY DEFINER RPCs that re-check the caller server
-     side, so the panel is a convenience, never the boundary. The one
-     relay call here - the approval email - authenticates with this
+  /* ---------- admin console (/admin) ----------
+     The route is public and stays that way: it is a door, not a wall.
+     Which view the door shows is decided by the database (admin_bootstrap_
+     status: is this an admin, is the bootstrap claimed, what capabilities
+     does the session hold), and every read and write afterwards is a
+     SECURITY DEFINER RPC that re-checks the caller's capabilities per
+     action. Hiding a section here is presentation; the refusal that would
+     back it up exists server-side whether this file likes it or not. The
+     one relay call - the approval email - authenticates with this
      session's own token; CONTROL_KEY never enters the browser. */
+
+  var ADMIN = {
+    route: /^\/admin\/?$/.test(window.location.pathname || ""),
+    caps: [],
+    view: null
+  };
+
+  function adminHasCap(cap) {
+    return ADMIN.caps.indexOf(cap) > -1;
+  }
 
   function adminAccountReady() {
     return !!(window.WSync && WSync.accountMode()) &&
            !!(window.BotoData && BotoData.configured());
   }
 
-  function refreshAdminTab() {
-    var tab = $("settingsTabAdmin");
-    if (!tab) return;
-    if (!adminAccountReady()) { tab.hidden = true; return; }
-    BotoData.isAdmin().then(function (yes) {
-      tab.hidden = !yes;
-      /* Losing the role while the panel is open (removed by another
-         admin) drops the viewer back out instead of leaving a dead pane. */
-      if (!yes && tab.getAttribute("aria-selected") === "true") switchTab("general");
+  var ADMIN_VIEWS = ["adminBooting", "adminSignedOut", "adminDenied",
+                     "adminBootstrap", "adminDash"];
+
+  function showAdminView(id) {
+    ADMIN.view = id;
+    ADMIN_VIEWS.forEach(function (v) {
+      var el = $(v);
+      if (el) el.hidden = v !== id;
+    });
+    refreshIcons();
+  }
+
+  function bootAdminRoute() {
+    if (!ADMIN.route) return;
+    document.body.classList.add("admin-route");
+    var app = $("adminApp");
+    if (!app) return;
+    app.hidden = false;
+    showAdminView("adminBooting");
+    if (!adminAccountReady()) { showAdminView("adminSignedOut"); return; }
+    try {
+      var acct = JSON.parse(localStorage.getItem("impose.auth.v1") || "null");
+      var who = $("adminWho");
+      if (who && acct && acct.email) who.textContent = "signed in as " + acct.email;
+    } catch (e) { /* no account cache; the line stays blank */ }
+    BotoData.adminStatus().then(function (out) {
+      if (!out.ok) { showAdminView("adminSignedOut"); return; }
+      var st = out.data || {};
+      ADMIN.caps = st.caps || [];
+      if (!st.is_admin) { showAdminView("adminDenied"); return; }
+      if (st.pending) { showAdminView("adminBootstrap"); return; }
+      showAdminView("adminDash");
+      renderAdminSections();
     });
   }
+
+  /* The settings pointer row: shown only when the database still says
+     this account is an admin. Losing the role while signed in hides it;
+     the console itself re-checks on every action regardless. */
+  function refreshAdminTab() {
+    var row = $("adminLinkSection");
+    if (row) row.hidden = true;
+    if (!adminAccountReady()) { ADMIN.caps = []; return; }
+    BotoData.adminStatus().then(function (out) {
+      ADMIN.caps = (out.ok && out.data && out.data.caps) || [];
+      if (row) row.hidden = !(out.ok && out.data && out.data.is_admin);
+      /* The console is a live view on /admin; a revoked role should drop
+         out of it rather than sit on dead sections. */
+      if (ADMIN.route && ADMIN.view === "adminDash" && !(out.ok && out.data && out.data.is_admin)) {
+        showAdminView("adminDenied");
+      }
+    });
+    /* The console is a served route; a file:// copy has nothing to open.
+       Hide the pointer rather than offer a dead link. */
+    if (window.location.protocol === "file:" && row) row.hidden = true;
+  }
+
+  $("adminBootstrapGo").addEventListener("click", function () {
+    var btn = $("adminBootstrapGo");
+    btn.disabled = true;
+    BotoData.adminBootstrapClaim().then(function (out) {
+      btn.disabled = false;
+      if (!out.ok) {
+        toast(out.error || "That did not work.", null, null, 4200, "warn");
+        if (out.code === "bootstrap_used") bootAdminRoute();
+        return;
+      }
+      toast("Owner role claimed. The bootstrap is closed.", null, null, 4000, "success");
+      BotoData.adminStatus().then(function (res) {
+        if (res.ok && res.data) ADMIN.caps = res.data.caps || ADMIN.caps;
+        showAdminView("adminDash");
+        renderAdminSections();
+      });
+    });
+  });
 
   function adminPaneNote(box, text) {
     box.innerHTML = "";
@@ -17333,11 +17540,23 @@ window.BotoConfig = {
         var name = document.createElement("strong");
         name.textContent = a.email;
         var sub = document.createElement("span");
-        sub.textContent = (a.owner ? "owner · " : "") + "added " + fmtAdminDate(a.created_at);
+        var held = (a.caps || []).join(", ");
+        sub.textContent = (a.owner ? "owner · holds everything · " : (held || "no capabilities") + " · ") +
+          "added " + fmtAdminDate(a.created_at);
         left.appendChild(name);
         left.appendChild(sub);
         row.appendChild(left);
         if (!a.owner) {
+          var acts = document.createElement("div");
+          acts.className = "admin-row-acts";
+          if (adminHasCap("admins.manage")) {
+            var edit = document.createElement("button");
+            edit.type = "button";
+            edit.className = "btn small";
+            edit.textContent = "Permissions";
+            edit.addEventListener("click", function () { openCapEditor(a); });
+            acts.appendChild(edit);
+          }
           var x = document.createElement("button");
           x.type = "button";
           x.className = "icon-btn sm";
@@ -17349,16 +17568,126 @@ window.BotoConfig = {
               BotoData.adminRemove(a.user_id).then(function (res) {
                 toast(res.ok ? a.email + " is no longer an admin." : (res.error || "That did not work."),
                       null, null, 4000, res.ok ? "success" : "warn");
-                if (res.ok) renderAdminRoster();
+                if (res.ok) { closeCapEditor(); renderAdminRoster(); }
               });
             }, 8000, "warn");
           });
-          row.appendChild(x);
+          acts.appendChild(x);
+          row.appendChild(acts);
         }
         box.appendChild(row);
       });
       refreshIcons();
     });
+  }
+
+  /* ---- capability editor ----
+     The checkbox list is convenience; the grant/revoke RPCs each
+     re-verify admins.manage against the database, and admin_revoke_cap
+     keeps its own invariants (nobody to zero, never the owner) no matter
+     what this form submits. */
+  var capEditorUid = null;
+
+  function closeCapEditor() {
+    capEditorUid = null;
+    var box = $("adminCapEditor");
+    if (box) { box.hidden = true; box.innerHTML = ""; }
+  }
+
+  function openCapEditor(a) {
+    var box = $("adminCapEditor");
+    if (!box) return;
+    if (capEditorUid === a.user_id) { closeCapEditor(); return; }
+    capEditorUid = a.user_id;
+    box.hidden = false;
+    adminPaneNote(box, "Loading permissions for " + a.email + "…");
+    BotoData.adminCapsFor(a.user_id).then(function (out) {
+      if (capEditorUid !== a.user_id) return; /* superseded by a later open */
+      box.innerHTML = "";
+      if (!out.ok) { adminPaneNote(box, out.error || "Could not load permissions."); closeCapEditor(); return; }
+      var data = out.data || {};
+      var granted = data.granted || [];
+      var title = document.createElement("h3");
+      title.textContent = "Permissions · " + a.email;
+      box.appendChild(title);
+      if (a.owner) {
+        var onote = document.createElement("p");
+        onote.className = "fhelp";
+        onote.textContent = "The owner holds everything, cannot be reduced, and cannot be removed.";
+        box.appendChild(onote);
+        box.appendChild(doneBtn());
+        refreshIcons();
+        return;
+      }
+      var boxes = [];
+      (data.catalog || []).forEach(function (c) {
+        var lab = document.createElement("label");
+        lab.className = "admin-cap-row";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = granted.indexOf(c.cap) > -1;
+        cb.dataset.cap = c.cap;
+        var txt = document.createElement("span");
+        var strong = document.createElement("strong");
+        strong.textContent = c.label || c.cap;
+        var em = document.createElement("em");
+        em.textContent = c.description || "";
+        txt.appendChild(strong);
+        txt.appendChild(em);
+        lab.appendChild(cb);
+        lab.appendChild(txt);
+        box.appendChild(lab);
+        boxes.push(cb);
+      });
+      var save = document.createElement("button");
+      save.type = "button";
+      save.className = "btn primary small";
+      save.textContent = "Save permissions";
+      save.addEventListener("click", function () {
+        var want = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.dataset.cap; });
+        var add = want.filter(function (c) { return granted.indexOf(c) < 0; });
+        var drop = granted.filter(function (c) { return want.indexOf(c) < 0; });
+        if (!add.length && !drop.length) { closeCapEditor(); return; }
+        save.disabled = true;
+        var step = function (list, fn) {
+          return list.reduce(function (p, cap) {
+            return p.then(function (acc) {
+              return fn(a.user_id, cap).then(function (res) {
+                if (!res.ok) throw new Error(res.error || "That did not work.");
+                return acc + 1;
+              });
+            });
+          }, Promise.resolve(0));
+        };
+        step(add, BotoData.adminGrantCap).then(function () {
+          return step(drop, BotoData.adminRevokeCap);
+        }).then(function () {
+          save.disabled = false;
+          closeCapEditor();
+          renderAdminRoster();
+          /* The editor can change what this very session may do. */
+          BotoData.adminStatus().then(function (res) {
+            if (res.ok && res.data) { ADMIN.caps = res.data.caps || []; renderAdminSections(); }
+          });
+          toast("Permissions updated.", null, null, 3200, "success");
+        }).catch(function (err) {
+          save.disabled = false;
+          renderAdminRoster();
+          toast(err.message || "Some changes were refused; the rest were applied.", null, null, 5200, "warn");
+        });
+      });
+      box.appendChild(save);
+      refreshIcons();
+    });
+  }
+
+  function doneBtn() {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn small";
+    b.textContent = "Close";
+    b.addEventListener("click", closeCapEditor);
+    return b;
   }
 
   function renderAdminReports() {
@@ -17389,20 +17718,23 @@ window.BotoConfig = {
     });
   }
 
-  function renderAdminPanel() {
-    if (!adminAccountReady()) return;
-    /* Re-check the role every open: a tab cached visible must not outlive
-       the membership that made it visible. */
-    BotoData.isAdmin().then(function (yes) {
-      if (!yes) {
-        if (!$("settingsTabAdmin").hidden) refreshAdminTab();
-        return;
-      }
-      renderAdminWaitlist();
-      renderAdminApproved();
-      renderAdminRoster();
-      renderAdminReports();
-    });
+  /* Section visibility follows the capabilities the database reported at
+     boot. That is the same answer every RPC enforces for itself; hiding a
+     section here is only so the console does not offer work this session
+     cannot finish. */
+  function renderAdminSections() {
+    if (!ADMIN.route || ADMIN.view !== "adminDash") return;
+    var queue = adminHasCap("waitlist.manage");
+    $("adminSecWaitlist").hidden = !queue;
+    $("adminSecApproved").hidden = !queue;
+    if (queue) { renderAdminWaitlist(); renderAdminApproved(); }
+    $("adminSecAdmins").hidden = !adminHasCap("admins.manage");
+    if (adminHasCap("admins.manage")) renderAdminRoster();
+    $("adminSecReports").hidden = !adminHasCap("moderation.manage");
+    if (adminHasCap("moderation.manage")) renderAdminReports();
+    var none = !(queue || adminHasCap("admins.manage") || adminHasCap("moderation.manage"));
+    var note = $("adminNoCaps");
+    if (note) note.hidden = !none;
   }
 
   $("adminAddBtn").addEventListener("click", function () {
@@ -17697,6 +18029,7 @@ window.BotoConfig = {
     }
     syncWorkspaceBadge();
     refreshAdminTab();
+    bootAdminRoute();
 
     /* Signed-in boot: the cache copy rendered above is the fast path.
        Now make it correct: unlock provider keys, adopt newer backend
@@ -18279,6 +18612,29 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (/last_admin/i.test(text)) {
       return { message: "There has to be at least one admin.", retryable: false, code: "last_admin" };
     }
+    /* The 0018 capability refusals. The wording says what the account
+       lacks, never what the system contains: a stranger learns nothing
+       from a refusal. */
+    if (/missing_capability/i.test(text)) {
+      return { message: "Your admin account does not hold that permission.",
+               retryable: false, code: "missing_capability" };
+    }
+    if (/bootstrap_used/i.test(text)) {
+      return { message: "Setup was already completed on this installation.",
+               retryable: false, code: "bootstrap_used" };
+    }
+    if (/last_capability/i.test(text)) {
+      return { message: "That is their last permission. Remove the admin instead.",
+               retryable: false, code: "last_capability" };
+    }
+    if (/not_an_admin/i.test(text)) {
+      return { message: "Only accounts already on the admin list can hold permissions.",
+               retryable: false, code: "not_an_admin" };
+    }
+    if (/unknown_capability/i.test(text)) {
+      return { message: "That permission is not one this product knows.",
+               retryable: false, code: "unknown_capability" };
+    }
     /* Anything unrecognised is assumed transient: telling someone to retry
        a permanent failure wastes a tap, but telling them a transient one
        is permanent loses their work. */
@@ -18637,6 +18993,30 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function adminGrant(email) {
     return adminRpc("admin_grant", { p_email: String(email || "").trim() });
+  }
+
+  /* Bootstrap and capabilities. Status is safe for any signed-in
+     account (four facts about the caller, no identities); the claim is
+     one-time and the database enforces both, never the page. */
+  function adminStatus() {
+    return adminRpc("admin_bootstrap_status");
+  }
+
+  function adminBootstrapClaim() {
+    return adminRpc("admin_bootstrap_claim");
+  }
+
+  function adminCapsFor(userId) {
+    return adminRpc("admin_caps_for",
+      userId ? { p_user_id: userId } : {});
+  }
+
+  function adminGrantCap(userId, cap) {
+    return adminRpc("admin_grant_cap", { p_user_id: userId, p_cap: cap });
+  }
+
+  function adminRevokeCap(userId, cap) {
+    return adminRpc("admin_revoke_cap", { p_user_id: userId, p_cap: cap });
   }
 
   /* The signed-in session token, for calls the relay authenticates by
@@ -19087,6 +19467,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     adminAdd: adminAdd,
     adminRemove: adminRemove,
     adminGrant: adminGrant,
+    adminStatus: adminStatus,
+    adminBootstrapClaim: adminBootstrapClaim,
+    adminCapsFor: adminCapsFor,
+    adminGrantCap: adminGrantCap,
+    adminRevokeCap: adminRevokeCap,
     sessionToken: sessionToken
   };
 })();

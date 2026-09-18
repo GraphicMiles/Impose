@@ -286,10 +286,10 @@ reset role;
 
 reset role;
 insert into auth.users (id, email) values
-  ('55555555-5555-5555-5555-555555555555', 'cara@test.com');
+  ('66666666-6666-6666-6666-666666666666', 'cara@test.com');
 
 set role authenticated;
-set request.jwt.claim.sub = '55555555-5555-5555-5555-555555555555';
+set request.jwt.claim.sub = '66666666-6666-6666-6666-666666666666';
 
 -- Idempotency. The same key replayed must not produce a second post.
 select test_ok('a post is created through the RPC',
@@ -334,7 +334,7 @@ select test_ok('updated_at is set on insert',
 
 -- Keyset pagination. Insert enough to page, then walk it.
 insert into public.generations (author_id, prompt, response, created_at)
-select '55555555-5555-5555-5555-555555555555', 'p' || i, 'body',
+select '66666666-6666-6666-6666-666666666666', 'p' || i, 'body',
        now() - (i || ' minutes')::interval
   from generate_series(1, 12) i;
 
@@ -378,7 +378,7 @@ values ('11111111-1111-1111-1111-111111111111', 'from-ada', 'x');
 select test_ok('your own new post does not raise your own counter',
   public.feed_since((select at from probe_mark)) = (select n from probe_before));
 
-set request.jwt.claim.sub = '55555555-5555-5555-5555-555555555555';
+set request.jwt.claim.sub = '66666666-6666-6666-6666-666666666666';
 select test_ok('but another reader is told about it',
   public.feed_since((select at from probe_mark)) > 0);
 
@@ -400,7 +400,7 @@ set role anon;
 select test_denied('anon cannot read the rate counters', $$select * from public.rate_counters$$);
 select test_denied('anon cannot read idempotency keys of others', $$
   insert into public.idempotency_keys (key, user_id, request_hash)
-  values (gen_random_uuid(), '55555555-5555-5555-5555-555555555555', 'x')$$);
+  values (gen_random_uuid(), '66666666-6666-6666-6666-666666666666', 'x')$$);
 reset role;
 
 -- ============ the relay's own grants (0008) ============
@@ -1002,6 +1002,140 @@ select test_denied('an unknown report status is refused', $$
   select public.admin_reports('odd')$$);
 
 reset role;
+
+-- ============ capabilities and bootstrap (0018) ============
+-- The blunt is_admin() switch became a (user, capability) grant with the
+-- action -> capability contract declared in the database itself. These
+-- tests prove the parts a client cannot fake: revocations bite at once,
+-- the unknown action fails closed, the bootstrap is exactly one claim,
+-- and an outsider learns nothing about the admin system's shape.
+reset role;
+insert into auth.users (id, email) values
+  ('77777777-7777-7777-7777-777777777777', 'carol@company.com');
+
+set role anon;
+select test_denied('anon cannot ask the bootstrap status', $$
+  select public.admin_bootstrap_status()$$);
+select test_denied('anon cannot claim the bootstrap', $$
+  select public.admin_bootstrap_claim()$$);
+
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_ok('bob is still nobody''s admin after the anon block', public.is_admin() = false);
+
+select test_ok('an ordinary account may ask the status, and learns four facts and nothing else',
+  (select count(*) from jsonb_object_keys(public.admin_bootstrap_status())) = 4
+  and (public.admin_bootstrap_status() ->> 'pending')::boolean
+  and public.admin_bootstrap_status() -> 'caps' = '[]'::jsonb);
+select test_denied('an ordinary account cannot claim the bootstrap', $$
+  select public.admin_bootstrap_claim()$$);
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+-- Counted through admin_caps_for rather than the raw table: authenticated
+-- has no grant on admin_caps, and adding one to peek would weaken the
+-- design the test exists to protect.
+-- Separate statements, deliberately: expression order inside one SELECT
+-- is not guaranteed, so add-check-remove-check chained with AND could
+-- evaluate the counts on the wrong side of the mutation.
+select test_ok('the pair of default capabilities is on the record',
+  public.admin_add('bob@test.com') ->> 'status' = 'added');
+select test_ok('and they read back before removal',
+  jsonb_array_length(public.admin_caps_for(
+    '22222222-2222-2222-2222-222222222222') -> 'granted') = 2);
+select test_ok('removal revokes every capability they held',
+  public.admin_remove('22222222-2222-2222-2222-222222222222') ->> 'status' = 'removed');
+select test_ok('and the record is empty again',
+  jsonb_array_length(public.admin_caps_for(
+    '22222222-2222-2222-2222-222222222222') -> 'granted') = 0);
+select test_ok('the owner holds the whole catalog implicitly, no rows needed',
+  jsonb_array_length(public.admin_bootstrap_status() -> 'caps') = 8
+  and public.has_cap('system.configure') and public.has_cap('billing.refund'));
+select test_denied('an action nobody declared a capability for is refused, even for the owner', $$
+  select public.require_cap('not_a_real_action')$$);
+
+select test_ok('the owner claims the bootstrap once',
+  public.admin_bootstrap_claim('first login') ->> 'status' = 'claimed');
+select test_denied('the bootstrap cannot be replayed, even by its claimer', $$
+  select public.admin_bootstrap_claim('again')$$);
+select test_ok('the ledger flips and keeps no identity of its own',
+  (public.admin_bootstrap_status() ->> 'claimed')::boolean
+  and not (public.admin_bootstrap_status() ->> 'pending')::boolean);
+
+select test_ok('the owner adds a co-admin',
+  public.admin_add('carol@company.com') ->> 'status' = 'added');
+
+set request.jwt.claim.sub = '77777777-7777-7777-7777-777777777777';
+
+select test_ok('the co-admin starts with the queue rights and nothing sensitive',
+  public.has_cap('waitlist.manage') and public.has_cap('moderation.manage')
+  and not public.has_cap('users.read') and not public.has_cap('admins.manage'));
+select test_ok('the co-admin can run the queue',
+  (select count(*) from public.admin_waitlist()) >= 0);
+select test_denied('the co-admin cannot manage admins', $$
+  select * from public.admin_roster()$$);
+select test_denied('the co-admin cannot mint capabilities', $$
+  select public.admin_grant_cap('77777777-7777-7777-7777-777777777777', 'users.read')$$);
+select test_denied('the co-admin cannot read the capability structures', $$
+  select public.admin_caps_for(null)$$);
+select test_ok('the co-admin can still read reports',
+  jsonb_typeof(public.admin_reports()) = 'array');
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+select test_denied('a capability not in the catalog cannot be granted', $$
+  select public.admin_grant_cap('77777777-7777-7777-7777-777777777777', 'billing.secret')$$);
+select test_denied('capabilities cannot be granted to non-admins', $$
+  select public.admin_grant_cap('22222222-2222-2222-2222-222222222222', 'users.read')$$);
+select test_ok('the owner grants a capability',
+  public.admin_grant_cap('77777777-7777-7777-7777-777777777777', 'users.read') ->> 'status' = 'granted');
+
+set request.jwt.claim.sub = '77777777-7777-7777-7777-777777777777';
+select test_ok('the grant takes effect on the next call', public.has_cap('users.read'));
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_ok('a revocation is reported with what remains',
+  public.admin_revoke_cap('77777777-7777-7777-7777-777777777777', 'users.read') ->> 'remaining' = '2');
+select test_ok('down to one is still allowed, it is zero that is guarded',
+  public.admin_revoke_cap('77777777-7777-7777-7777-777777777777', 'waitlist.manage') ->> 'remaining' = '1');
+select test_denied('an admin cannot be stripped of every capability (they would be invisible dead weight)', $$
+  select public.admin_revoke_cap('77777777-7777-7777-7777-777777777777', 'moderation.manage')$$);
+reset role;
+select test_ok('the refused revocation changed nothing: the one grant stands',
+  (select count(*) from public.admin_caps
+    where user_id = '77777777-7777-7777-7777-777777777777') = 1
+  and (select cap from public.admin_caps
+    where user_id = '77777777-7777-7777-7777-777777777777') = 'moderation.manage');
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_denied('the owner cannot be stripped of anything', $$
+  select public.admin_revoke_cap('11111111-1111-1111-1111-111111111111', 'waitlist.manage')$$);
+select test_ok('the catalog and one admin grants come back for the roster editor',
+  jsonb_array_length((public.admin_caps_for('77777777-7777-7777-7777-777777777777')) -> 'catalog') = 8
+  and (public.admin_caps_for('77777777-7777-7777-7777-777777777777') ->> 'granted')
+      = '["moderation.manage"]');
+select test_ok('the roster carries caps per row: eight for the owner, one for the co-admin',
+  (select jsonb_array_length(r.caps) = 8 from public.admin_roster() r
+    where r.user_id = '11111111-1111-1111-1111-111111111111')
+  and (select jsonb_array_length(r.caps) = 1 from public.admin_roster() r
+    where r.user_id = '77777777-7777-7777-7777-777777777777'));
+
+set request.jwt.claim.sub = '77777777-7777-7777-7777-777777777777';
+select test_denied('the co-admin lost the right to grant seats at the moment the cap was revoked', $$
+  select public.admin_grant('waiter@company.com')$$);
+select test_ok('a revoked capability reads false rather than raising',
+  public.has_cap('waitlist.manage') = false);
+select test_ok('the capability the co-admin still holds still works',
+  jsonb_typeof(public.admin_reports()) = 'array');
+select test_denied('authenticated cannot read the grants table directly', $$
+  select * from public.admin_caps$$);
+select test_denied('nor the bootstrap ledger', $$
+  select * from public.admin_bootstrap$$);
+select test_denied('nor the action contract', $$
+  select * from public.admin_action_caps$$);
+select test_denied('nor write the catalog', $$
+  insert into public.admin_capabilities (cap, label, description)
+  values ('anything.at.all', 'x', 'y')$$);
 
 \echo ''
 \echo 'All schema assertions passed.'
