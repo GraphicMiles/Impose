@@ -202,15 +202,16 @@ select test_denied('saving on behalf of another user is refused', $$
 -- ------------------------------------------------------------ waitlist
 reset role;
 -- Called twice on purpose: a retry or a double tap must not create a
--- second row or move the person down the queue.
-select public.join_waitlist('someone@test.com');
-select public.join_waitlist('someone@test.com');
+-- second row or move the person down the queue. The domain must not be
+-- one the disposable list refuses: test.com is on it, deliberately.
+select public.join_waitlist('someone@company.com');
+select public.join_waitlist('someone@company.com');
 select test_ok('the waitlist RPC is idempotent',
-  (select count(*) from public.waitlist where email = 'someone@test.com') = 1);
+  (select count(*) from public.waitlist where email = 'someone@company.com') = 1);
 
 select test_ok('waitlist addresses are case insensitive',
-  (select count(*) from (select public.join_waitlist('SOMEONE@Test.com')) x) = 1
-  and (select count(*) from public.waitlist where email = 'someone@test.com') = 1);
+  (select count(*) from (select public.join_waitlist('SOMEONE@Company.com')) x) = 1
+  and (select count(*) from public.waitlist where email = 'someone@company.com') = 1);
 
 select test_denied('the waitlist RPC validates the address server side', $$
   select public.join_waitlist('not-an-email')$$);
@@ -280,9 +281,6 @@ set role anon;
 select test_denied('anon cannot read pending codes', $$select * from public.auth_codes$$);
 select test_denied('anon cannot read reset tickets', $$select * from public.auth_tickets$$);
 reset role;
-
-\echo ''
-\echo 'All schema assertions passed.'
 
 -- ============ canonical db (0004) ============
 
@@ -517,3 +515,156 @@ select test_ok('the author can still build on their own locked post',
   (select id from public.create_generation(gen_random_uuid(), 'mine', 'x', false,
     'complete', 'public', 'remix', 'cccccccc-0000-0000-0000-00000000000a')) is not null);
 reset role;
+
+-- ============ adversarial hardening (0013) ============
+-- Confirmed against the live project before this migration existed: anon
+-- and authenticated held TRUNCATE on almost every table (which does not
+-- consult RLS), update_my_profile accepted any string of any length, and
+-- join_waitlist validated shape only. These pin the fixes.
+
+reset role;
+
+-- ---------------------------------------------------------- privileges
+select test_ok('anon cannot truncate any table',
+  (select count(*) from (values ('auth_codes'),('auth_tickets'),('comments'),
+     ('generations'),('idempotency_keys'),('notifications'),('profiles'),
+     ('rate_counters'),('saves'),('waitlist'),('workspace_grants')) as t(name)
+   where has_table_privilege('anon', 'public.' || t.name, 'TRUNCATE')) = 0);
+
+select test_ok('authenticated cannot truncate any table either',
+  (select count(*) from (values ('auth_codes'),('auth_tickets'),('comments'),
+     ('generations'),('idempotency_keys'),('notifications'),('profiles'),
+     ('rate_counters'),('saves'),('waitlist'),('workspace_grants')) as t(name)
+   where has_table_privilege('authenticated', 'public.' || t.name, 'TRUNCATE')) = 0);
+
+select test_ok('no trigger or references privileges survive on anon',
+  (select count(*) from (values ('auth_codes'),('auth_tickets'),('comments'),
+     ('generations'),('idempotency_keys'),('profiles'),('saves'),
+     ('waitlist'),('workspace_grants')) as t(name)
+   where has_table_privilege('anon', 'public.' || t.name, 'TRIGGER')
+      or has_table_privilege('anon', 'public.' || t.name, 'REFERENCES')) = 0);
+
+-- The intended grants must survive the sweep: public reads and the
+-- column-limited writes.
+select test_ok('public reads still work for anon',
+  has_table_privilege('anon', 'public.profiles', 'SELECT')
+  and has_table_privilege('anon', 'public.generations', 'SELECT')
+  and has_table_privilege('anon', 'public.comments', 'SELECT'));
+
+select test_ok('the lock/visibility/delete columns stay writable by authors',
+  has_column_privilege('authenticated', 'public.generations', 'locked', 'UPDATE')
+  and has_column_privilege('authenticated', 'public.generations', 'visibility', 'UPDATE')
+  and has_column_privilege('authenticated', 'public.generations', 'deleted_at', 'UPDATE'));
+
+-- ------------------------------------------------------ spammy shapes
+select test_ok('text_is_spammy flags the reported shapes',
+  public.text_is_spammy('skskdjdjdjdh')
+  and public.text_is_spammy('18w8e7shshsysysy')
+  and public.text_is_spammy('aaaaa')
+  and public.text_is_spammy('abcabcabc')
+  and public.text_is_spammy('brktwzx'));
+
+select test_ok('text_is_spammy passes ordinary names and addresses',
+  not public.text_is_spammy('Ada Lovelace')
+  and not public.text_is_spammy('mike.jones')
+  and not public.text_is_spammy('mississippi')
+  and not public.text_is_spammy('bookkeeper')
+  and not public.text_is_spammy('08031234567'));
+
+-- --------------------------------------------------------- profile rules
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+select public.update_my_profile('Alice A.', 'hello');
+select test_ok('an ordinary name and bio are kept',
+  (select display_name = 'Alice A.' and bio = 'hello'
+     from public.profiles where id = '11111111-1111-1111-1111-111111111111'));
+
+select test_denied('a keyboard-mash name is refused', $$
+  select public.update_my_profile('skskdjdjdjdh', null)$$);
+
+select test_denied('a repeated-block name is refused', $$
+  select public.update_my_profile('18w8e7shshsysysy', null)$$);
+
+select test_denied('one letter nine times is refused', $$
+  select public.update_my_profile('aaaaaaaaa', null)$$);
+
+select test_denied('a 44-character name is refused', $$
+  select public.update_my_profile(repeat('abcd', 11), null)$$);
+
+select test_denied('a symbol-only name is refused', $$
+  select public.update_my_profile('!!!!', null)$$);
+
+select test_denied('a one-character name is refused', $$
+  select public.update_my_profile('A', null)$$);
+
+select test_denied('a control character in the name is refused', $$
+  select public.update_my_profile(E'bad\u0007name', null)$$);
+
+select test_denied('an over-long bio is refused', $$
+  select public.update_my_profile(null, repeat('x', 301))$$);
+
+-- Zero-width marks are how one name impersonates another; they are
+-- stripped, not stored. (A null bio clears the bio by design, so these
+-- pass the bio explicitly.)
+select public.update_my_profile(E'A\u200blic\u2060e', 'hello');
+select test_ok('zero-width characters are stripped from names',
+  (select display_name from public.profiles
+    where id = '11111111-1111-1111-1111-111111111111') = 'Alice');
+
+-- Blank keeps the current name rather than erroring.
+select public.update_my_profile('   ', 'hello');
+select test_ok('a blank name keeps the current one',
+  (select display_name from public.profiles
+    where id = '11111111-1111-1111-1111-111111111111') = 'Alice');
+
+-- The rejected attempts above must not have touched the row.
+select test_ok('refused names changed nothing',
+  (select display_name = 'Alice' and bio = 'hello'
+     from public.profiles where id = '11111111-1111-1111-1111-111111111111'));
+
+-- No direct write path exists around the RPC.
+select test_denied('profiles cannot be written directly', $$
+  update public.profiles set display_name = 'forged'
+   where id = '11111111-1111-1111-1111-111111111111'$$);
+
+-- ------------------------------------------- signup-derived display names
+reset role;
+insert into auth.users (id, email) values
+  ('44444444-4444-4444-4444-444444444444',
+   'a.really.long.local.part.over.forty.characters@realmail.com');
+select test_ok('signup-derived names are capped at 40 characters',
+  (select char_length(display_name) <= 40 from public.profiles
+    where id = '44444444-4444-4444-4444-444444444444'));
+
+-- ---------------------------------------------------------- waitlist
+select test_denied('disposable domains are refused at the waitlist', $$
+  select public.join_waitlist('x@mailinator.com')$$);
+
+select test_denied('keyboard-mash local parts are refused at the waitlist', $$
+  select public.join_waitlist('skskdjdjdjdh@gmail.com')$$);
+
+select test_denied('over-long addresses are refused at the waitlist', $$
+  select public.join_waitlist(repeat('b', 250) || '@x.com')$$);
+
+select test_ok('an ordinary address still joins',
+  (select status from public.join_waitlist('fresh.person@gmail.com')) = 'pending');
+
+-- --------------------------------------------------- write-size guards
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+select test_denied('the RPC names an oversized prompt', $$
+  select public.create_generation(gen_random_uuid(), repeat('x', 4001), 'r')$$);
+
+select test_denied('the RPC names an empty prompt', $$
+  select public.create_generation(gen_random_uuid(), '   ', 'r')$$);
+
+select test_denied('the RPC names an oversized comment', $$
+  select public.create_comment(gen_random_uuid(),
+    'a0000000-0000-0000-0000-000000000001', repeat('x', 1001))$$);
+
+reset role;
+
+\echo ''
+\echo 'All schema assertions passed.'

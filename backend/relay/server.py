@@ -159,7 +159,10 @@ async def _correlate(request: Request, call_next):
     bury the ones that matter under feed traffic, and these are the ones
     that fail in ways the browser cannot see.
     """
-    rid = request.headers.get("X-Request-Id", "")[:64]
+    # The id travels back into a response header and into the log, so it is
+    # stripped of control characters first: an echoed request header is a
+    # classic injection point, and a log line is a spoofable one.
+    rid = re.sub(r"[\x00-\x1f\x7f]+", "", request.headers.get("X-Request-Id", ""))[:64]
     started = time.time()
     response = await call_next(request)
     if rid and request.url.path.startswith("/v1/auth/"):
@@ -1133,6 +1136,34 @@ _BLOCKED_EMAIL_DOMAINS = {
 _BLOCKED_EMAIL_PREFIXES = ("mailinator.", "yopmail.")
 
 
+def _local_part_is_spammy(local: str) -> bool:
+    """Keyboard mash and generated junk, caught by shape rather than judgement.
+
+    Signup derives the display name and handle from the local part, and an
+    account that cannot be named, warned, or reached is only good for spam.
+    The rules mirror the database's text_is_spammy exactly, so a string one
+    boundary refuses is refused by the other:
+
+      (.)\\1{4}    the same character five or more times in a row
+      (..)\\1\\1   a two-character block repeated three times in a row
+      (...)\\1\\1  a three-character block repeated three times in a row
+      letters >= 6 with no vowel: letter soup
+
+    Deliberately narrow: real names and real addresses always pass these,
+    so a false positive costs nothing but a retry with the address the
+    person actually owns.
+    """
+    value = str(local or "")
+    if re.search(r"(.)\1{4}", value):
+        return True
+    if re.search(r"(..)\1\1", value) or re.search(r"(...)\1\1", value):
+        return True
+    letters = re.sub(r"[^A-Za-z]", "", value)
+    if len(letters) >= 6 and not re.search(r"[aeiouAEIOU]", letters):
+        return True
+    return False
+
+
 def _otp_email(data: dict) -> str:
     email = str(data.get("email", "")).strip().lower()
 
@@ -1147,12 +1178,35 @@ def _otp_email(data: dict) -> str:
     if local.startswith(".") or local.endswith(".") or ".." in local:
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
 
+    # RFC 5321 caps the local part at 64. An address past that cannot be a
+    # mailbox, only an input probing how much we swallow.
+    if len(local) > 64:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+
     if domain in _BLOCKED_EMAIL_DOMAINS or domain.startswith(_BLOCKED_EMAIL_PREFIXES):
         raise HTTPException(
             status_code=400,
             detail="That email provider is not accepted. Use an address you can receive mail at.",
         )
 
+    return email
+
+
+def _signup_email(data: dict) -> str:
+    """The signup-only layer of address validation.
+
+    Reset and other flows reuse an address an account already carries, so
+    the shape rules apply to everyone but the quality rules apply only
+    here: a legacy account with an odd address must still be able to
+    recover, while a new account must not be minted from one.
+    """
+    email = _otp_email(data)
+    local = email.rpartition("@")[0]
+    if _local_part_is_spammy(local):
+        raise HTTPException(
+            status_code=400,
+            detail="That address looks made up. Use an email you can receive mail at.",
+        )
     return email
 
 
@@ -1206,8 +1260,26 @@ async def otp_request(request: Request):
     if not supabase_admin.configured():
         raise HTTPException(status_code=503, detail="accounts are not configured on the server")
 
+    if purpose == "reset":
+        # An address with no account gets an identical answer and no email.
+        # Sending a code anyway turned this endpoint into a mail relay for
+        # arbitrary inboxes: twelve requests an hour per IP, six per
+        # address, each one a real send from our provider to a stranger.
+        # The response shape is deliberately indistinguishable from the
+        # known-address path, so this cannot be probed for enumeration.
+        if not await supabase_admin.find_user_by_email(email):
+            return {
+                "ok": True,
+                "resend_in": otp_store.RESEND_COOLDOWN_SECONDS,
+                "expires_in": otp_store.CODE_TTL_SECONDS,
+                "delivery": "email" if mailer_configured() else "console",
+            }
+
     pending_user_id = None
     if purpose == "signup":
+        # The quality rules on top of the shape rules apply only to new
+        # accounts: a legacy address must still be able to reset.
+        email = _signup_email(data)
         password = _otp_password(data)
         existing = await supabase_admin.find_user_by_email(email)
         if existing:

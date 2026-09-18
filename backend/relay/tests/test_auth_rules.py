@@ -97,3 +97,52 @@ def test_a_dotless_domain_is_refused_as_malformed_not_as_a_provider():
     would send the reader looking for a different address when the address
     itself is the problem."""
     assert "valid email" in refuse(server._otp_email, "x@invalid", "email")
+
+
+@pytest.mark.parametrize("addr", [
+    # Keyboard mash: no vowels in twelve letters, and a bigram block
+    # repeating three times. The reported example.
+    "skskdjdjdjdh@gmail.com",
+    # Digits interleaved with a trigram-style repeat. The other one.
+    "18w8e7shshsysysy@outlook.com",
+    # One character six times in a row.
+    "aaaaaa@gmail.com",
+    # A three-character block three times.
+    "abcabcabc@yahoo.com",
+    # Consonant soup with no pattern but also no vowels.
+    "brktwzx@gmail.com",
+])
+def test_spammy_local_parts_are_refused_at_signup(addr):
+    """Signup derives the display name and handle from the local part, so
+    an account minted from one is unnameable and unreachable: exactly the
+    shape that exists to spam. The database enforces the same rules on
+    profile names and waitlist joins."""
+    detail = refuse(server._signup_email, addr, "email")
+    assert "made up" in detail, (addr, detail)
+
+
+@pytest.mark.parametrize("addr", [
+    "someone@gmail.com", "a.b@company.co.uk", "user+tag@outlook.com",
+    # The flows' working address and the shapes real mailboxes actually
+    # take: short, digit-heavy phone numbers, dotted names.
+    "a@b.com", "08031234567@gmail.com", "mike.jones@fastmail.com",
+    "ada@lovelace.dev", "ngozi.okafor@example-mail.net",
+])
+def test_real_addresses_still_pass_signup(addr):
+    assert server._signup_email({"email": addr}) == addr.lower()
+
+
+def test_an_over_long_local_part_is_refused():
+    """RFC 5321 caps the local part at 64 octets. Anything longer is not a
+    mailbox; it is an input testing how much of it we swallow."""
+    assert "valid email" in refuse(server._otp_email, "a" * 65 + "@x.com", "email")
+
+
+def test_the_spammy_rule_applies_to_signup_only():
+    """A legacy account with an odd address must still be able to reset
+    and sign in; the quality gate protects account creation, not
+    recovery."""
+    odd = "skskdjdjdjdh@gmail.com"
+    assert server._otp_email({"email": odd}) == odd
+    detail = refuse(server._signup_email, odd, "email")
+    assert "made up" in detail
