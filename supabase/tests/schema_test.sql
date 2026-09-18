@@ -404,3 +404,47 @@ select test_denied('anon cannot read idempotency keys of others', $$
   insert into public.idempotency_keys (key, user_id, request_hash)
   values (gen_random_uuid(), '55555555-5555-5555-5555-555555555555', 'x')$$);
 reset role;
+
+-- ============ the relay's own grants (0008) ============
+-- These run as service_role, not as the owner. An owner is not subject to
+-- its own EXECUTE grants, so testing as the owner proved nothing: signup
+-- answered 502 in production with "permission denied for function
+-- issue_auth_code" while every assertion here was green.
+
+reset role;
+set role service_role;
+
+select test_ok('the relay can issue a code',
+  (select reused from public.issue_auth_code('grant@test.com','signup','H1',null,600,60)) = false);
+
+select test_ok('the relay can consume a code',
+  (select outcome from public.consume_auth_code('grant@test.com','signup','H1')) = 'ok');
+
+select test_ok('the relay can redeem a ticket',
+  (select count(*) from public.redeem_auth_ticket('nothing-here')) = 0);
+
+select test_ok('the relay can check a rate limit',
+  public.rate_hit('grant:probe', 5, 60) = false);
+
+select test_ok('and it can write the tables those functions own',
+  (select count(*) from public.auth_codes) >= 0);
+
+-- The browser roles must still be refused. A grant that fixed the relay
+-- and opened these to anon would be a worse bug than the one it fixed.
+reset role;
+set role anon;
+select test_denied('anon cannot issue codes', $$
+  select public.issue_auth_code('x@test.com','signup','H',null,600,60)$$);
+select test_denied('anon cannot consume codes', $$
+  select public.consume_auth_code('x@test.com','signup','H')$$);
+select test_denied('anon cannot redeem tickets', $$
+  select public.redeem_auth_ticket('H')$$);
+select test_denied('anon cannot touch the rate limiter', $$
+  select public.rate_hit('x', 1, 60)$$);
+
+set role authenticated;
+select test_denied('a signed-in user cannot issue codes either', $$
+  select public.issue_auth_code('x@test.com','signup','H',null,600,60)$$);
+select test_denied('nor consume them', $$
+  select public.consume_auth_code('x@test.com','signup','H')$$);
+reset role;

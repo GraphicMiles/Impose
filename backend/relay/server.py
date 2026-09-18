@@ -61,7 +61,7 @@ from relay.videos import VideosFailed, engine_videos
 from relay.files import discover_files
 from relay import otp_store
 from relay import supabase_admin
-from relay.mailer import MailFailed, send_code, configured as mailer_configured
+from relay.mailer import MailFailed, send_code, configured as mailer_configured, probe as mailer_probe
 from relay.source_intelligence import CATALOG
 
 BASE_DIR = Path(os.environ.get("CP_DIR", str(Path(__file__).resolve().parent)))
@@ -1173,6 +1173,11 @@ async def otp_request(request: Request):
             # address on every retry. Remove it rather than leave a ghost.
             if pending_user_id:
                 await supabase_admin.delete_user(pending_user_id)
+            # The code row has to go too. Left behind, it holds the resend
+            # cooldown open, so the next attempt is told a live code exists
+            # and no second email is sent: one delivery failure locked the
+            # address out for the full ten minutes.
+            await otp_store.forget(email, purpose)
             raise HTTPException(status_code=502, detail="could not send the email just now; try again shortly")
 
     return {
@@ -1648,6 +1653,53 @@ def _status_note(gateway_up: bool, snap: dict, missing: list[str]) -> str:
     if snap.get("error"):
         return "Gateway probe failed: " + str(snap["error"])
     return "The configured gateway did not answer."
+
+
+@app.get("/admin/accounts")
+async def admin_accounts(request: Request):
+    """Why is signup failing? Answers it without reading the host's logs.
+
+    Every dependency of the account flow, checked for real rather than
+    reported from config. Two outages so far looked identical from the
+    outside, a 502 with a deliberately vague message, and both took a
+    round trip through Render's log viewer to tell apart: one was a
+    missing EXECUTE grant, the other a Sendlib rejection. This endpoint
+    distinguishes them in one call.
+
+    Behind CONTROL_KEY, because it names infrastructure. It reports whether
+    each credential is present and whether each dependency answers, never
+    the credentials themselves.
+    """
+    _authed(request)
+
+    out = {
+        "supabase_url": bool(os.environ.get("SUPABASE_URL", "").strip()),
+        "supabase_service_key": bool(os.environ.get("SUPABASE_SERVICE_KEY", "").strip()),
+        "otp_pepper": bool(os.environ.get("OTP_PEPPER", "").strip()),
+        "sendlib_key": bool(os.environ.get("SENDLIB_API_KEY", "").strip()),
+        "sendlib_from": bool(os.environ.get("SENDLIB_FROM", "").strip()),
+    }
+
+    # Can the relay actually call the code store? A grant can be missing
+    # while every variable is set, which is exactly what happened.
+    try:
+        await otp_store.peek_probe()
+        out["auth_codes_rpc"] = "ok"
+    except Exception as exc:
+        out["auth_codes_rpc"] = str(exc)[:200]
+
+    # Can it reach the mail provider, and what does the provider say?
+    if out["sendlib_key"] and out["sendlib_from"]:
+        try:
+            out["sendlib"] = await mailer_probe()
+        except Exception as exc:
+            out["sendlib"] = str(exc)[:200]
+    else:
+        out["sendlib"] = "not configured; codes go to this log"
+
+    out["ready"] = all([out["supabase_url"], out["supabase_service_key"],
+                        out["otp_pepper"], out["auth_codes_rpc"] == "ok"])
+    return out
 
 
 @app.get("/admin/status")

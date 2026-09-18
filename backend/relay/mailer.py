@@ -120,3 +120,29 @@ async def send_code(email: str, code: str, purpose: str, ttl_seconds: int) -> No
         raise MailFailed(
             f"sendlib rejected the message: {response.status_code} {response.text[:300]}"
         )
+
+
+async def probe() -> str:
+    """Ask Sendlib whether it would accept a send, and report what it says.
+
+    A rejection here is the difference between "the key is wrong", "the
+    sender is not connected" and "the provider is down", and those need
+    different fixes. The message is truncated and the key never appears.
+    """
+    api_key = os.environ.get("SENDLIB_API_KEY", "")
+    sender = os.environ.get("SENDLIB_FROM", "")
+    try:
+        async with httpx.AsyncClient(timeout=SEND_TIMEOUT) as client:
+            r = await client.post(
+                SENDLIB_URL,
+                json={"from": sender, "to": sender,
+                      "subject": "Impose relay connectivity probe",
+                      "text": "Ignore: verifying the relay can send."},
+                headers={"Authorization": f"Bearer {api_key}",
+                         "Content-Type": "application/json"},
+            )
+    except httpx.HTTPError as exc:
+        return f"unreachable: {exc}"[:200]
+    if r.status_code >= 400:
+        return f"rejected {r.status_code}: {r.text[:160]}"
+    return "ok"
