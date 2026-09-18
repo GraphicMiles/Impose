@@ -645,7 +645,7 @@ test("a rejected value is not reported as a permission problem", function () {
      they already have. */
   var data = read("community-data.js");
   var i = data.indexOf("function shape");
-  var body = data.slice(i, i + 2600);
+  var body = data.slice(i, i + 4000);
   ok(body.indexOf("check constraint") < body.indexOf("row-level security"),
     "constraints are matched before RLS, not swallowed by it");
   ok(/That post is too long/.test(body), "and a length problem says so");
@@ -677,6 +677,44 @@ test("a server misconfiguration is not shown to the user as their problem", func
     "all three that accounts depend on");
   ok(server.indexOf("codes will be printed to this log, not") !== -1,
     "and warns when Sendlib is half configured, which silently emails nobody");
+});
+
+test("a decorative overflow cannot scroll the page sideways", function () {
+  /* The hero glow is deliberately wider than its section so the gradient
+     fades off the edge. An absolutely positioned child still counts toward
+     the document scroll width, so six marketing pages scrolled 91px
+     sideways on a 390px screen. Clipped, which keeps the effect; hiding it
+     with overflow-x on the body would have masked the cause instead. */
+  var css = read("public.css");
+  /* Two rules share this selector. Anchor on the block that owns the
+     decoration, not the first textual match, or the assertion passes or
+     fails for reasons unrelated to the thing it names. */
+  var i = css.indexOf(".page-hero {\n  position: relative;");
+  ok(i !== -1, "the positioned hero block is found");
+  var rule = css.slice(i, i + 900);
+  ok(/overflow:\s*clip/.test(rule), "the hero clips its own decoration");
+  ok(css.indexOf("inset: -20% -30% 0 -30%") !== -1,
+    "and the glow still overhangs, or the fix would just be deleting the effect");
+});
+
+test("the lock is enforced where writes actually happen", function () {
+  /* The rules lived in the INSERT policy and were correct there, then the
+     write path moved to a SECURITY DEFINER RPC, which is not subject to
+     RLS. The policy silently stopped running and a locked post could be
+     remixed by anyone. */
+  var m = read("supabase/migrations/0012_lock_in_rpc.sql");
+  ok(/parent_locked/.test(m), "the RPC refuses a locked parent");
+  ok(/g\.author_id <> v_user/.test(m),
+    "but not for the author, who locked it against other people");
+  ok(/original_cannot_have_parent/.test(m) && /lineage_needs_parent/.test(m),
+    "kind and parent must agree, or lineage counts lie");
+  ok(/parent_gone/.test(m),
+    "and an invisible parent is refused as missing, not as locked, which " +
+    "would confirm a private post exists");
+
+  var data = read("community-data.js");
+  ok(/The author locked this post/.test(data),
+    "a lock reads as a decision, not as 'something went wrong'");
 });
 
 test("realtime notifies, it does not become the source of truth", function () {

@@ -16879,6 +16879,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (/post_gone/i.test(text)) {
       return { message: "That post was removed while you were writing.", retryable: false, code: "post_gone" };
     }
+    /* A lock is a decision the author made, not a fault. Reporting it as
+       "something went wrong" invites a retry that cannot succeed and hides
+       the fact that someone chose this. */
+    if (/parent_locked/i.test(text)) {
+      return { message: "The author locked this post, so it cannot be remixed or challenged.",
+               retryable: false, code: "locked" };
+    }
+    if (/original_cannot_have_parent|lineage_needs_parent|bad_kind|bad_visibility/i.test(text)) {
+      return { message: "That did not make sense to the server. Reload and try again.",
+               retryable: false, code: "invalid" };
+    }
     /* Check constraints before RLS. Both Postgres messages contain the
        word "violates", so matching on that alone told someone whose post
        was simply too long that they lacked permission: wrong, and it sends

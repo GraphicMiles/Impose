@@ -241,6 +241,14 @@ i[data-lucide] { display: inline-flex; width: 20px; height: 20px; flex: none; }
 .page-hero {
   position: relative;
   isolation: isolate;
+  /* The wash below is deliberately wider than this section so the gradient
+     fades off the edges instead of stopping at them. An absolutely
+     positioned child still counts toward the document's scroll width, so
+     without this the page scrolled 91px sideways on a 390px screen: six
+     marketing pages, every phone. Clipping keeps the effect and drops the
+     overflow, which is what overflow-x on the body would have masked
+     rather than fixed. */
+  overflow: clip;
 }
 .page-hero::before {
   content: "";

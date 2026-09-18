@@ -473,3 +473,47 @@ select test_ok('and nothing privileged is',
 select test_ok('published tables carry enough of the row for RLS to filter it',
   (select count(*) from pg_class
     where relname in ('generations','comments') and relreplident = 'f') = 2);
+
+-- ============ lock enforced in the RPC, not only the policy (0012) ============
+-- The lock rules were written into the INSERT policy in 0001 and were
+-- correct there. 0004 moved writes to create_generation, which is SECURITY
+-- DEFINER and therefore not subject to RLS, so the policy silently stopped
+-- being consulted. A locked post could be remixed by anyone. The old
+-- assertions passed throughout because they inserted directly into the
+-- table, testing a path the product no longer uses.
+
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+insert into public.generations (id, author_id, prompt, response, locked)
+values ('cccccccc-0000-0000-0000-00000000000a',
+        '11111111-1111-1111-1111-111111111111', 'locked parent', 'x', true);
+insert into public.generations (id, author_id, prompt, response)
+values ('cccccccc-0000-0000-0000-00000000000b',
+        '11111111-1111-1111-1111-111111111111', 'open parent', 'x');
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+select test_denied('the RPC refuses a remix of a locked post', $$
+  select public.create_generation(gen_random_uuid(), 'steal', 'x', false, 'complete',
+    'public', 'remix', 'cccccccc-0000-0000-0000-00000000000a')$$);
+
+select test_ok('but allows one on an open post',
+  (select id from public.create_generation(gen_random_uuid(), 'fair', 'x', false,
+    'complete', 'public', 'remix', 'cccccccc-0000-0000-0000-00000000000b')) is not null);
+
+select test_denied('an original may not carry a parent, through the RPC', $$
+  select public.create_generation(gen_random_uuid(), 'bad', 'x', false, 'complete',
+    'public', 'original', 'cccccccc-0000-0000-0000-00000000000b')$$);
+
+select test_denied('a remix must carry a parent, through the RPC', $$
+  select public.create_generation(gen_random_uuid(), 'bad', 'x', false, 'complete',
+    'public', 'remix', null)$$);
+
+-- The author locked it against others, not against themselves.
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_ok('the author can still build on their own locked post',
+  (select id from public.create_generation(gen_random_uuid(), 'mine', 'x', false,
+    'complete', 'public', 'remix', 'cccccccc-0000-0000-0000-00000000000a')) is not null);
+reset role;
