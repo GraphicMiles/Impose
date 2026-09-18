@@ -72,6 +72,11 @@ create role authenticated;
 -- path was dead. Supabase grants this role bypassrls; the local stand-in
 -- needs the same shape or the privileged tests prove nothing.
 create role service_role bypassrls;
+-- Supabase ships this publication; realtime subscriptions are expressed as
+-- membership of it. Without it here, a migration that publishes a table
+-- errors, and worse, an accidental "add table auth_codes" would never be
+-- caught locally.
+create publication supabase_realtime;
 grant usage on schema auth to anon, authenticated, service_role;
 grant execute on function auth.uid() to anon, authenticated, service_role;
 SQL

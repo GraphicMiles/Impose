@@ -679,6 +679,50 @@ test("a server misconfiguration is not shown to the user as their problem", func
     "and warns when Sendlib is half configured, which silently emails nobody");
 });
 
+test("realtime notifies, it does not become the source of truth", function () {
+  var data = read("community-data.js");
+  ok(data.indexOf('channel("community")') !== -1, "one channel serves the whole surface");
+  ok(/table: "generations"/.test(data) && /table: "comments"/.test(data),
+    "both tables a reader watches");
+  ok(/row\.generation_id !== watchedGen/.test(data),
+    "thread events are filtered to the open post, not every comment platform-wide");
+
+  var view = read("community.js");
+  ok(/hydrateThread\(genId\)/.test(view),
+    "a change event triggers a refetch rather than trusting the payload shape");
+  ok(view.indexOf("function pollOnce") !== -1,
+    "the poll survives as the fallback: a websocket that dies quietly would " +
+    "otherwise freeze the feed with no sign anything is wrong");
+  ok(/myUserId && row\.author_id === myUserId/.test(view),
+    "your own writes are not announced back to you");
+  ok(/unwatchThread\(\)/.test(view), "and leaving a thread stops listening to it");
+});
+
+test("a live repaint does not discard what someone is typing", function () {
+  /* With realtime this runs whenever anyone else comments, not only on
+     navigation. renderDetail rebuilds the composer, so a reader mid-reply
+     lost their draft to a stranger's message. Measured before the fix. */
+  var view = read("community.js");
+  var i = view.indexOf("function hydrateThread");
+  var body = view.slice(i, i + 1600);
+  ok(body.indexOf("refreshThreadOnly(genId)") !== -1,
+    "the thread repaints without rebuilding the composer");
+  ok(body.indexOf("c.genId !== genId || c.pending") !== -1,
+    "and a queued local comment is not dropped by the merge");
+});
+
+test("realtime publishes only what a reader may see", function () {
+  var m = read("supabase/migrations/0009_realtime.sql");
+  ok(/add table public\.generations/.test(m) && /add table public\.comments/.test(m),
+    "the two reader-facing tables are published");
+  ["auth_codes", "auth_tickets", "rate_counters", "idempotency_keys"].forEach(function (t) {
+    ok(m.indexOf("add table public." + t) === -1,
+      t + " must never be streamed to clients");
+  });
+  ok(/replica identity full/.test(m),
+    "FULL replica identity, or an UPDATE payload lacks the columns RLS needs to filter on");
+});
+
 test("no network call can hang forever", function () {
   /* architect 15 resilience, flow.txt 10. The auth transport had no
      timeout at all: measured against a relay that accepted the connection

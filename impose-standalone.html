@@ -7322,6 +7322,12 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     });
   }
 
+  function withRequestId(headers, rid) {
+    var h = new Headers(headers || {});
+    h.set("X-Request-Id", rid);
+    return h;
+  }
+
   function classify(url) {
     var u = String(url || "");
     if (/supabase\.co/i.test(u)) return /\/auth\/v1\//.test(u) ? "auth" : "supabase";
@@ -7339,6 +7345,47 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
     return /cloudflareinsights\.com|\/cdn-cgi\/rum|google-analytics\.com|googletagmanager\.com|sentry\.io|doubleclick\.net/i.test(String(url || ""));
   }
 
+  /* ---------- correlation ----------
+     A browser log line and a relay log line describing the same request
+     had nothing in common, so matching them meant comparing timestamps by
+     eye across two systems. Every outbound request now carries an id that
+     appears on both sides.
+
+     Per session, not per page load: a signup spans three page views and
+     reading it as one story is the point. */
+  var SESSION_ID = (function () {
+    try {
+      var k = "impose.debug.session";
+      var v = sessionStorage.getItem(k);
+      if (!v) {
+        v = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random())
+          .replace(/-/g, "").slice(0, 12);
+        sessionStorage.setItem(k, v);
+      }
+      return v;
+    } catch (e) {
+      return "nosession";
+    }
+  })();
+
+  var requestSeq = 0;
+
+  function nextRequestId() {
+    requestSeq += 1;
+    return SESSION_ID + "-" + requestSeq;
+  }
+
+  /* Only our own services. Attaching a header to a third party turns a
+     simple request into a CORS preflight and can get it rejected outright. */
+  function isOurs(url) {
+    var u = String(url || "");
+    if (u.indexOf("://") === -1) return true;
+    var cfg = window.BotoConfig || {};
+    return (cfg.SUPABASE_URL && u.indexOf(cfg.SUPABASE_URL) === 0) ||
+           (cfg.RELAY_URL && u.indexOf(cfg.RELAY_URL) === 0) ||
+           u.indexOf(location.origin) === 0;
+  }
+
   function installFetchCapture() {
     if (!window.fetch) return;
     var original = window.fetch;
@@ -7350,9 +7397,26 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       var safeUrl = redactUrl(url);
       var reqBody = init && init.body ? redactBody(init.body, 400) : "";
 
+      /* Tag it, so the same request is findable in the relay's log. */
+      var rid = "";
+      if (isOurs(url)) {
+        rid = nextRequestId();
+        try {
+          if (input instanceof Request && !init) {
+            input = new Request(input, { headers: withRequestId(input.headers, rid) });
+            arguments[0] = input;
+          } else {
+            init = init || {};
+            init.headers = withRequestId(init.headers, rid);
+            arguments[1] = init;
+          }
+        } catch (e) { rid = ""; }
+      }
+
       return original.apply(this, arguments).then(function (res) {
         var ms = Date.now() - started;
-        var line = method.toUpperCase() + " " + res.status + " " + safeUrl + " (" + ms + "ms)";
+        var line = method.toUpperCase() + " " + res.status + " " + safeUrl + " (" + ms + "ms)" +
+                   (rid ? "  #" + rid : "");
         if (res.ok) {
           push("info", where, line, reqBody ? "request: " + reqBody : "");
           return res;
@@ -7376,7 +7440,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
         /* No status at all: DNS, CORS, offline, or a blocked request. The
            browser deliberately hides which, so say so rather than guess. */
         push(isThirdPartyBeacon(url) ? "warn" : "error", where,
-          method.toUpperCase() + " failed " + safeUrl + " (" + ms + "ms)",
+          method.toUpperCase() + " failed " + safeUrl + " (" + ms + "ms)" + (rid ? "  #" + rid : ""),
           (err && err.message ? err.message : String(err)) +
           "\nNo response reached the page. Usually offline, CORS, or a blocked request.");
         throw err;
@@ -7483,6 +7547,7 @@ lucide.createIcons({icons});\``);if(typeof d>"u")throw new Error("`createIcons()
       "when     " + new Date().toISOString(),
       "where    " + location.href.split("#")[0] + (location.hash || ""),
       "browser  " + navigator.userAgent,
+      "session  " + SESSION_ID + "   (grep the relay log for this)",
       "online   " + navigator.onLine,
       "lines    " + list.length + " of " + entries.length + " (" + errors + " errors)",
       ""
@@ -17211,8 +17276,89 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* Reconnecting is the moment queued work should move. */
   window.addEventListener("online", function () { drain(); });
 
+  /* ---------- realtime ----------
+
+     Replaces waiting up to 25 seconds to learn that someone replied. The
+     poll stays as the fallback: a websocket that silently dies is a
+     well-known failure mode, and a feed that quietly stops updating is
+     worse than one that is merely slow.
+
+     What arrives here is a notification, not trusted data. Supabase
+     evaluates RLS on the payload, but a change event still says only "row
+     X changed"; the reader refetches through the same RPC it would have
+     used anyway. That keeps one code path for reading and means a payload
+     shape change cannot desync the cache. */
+
+  var channel = null;
+  var onFeedChange = null;
+  var onThreadChange = null;
+  var watchedGen = null;
+
+  function realtimeUp() {
+    return !!(channel && channel.state === "joined");
+  }
+
+  /* Called with (kind, payload) where kind is "feed" or "thread". */
+  function watchFeed(fn) { onFeedChange = fn; ensureChannel(); }
+
+  /* A thread subscription is scoped to one post: subscribing to every
+     comment on the platform to render one page would be a bandwidth bug
+     that only shows up once the product has users. */
+  function watchThread(genId, fn) {
+    watchedGen = genId;
+    onThreadChange = fn;
+    ensureChannel();
+  }
+
+  function unwatchThread() {
+    watchedGen = null;
+    onThreadChange = null;
+  }
+
+  function ensureChannel() {
+    if (!configured() || channel) return;
+    try {
+      channel = db().channel("community")
+        .on("postgres_changes",
+            { event: "*", schema: "public", table: "generations" },
+            function (payload) {
+              if (onFeedChange) onFeedChange(payload);
+            })
+        .on("postgres_changes",
+            { event: "*", schema: "public", table: "comments" },
+            function (payload) {
+              /* Filtered here rather than in the subscription so one
+                 channel serves every thread the reader opens, instead of
+                 tearing down and rebuilding a socket per navigation. */
+              var row = payload.new || payload.old || {};
+              if (!watchedGen || row.generation_id !== watchedGen) return;
+              if (onThreadChange) onThreadChange(payload);
+            })
+        .subscribe(function (status) {
+          if (window.BotoDebug) {
+            window.BotoDebug.log("realtime", "channel " + status);
+          }
+        });
+    } catch (e) {
+      /* No realtime is a degradation, not a failure: the poll still runs. */
+      if (window.BotoDebug) window.BotoDebug.warn("realtime", "unavailable: " + e.message);
+      channel = null;
+    }
+  }
+
+  function closeRealtime() {
+    if (!channel) return;
+    try { db().removeChannel(channel); } catch (e) {}
+    channel = null;
+  }
+
   window.BotoData = {
     configured: configured,
+    watchFeed: watchFeed,
+    watchThread: watchThread,
+    unwatchThread: unwatchThread,
+    closeRealtime: closeRealtime,
+    realtimeUp: realtimeUp,
     queue: queue,
     drain: drain,
     pending: pending,
@@ -18031,6 +18177,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
            empty for anyone arriving fresh, which read as "no comments"
            rather than "not loaded yet". */
         hydrateThread(id);
+        watchOpenThread(id);
         showMode("community");
         setDetailChrome(true);
         feedView.hidden = true;
@@ -18045,6 +18192,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         return;
       }
     }
+    /* Leaving the detail view: stop listening for that thread so a busy
+       post does not keep waking a reader who has gone back to the feed. */
+    if (window.BotoData && BotoData.unwatchThread) BotoData.unwatchThread();
     renderFeed();
     showMode("community");
     setDetailChrome(false);
@@ -18083,6 +18233,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       expandedThreads.clear();
       renderDetail(out.data);
       hydrateThread(id);
+      watchOpenThread(id);
     });
   }
 
@@ -18103,7 +18254,19 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       syncCommentCount(genId);
       persist();
       var gen = genById(genId);
-      if (gen && location.hash === "#/g/" + genId) renderDetail(gen);
+      if (!gen || location.hash !== "#/g/" + genId) return;
+
+      /* refreshThreadOnly, not renderDetail. renderDetail rebuilds the
+         whole page including the composer, which discards whatever the
+         reader was typing. That was tolerable when this only ran on
+         navigation; with realtime it runs whenever anyone else comments,
+         so someone mid-reply would lose their draft to a stranger's
+         message. Measured: the draft was gone within four seconds.
+
+         refreshThreadOnly repaints the list and leaves the composer,
+         its draft and its reply target alone. */
+      if ($("cmCommentList")) refreshThreadOnly(genId);
+      else renderDetail(gen);
     });
   }
 
@@ -19129,6 +19292,47 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return newest ? new Date(newest).toISOString() : new Date().toISOString();
   }
 
+  /* ---------- realtime ----------
+     The poll stays: a websocket that dies quietly would otherwise leave
+     the feed frozen with no sign anything is wrong. Realtime makes the
+     common case immediate, the poll guarantees the worst case is 25
+     seconds rather than never. */
+
+  function startRealtime() {
+    if (!liveOnline() || !BotoData.watchFeed) return;
+
+    BotoData.watchFeed(function (payload) {
+      var row = payload["new"] || payload.old || {};
+      /* Your own post already appeared optimistically; announcing it back
+         to you would be a pill that reveals something you are looking at. */
+      if (myUserId && row.author_id === myUserId) return;
+
+      if (payload.eventType === "INSERT") {
+        if (row.visibility !== "public") return;
+        pendingCount += 1;
+        syncPill();
+        return;
+      }
+      /* An edit, a lock or a delete to a post already on screen. Repaint
+         that card rather than the feed: the reader may be mid-scroll. */
+      if (row.id && genById(row.id)) refreshOne(row.id);
+    });
+  }
+
+  function watchOpenThread(genId) {
+    if (!liveOnline() || !BotoData.watchThread) return;
+    BotoData.watchThread(genId, function (payload) {
+      var row = payload["new"] || payload.old || {};
+      if (myUserId && row.author_id === myUserId) return;
+      /* Refetch rather than trusting the payload, so one code path builds
+         the thread and a comment arriving mid-draft cannot clobber the
+         composer. hydrateThread already preserves pending local rows. */
+      if (location.hash === "#/g/" + genId) hydrateThread(genId);
+    });
+  }
+
+  var myUserId = null;
+
   function pollOnce() {
     if (!liveOnline() || currentMode() !== "community") return Promise.resolve();
     if (document.hidden) return Promise.resolve();
@@ -19979,6 +20183,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
 
     if (window.BotoData) {
+      BotoData.currentUser().then(function (u) {
+        myUserId = u && u.id;
+        startRealtime();
+      });
       /* A job that outlived the tab has no closures left, so settlement
          goes through these. Same path, whether the write was queued a
          second ago or a session ago. */

@@ -151,6 +151,12 @@
     });
   }
 
+  function withRequestId(headers, rid) {
+    var h = new Headers(headers || {});
+    h.set("X-Request-Id", rid);
+    return h;
+  }
+
   function classify(url) {
     var u = String(url || "");
     if (/supabase\.co/i.test(u)) return /\/auth\/v1\//.test(u) ? "auth" : "supabase";
@@ -168,6 +174,47 @@
     return /cloudflareinsights\.com|\/cdn-cgi\/rum|google-analytics\.com|googletagmanager\.com|sentry\.io|doubleclick\.net/i.test(String(url || ""));
   }
 
+  /* ---------- correlation ----------
+     A browser log line and a relay log line describing the same request
+     had nothing in common, so matching them meant comparing timestamps by
+     eye across two systems. Every outbound request now carries an id that
+     appears on both sides.
+
+     Per session, not per page load: a signup spans three page views and
+     reading it as one story is the point. */
+  var SESSION_ID = (function () {
+    try {
+      var k = "impose.debug.session";
+      var v = sessionStorage.getItem(k);
+      if (!v) {
+        v = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random())
+          .replace(/-/g, "").slice(0, 12);
+        sessionStorage.setItem(k, v);
+      }
+      return v;
+    } catch (e) {
+      return "nosession";
+    }
+  })();
+
+  var requestSeq = 0;
+
+  function nextRequestId() {
+    requestSeq += 1;
+    return SESSION_ID + "-" + requestSeq;
+  }
+
+  /* Only our own services. Attaching a header to a third party turns a
+     simple request into a CORS preflight and can get it rejected outright. */
+  function isOurs(url) {
+    var u = String(url || "");
+    if (u.indexOf("://") === -1) return true;
+    var cfg = window.BotoConfig || {};
+    return (cfg.SUPABASE_URL && u.indexOf(cfg.SUPABASE_URL) === 0) ||
+           (cfg.RELAY_URL && u.indexOf(cfg.RELAY_URL) === 0) ||
+           u.indexOf(location.origin) === 0;
+  }
+
   function installFetchCapture() {
     if (!window.fetch) return;
     var original = window.fetch;
@@ -179,9 +226,26 @@
       var safeUrl = redactUrl(url);
       var reqBody = init && init.body ? redactBody(init.body, 400) : "";
 
+      /* Tag it, so the same request is findable in the relay's log. */
+      var rid = "";
+      if (isOurs(url)) {
+        rid = nextRequestId();
+        try {
+          if (input instanceof Request && !init) {
+            input = new Request(input, { headers: withRequestId(input.headers, rid) });
+            arguments[0] = input;
+          } else {
+            init = init || {};
+            init.headers = withRequestId(init.headers, rid);
+            arguments[1] = init;
+          }
+        } catch (e) { rid = ""; }
+      }
+
       return original.apply(this, arguments).then(function (res) {
         var ms = Date.now() - started;
-        var line = method.toUpperCase() + " " + res.status + " " + safeUrl + " (" + ms + "ms)";
+        var line = method.toUpperCase() + " " + res.status + " " + safeUrl + " (" + ms + "ms)" +
+                   (rid ? "  #" + rid : "");
         if (res.ok) {
           push("info", where, line, reqBody ? "request: " + reqBody : "");
           return res;
@@ -205,7 +269,7 @@
         /* No status at all: DNS, CORS, offline, or a blocked request. The
            browser deliberately hides which, so say so rather than guess. */
         push(isThirdPartyBeacon(url) ? "warn" : "error", where,
-          method.toUpperCase() + " failed " + safeUrl + " (" + ms + "ms)",
+          method.toUpperCase() + " failed " + safeUrl + " (" + ms + "ms)" + (rid ? "  #" + rid : ""),
           (err && err.message ? err.message : String(err)) +
           "\nNo response reached the page. Usually offline, CORS, or a blocked request.");
         throw err;
@@ -312,6 +376,7 @@
       "when     " + new Date().toISOString(),
       "where    " + location.href.split("#")[0] + (location.hash || ""),
       "browser  " + navigator.userAgent,
+      "session  " + SESSION_ID + "   (grep the relay log for this)",
       "online   " + navigator.onLine,
       "lines    " + list.length + " of " + entries.length + " (" + errors + " errors)",
       ""

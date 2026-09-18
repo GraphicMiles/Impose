@@ -786,6 +786,7 @@
            empty for anyone arriving fresh, which read as "no comments"
            rather than "not loaded yet". */
         hydrateThread(id);
+        watchOpenThread(id);
         showMode("community");
         setDetailChrome(true);
         feedView.hidden = true;
@@ -800,6 +801,9 @@
         return;
       }
     }
+    /* Leaving the detail view: stop listening for that thread so a busy
+       post does not keep waking a reader who has gone back to the feed. */
+    if (window.BotoData && BotoData.unwatchThread) BotoData.unwatchThread();
     renderFeed();
     showMode("community");
     setDetailChrome(false);
@@ -838,6 +842,7 @@
       expandedThreads.clear();
       renderDetail(out.data);
       hydrateThread(id);
+      watchOpenThread(id);
     });
   }
 
@@ -858,7 +863,19 @@
       syncCommentCount(genId);
       persist();
       var gen = genById(genId);
-      if (gen && location.hash === "#/g/" + genId) renderDetail(gen);
+      if (!gen || location.hash !== "#/g/" + genId) return;
+
+      /* refreshThreadOnly, not renderDetail. renderDetail rebuilds the
+         whole page including the composer, which discards whatever the
+         reader was typing. That was tolerable when this only ran on
+         navigation; with realtime it runs whenever anyone else comments,
+         so someone mid-reply would lose their draft to a stranger's
+         message. Measured: the draft was gone within four seconds.
+
+         refreshThreadOnly repaints the list and leaves the composer,
+         its draft and its reply target alone. */
+      if ($("cmCommentList")) refreshThreadOnly(genId);
+      else renderDetail(gen);
     });
   }
 
@@ -1884,6 +1901,47 @@
     return newest ? new Date(newest).toISOString() : new Date().toISOString();
   }
 
+  /* ---------- realtime ----------
+     The poll stays: a websocket that dies quietly would otherwise leave
+     the feed frozen with no sign anything is wrong. Realtime makes the
+     common case immediate, the poll guarantees the worst case is 25
+     seconds rather than never. */
+
+  function startRealtime() {
+    if (!liveOnline() || !BotoData.watchFeed) return;
+
+    BotoData.watchFeed(function (payload) {
+      var row = payload["new"] || payload.old || {};
+      /* Your own post already appeared optimistically; announcing it back
+         to you would be a pill that reveals something you are looking at. */
+      if (myUserId && row.author_id === myUserId) return;
+
+      if (payload.eventType === "INSERT") {
+        if (row.visibility !== "public") return;
+        pendingCount += 1;
+        syncPill();
+        return;
+      }
+      /* An edit, a lock or a delete to a post already on screen. Repaint
+         that card rather than the feed: the reader may be mid-scroll. */
+      if (row.id && genById(row.id)) refreshOne(row.id);
+    });
+  }
+
+  function watchOpenThread(genId) {
+    if (!liveOnline() || !BotoData.watchThread) return;
+    BotoData.watchThread(genId, function (payload) {
+      var row = payload["new"] || payload.old || {};
+      if (myUserId && row.author_id === myUserId) return;
+      /* Refetch rather than trusting the payload, so one code path builds
+         the thread and a comment arriving mid-draft cannot clobber the
+         composer. hydrateThread already preserves pending local rows. */
+      if (location.hash === "#/g/" + genId) hydrateThread(genId);
+    });
+  }
+
+  var myUserId = null;
+
   function pollOnce() {
     if (!liveOnline() || currentMode() !== "community") return Promise.resolve();
     if (document.hidden) return Promise.resolve();
@@ -2734,6 +2792,10 @@
     }
 
     if (window.BotoData) {
+      BotoData.currentUser().then(function (u) {
+        myUserId = u && u.id;
+        startRealtime();
+      });
       /* A job that outlived the tab has no closures left, so settlement
          goes through these. Same path, whether the write was queued a
          second ago or a session ago. */

@@ -57,6 +57,47 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+
+      # Caching. Every asset revalidated on every load because nothing set
+      # this, so a returning visitor paid a round trip per file to be told
+      # nothing had changed.
+      #
+      # HTML is never cached: it is the document that names which script
+      # versions to load, and a stale copy pins a browser to an old build
+      # for as long as the cache lives. The service worker already handles
+      # offline; this only stops needless revalidation.
+      - path: /*.html
+        name: Cache-Control
+        value: "no-cache"
+      - path: /
+        name: Cache-Control
+        value: "no-cache"
+      # sw.js must never be cached either, or a new worker cannot install
+      # and the version bump that ships a fix never reaches anyone.
+      - path: /sw.js
+        name: Cache-Control
+        value: "no-cache"
+      # Code and styles are revalidated rather than trusted blindly: the
+      # filenames are not content-hashed, so a long max-age would serve a
+      # stale app.js after a deploy. must-revalidate with a short window
+      # keeps the conditional request cheap and the answer current.
+      - path: /*.js
+        name: Cache-Control
+        value: "public, max-age=0, must-revalidate"
+      - path: /*.css
+        name: Cache-Control
+        value: "public, max-age=0, must-revalidate"
+      # Immutable by nature: these change name when they change content, or
+      # never change at all.
+      - path: /*.png
+        name: Cache-Control
+        value: "public, max-age=604800"
+      - path: /*.jpg
+        name: Cache-Control
+        value: "public, max-age=604800"
+      - path: /fonts.css
+        name: Cache-Control
+        value: "public, max-age=604800"
       - path: /*
         name: Referrer-Policy
         value: strict-origin-when-cross-origin

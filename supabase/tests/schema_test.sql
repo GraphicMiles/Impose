@@ -448,3 +448,28 @@ select test_denied('a signed-in user cannot issue codes either', $$
 select test_denied('nor consume them', $$
   select public.consume_auth_code('x@test.com','signup','H')$$);
 reset role;
+
+-- ============ realtime publication (0009) ============
+-- Publishing the wrong table streams privileged rows to every connected
+-- browser. This is the assertion that makes that a build failure rather
+-- than a discovery.
+
+reset role;
+
+select test_ok('the feed and threads are published',
+  (select count(*) from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and tablename in ('generations','comments')) = 2);
+
+select test_ok('and nothing privileged is',
+  (select count(*) from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and tablename in ('auth_codes','auth_tickets','rate_counters',
+                        'idempotency_keys','waitlist','workspace_grants')) = 0);
+
+-- Without FULL, an UPDATE or DELETE payload carries only the primary key,
+-- so RLS cannot evaluate visibility and the row is either dropped or
+-- leaked depending on the path.
+select test_ok('published tables carry enough of the row for RLS to filter it',
+  (select count(*) from pg_class
+    where relname in ('generations','comments') and relreplident = 'f') = 2);

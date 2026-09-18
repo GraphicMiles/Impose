@@ -581,8 +581,89 @@
   /* Reconnecting is the moment queued work should move. */
   window.addEventListener("online", function () { drain(); });
 
+  /* ---------- realtime ----------
+
+     Replaces waiting up to 25 seconds to learn that someone replied. The
+     poll stays as the fallback: a websocket that silently dies is a
+     well-known failure mode, and a feed that quietly stops updating is
+     worse than one that is merely slow.
+
+     What arrives here is a notification, not trusted data. Supabase
+     evaluates RLS on the payload, but a change event still says only "row
+     X changed"; the reader refetches through the same RPC it would have
+     used anyway. That keeps one code path for reading and means a payload
+     shape change cannot desync the cache. */
+
+  var channel = null;
+  var onFeedChange = null;
+  var onThreadChange = null;
+  var watchedGen = null;
+
+  function realtimeUp() {
+    return !!(channel && channel.state === "joined");
+  }
+
+  /* Called with (kind, payload) where kind is "feed" or "thread". */
+  function watchFeed(fn) { onFeedChange = fn; ensureChannel(); }
+
+  /* A thread subscription is scoped to one post: subscribing to every
+     comment on the platform to render one page would be a bandwidth bug
+     that only shows up once the product has users. */
+  function watchThread(genId, fn) {
+    watchedGen = genId;
+    onThreadChange = fn;
+    ensureChannel();
+  }
+
+  function unwatchThread() {
+    watchedGen = null;
+    onThreadChange = null;
+  }
+
+  function ensureChannel() {
+    if (!configured() || channel) return;
+    try {
+      channel = db().channel("community")
+        .on("postgres_changes",
+            { event: "*", schema: "public", table: "generations" },
+            function (payload) {
+              if (onFeedChange) onFeedChange(payload);
+            })
+        .on("postgres_changes",
+            { event: "*", schema: "public", table: "comments" },
+            function (payload) {
+              /* Filtered here rather than in the subscription so one
+                 channel serves every thread the reader opens, instead of
+                 tearing down and rebuilding a socket per navigation. */
+              var row = payload.new || payload.old || {};
+              if (!watchedGen || row.generation_id !== watchedGen) return;
+              if (onThreadChange) onThreadChange(payload);
+            })
+        .subscribe(function (status) {
+          if (window.BotoDebug) {
+            window.BotoDebug.log("realtime", "channel " + status);
+          }
+        });
+    } catch (e) {
+      /* No realtime is a degradation, not a failure: the poll still runs. */
+      if (window.BotoDebug) window.BotoDebug.warn("realtime", "unavailable: " + e.message);
+      channel = null;
+    }
+  }
+
+  function closeRealtime() {
+    if (!channel) return;
+    try { db().removeChannel(channel); } catch (e) {}
+    channel = null;
+  }
+
   window.BotoData = {
     configured: configured,
+    watchFeed: watchFeed,
+    watchThread: watchThread,
+    unwatchThread: unwatchThread,
+    closeRealtime: closeRealtime,
+    realtimeUp: realtimeUp,
     queue: queue,
     drain: drain,
     pending: pending,
