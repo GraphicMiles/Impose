@@ -15917,6 +15917,8 @@ window.BotoConfig = {
     try {
       localStorage.removeItem(STORE_KEY);
       localStorage.removeItem(LEGACY_STORE_KEY);
+      sessionStorage.removeItem("impose.hydration");
+      sessionStorage.removeItem("impose.auth.otpPurpose");
     } catch (e) {}
     renderList();
     renderModelMenu();
@@ -15997,6 +15999,36 @@ window.BotoConfig = {
     $("avatarBtn").focus();
     openSettings("general");
   });
+
+  window.BotoApp = {
+    onSignOut: function () {
+      if (authSession()) {
+        var uidBefore = window.WSync ? WSync.userId() : null;
+        localStorage.removeItem("impose.auth.v1");
+        try {
+          localStorage.removeItem(STORE_KEY);
+          localStorage.removeItem(LEGACY_STORE_KEY);
+          sessionStorage.removeItem("impose.hydration");
+          sessionStorage.removeItem("impose.auth.otpPurpose");
+        } catch (e) {}
+        if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+        if (window.WSync) WSync.signOutReset(uidBefore);
+        resetWorkspaceForSignOut();
+        if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+        if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+        syncWorkspaceBadge();
+        refreshAdminTab();
+        syncAccountMenu();
+        toast("You were signed out.");
+      }
+    },
+    onSignIn: function () {
+      if (window.BotoAccess && BotoAccess.refresh) BotoAccess.refresh();
+      syncWorkspaceBadge();
+      refreshAdminTab();
+      syncAccountMenu();
+    }
+  };
 
   /* ---------- profile customization modal ---------- */
   var selectedAvatarId = "char-1";
@@ -18206,7 +18238,10 @@ window.BotoConfig = {
     btn.disabled = true;
     BotoData.adminGrant(email).then(function (out) {
       if (!out.ok) {
-        toast(out.error || "Could not grant.", null, null, 4200, "warn");
+        var errMsg = out.error === "no_account"
+          ? "Cannot grant yet: " + email + " has not signed up. They must create an account first."
+          : (out.error || "Could not grant.");
+        toast(errMsg, null, null, 4500, "warn");
         btn.disabled = false;
         return;
       }
@@ -18250,7 +18285,12 @@ window.BotoConfig = {
     btn.type = "button";
     btn.className = "btn small";
     btn.innerHTML = '<i data-lucide="key-round"></i><span>' + (w.has_account ? "Grant" : "Approve") + "</span>";
-    btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
+    if (!w.has_account) {
+      btn.disabled = true;
+      btn.title = "Waitlist user has not signed up yet. An account is required before granting.";
+    } else {
+      btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
+    }
     row.appendChild(btn);
     box.appendChild(row);
   }
@@ -19279,14 +19319,48 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       supabase().auth.onAuthStateChange(function (event, session) {
         if (event === "SIGNED_OUT") {
           try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+          if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+          if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+          if (window.BotoApp && BotoApp.onSignOut) BotoApp.onSignOut();
         } else if (session && session.user) {
           cacheSession(session.user);
+          if (window.BotoAccess && BotoAccess.refresh) BotoAccess.refresh();
+          if (window.BotoApp && BotoApp.onSignIn) BotoApp.onSignIn(session.user);
         }
         authListeners.forEach(function (fn) {
           try { fn(event, session); } catch (e) {}
         });
       });
     } catch (e) {}
+
+    if (typeof window !== "undefined" && window.addEventListener) {
+      window.addEventListener("storage", function (e) {
+        if (e.key === SESSION_KEY || (e.key && e.key.indexOf("sb-") === 0 && e.key.indexOf("-auth-token") !== -1)) {
+          if (!e.newValue) {
+            try { localStorage.removeItem(SESSION_KEY); } catch (err) {}
+            if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+            if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+            if (window.BotoApp && BotoApp.onSignOut) BotoApp.onSignOut();
+            authListeners.forEach(function (fn) {
+              try { fn("SIGNED_OUT", null); } catch (err) {}
+            });
+          } else {
+            try {
+              var parsed = JSON.parse(e.newValue);
+              var u = parsed.user || parsed;
+              if (u) {
+                cacheSession(u);
+                if (window.BotoAccess && BotoAccess.refresh) BotoAccess.refresh();
+                if (window.BotoApp && BotoApp.onSignIn) BotoApp.onSignIn(u);
+                authListeners.forEach(function (fn) {
+                  try { fn("SIGNED_IN", { user: u }); } catch (err) {}
+                });
+              }
+            } catch (err) {}
+          }
+        }
+      });
+    }
   }
 
   initAuthWatcher();
@@ -21227,6 +21301,21 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
     if (hash === "#/workspace" || hash.indexOf("#chat=") === 0) {
       if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
+        var accState = window.BotoAccess.getStatus ? window.BotoAccess.getStatus().state : "";
+        if (accState === "unknown" && window.BotoAccess.refresh) {
+          window.BotoAccess.refresh().then(function () {
+            if (BotoAccess.canUseWorkspace()) {
+              showMode("workspace");
+              setDetailChrome(false);
+            } else {
+              if (hash !== "#/") history.replaceState(null, "", location.pathname + location.search + "#/");
+              showMode("community");
+              setDetailChrome(false);
+              openAccessSheet();
+            }
+          });
+          return;
+        }
         /* Community is open; the Workspace is grant-gated. Land the user in
            Community and show the waitlist sheet. The grant itself is checked
            server-side (RLS); this is the UX for that gate, not the gate. */
@@ -23559,7 +23648,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (window.BotoUI && BotoUI.openModal) BotoUI.openModal(m);
     else m.hidden = false;
     var st = window.BotoAccess ? BotoAccess.getStatus() : { grant: null };
-    if (st.grant && st.grant.status === "waitlisted") showWaitlistDone(st.grant);
+    if (st.grant && (st.grant.status === "waitlisted" || st.grant.status === "approved")) showWaitlistDone(st.grant);
+    if (window.BotoAccess && BotoAccess.refresh) {
+      BotoAccess.refresh().then(function (g) {
+        if (g && (g.status === "granted" || BotoAccess.canUseWorkspace())) {
+          closeAccessSheet();
+          location.hash = "#/workspace";
+        } else if (g && (g.status === "waitlisted" || g.status === "approved")) {
+          showWaitlistDone(g);
+        }
+      }).catch(function () {});
+    }
     var email = $("waitlistEmail");
     if (email) setTimeout(function () { email.focus(); }, 120);
     refreshIcons();
@@ -23577,8 +23676,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     $("waitlistForm").hidden = true;
     $("waitlistDone").hidden = false;
     var pos = $("waitlistPosition");
-    if (pos && grant && grant.position) {
-      pos.textContent = "You are number " + grant.position + " in line. We'll email you when your seat opens.";
+    if (pos && grant) {
+      if (grant.approved || grant.status === "approved") {
+        pos.textContent = "Your access has been approved! Sign in with your email to enter Workspace.";
+      } else if (grant.position) {
+        pos.textContent = "You are number " + grant.position + " in line. We'll email you when your seat opens.";
+      } else {
+        pos.textContent = "We'll email you when your seat opens.";
+      }
     }
     refreshIcons();
   }
@@ -23588,7 +23693,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     BotoAccess.init();
     /* a grant that lands while the sheet is open unlocks out of it */
     BotoAccess.onChange(function () {
-      if (accessSheetOpen && BotoAccess.canUseWorkspace()) closeAccessSheet();
+      if (accessSheetOpen && BotoAccess.canUseWorkspace()) {
+        closeAccessSheet();
+        location.hash = "#/workspace";
+      }
     });
     var form = $("waitlistForm");
     form.addEventListener("submit", function (e) {
@@ -23741,6 +23849,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       composeCtx = null;
       var ctx = $("cmRemixCtx");
       if (ctx) ctx.hidden = true;
+      syncNotifBadge();
       route();
       syncSend();
       syncSendIntent();

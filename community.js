@@ -844,6 +844,21 @@
     }
     if (hash === "#/workspace" || hash.indexOf("#chat=") === 0) {
       if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
+        var accState = window.BotoAccess.getStatus ? window.BotoAccess.getStatus().state : "";
+        if (accState === "unknown" && window.BotoAccess.refresh) {
+          window.BotoAccess.refresh().then(function () {
+            if (BotoAccess.canUseWorkspace()) {
+              showMode("workspace");
+              setDetailChrome(false);
+            } else {
+              if (hash !== "#/") history.replaceState(null, "", location.pathname + location.search + "#/");
+              showMode("community");
+              setDetailChrome(false);
+              openAccessSheet();
+            }
+          });
+          return;
+        }
         /* Community is open; the Workspace is grant-gated. Land the user in
            Community and show the waitlist sheet. The grant itself is checked
            server-side (RLS); this is the UX for that gate, not the gate. */
@@ -3176,7 +3191,17 @@
     if (window.BotoUI && BotoUI.openModal) BotoUI.openModal(m);
     else m.hidden = false;
     var st = window.BotoAccess ? BotoAccess.getStatus() : { grant: null };
-    if (st.grant && st.grant.status === "waitlisted") showWaitlistDone(st.grant);
+    if (st.grant && (st.grant.status === "waitlisted" || st.grant.status === "approved")) showWaitlistDone(st.grant);
+    if (window.BotoAccess && BotoAccess.refresh) {
+      BotoAccess.refresh().then(function (g) {
+        if (g && (g.status === "granted" || BotoAccess.canUseWorkspace())) {
+          closeAccessSheet();
+          location.hash = "#/workspace";
+        } else if (g && (g.status === "waitlisted" || g.status === "approved")) {
+          showWaitlistDone(g);
+        }
+      }).catch(function () {});
+    }
     var email = $("waitlistEmail");
     if (email) setTimeout(function () { email.focus(); }, 120);
     refreshIcons();
@@ -3194,8 +3219,14 @@
     $("waitlistForm").hidden = true;
     $("waitlistDone").hidden = false;
     var pos = $("waitlistPosition");
-    if (pos && grant && grant.position) {
-      pos.textContent = "You are number " + grant.position + " in line. We'll email you when your seat opens.";
+    if (pos && grant) {
+      if (grant.approved || grant.status === "approved") {
+        pos.textContent = "Your access has been approved! Sign in with your email to enter Workspace.";
+      } else if (grant.position) {
+        pos.textContent = "You are number " + grant.position + " in line. We'll email you when your seat opens.";
+      } else {
+        pos.textContent = "We'll email you when your seat opens.";
+      }
     }
     refreshIcons();
   }
@@ -3205,7 +3236,10 @@
     BotoAccess.init();
     /* a grant that lands while the sheet is open unlocks out of it */
     BotoAccess.onChange(function () {
-      if (accessSheetOpen && BotoAccess.canUseWorkspace()) closeAccessSheet();
+      if (accessSheetOpen && BotoAccess.canUseWorkspace()) {
+        closeAccessSheet();
+        location.hash = "#/workspace";
+      }
     });
     var form = $("waitlistForm");
     form.addEventListener("submit", function (e) {
@@ -3358,6 +3392,7 @@
       composeCtx = null;
       var ctx = $("cmRemixCtx");
       if (ctx) ctx.hidden = true;
+      syncNotifBadge();
       route();
       syncSend();
       syncSendIntent();

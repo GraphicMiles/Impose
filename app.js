@@ -6227,6 +6227,8 @@
     try {
       localStorage.removeItem(STORE_KEY);
       localStorage.removeItem(LEGACY_STORE_KEY);
+      sessionStorage.removeItem("impose.hydration");
+      sessionStorage.removeItem("impose.auth.otpPurpose");
     } catch (e) {}
     renderList();
     renderModelMenu();
@@ -6307,6 +6309,36 @@
     $("avatarBtn").focus();
     openSettings("general");
   });
+
+  window.BotoApp = {
+    onSignOut: function () {
+      if (authSession()) {
+        var uidBefore = window.WSync ? WSync.userId() : null;
+        localStorage.removeItem("impose.auth.v1");
+        try {
+          localStorage.removeItem(STORE_KEY);
+          localStorage.removeItem(LEGACY_STORE_KEY);
+          sessionStorage.removeItem("impose.hydration");
+          sessionStorage.removeItem("impose.auth.otpPurpose");
+        } catch (e) {}
+        if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+        if (window.WSync) WSync.signOutReset(uidBefore);
+        resetWorkspaceForSignOut();
+        if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+        if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+        syncWorkspaceBadge();
+        refreshAdminTab();
+        syncAccountMenu();
+        toast("You were signed out.");
+      }
+    },
+    onSignIn: function () {
+      if (window.BotoAccess && BotoAccess.refresh) BotoAccess.refresh();
+      syncWorkspaceBadge();
+      refreshAdminTab();
+      syncAccountMenu();
+    }
+  };
 
   /* ---------- profile customization modal ---------- */
   var selectedAvatarId = "char-1";
@@ -8516,7 +8548,10 @@
     btn.disabled = true;
     BotoData.adminGrant(email).then(function (out) {
       if (!out.ok) {
-        toast(out.error || "Could not grant.", null, null, 4200, "warn");
+        var errMsg = out.error === "no_account"
+          ? "Cannot grant yet: " + email + " has not signed up. They must create an account first."
+          : (out.error || "Could not grant.");
+        toast(errMsg, null, null, 4500, "warn");
         btn.disabled = false;
         return;
       }
@@ -8560,7 +8595,12 @@
     btn.type = "button";
     btn.className = "btn small";
     btn.innerHTML = '<i data-lucide="key-round"></i><span>' + (w.has_account ? "Grant" : "Approve") + "</span>";
-    btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
+    if (!w.has_account) {
+      btn.disabled = true;
+      btn.title = "Waitlist user has not signed up yet. An account is required before granting.";
+    } else {
+      btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
+    }
     row.appendChild(btn);
     box.appendChild(row);
   }

@@ -291,14 +291,48 @@
       supabase().auth.onAuthStateChange(function (event, session) {
         if (event === "SIGNED_OUT") {
           try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+          if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+          if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+          if (window.BotoApp && BotoApp.onSignOut) BotoApp.onSignOut();
         } else if (session && session.user) {
           cacheSession(session.user);
+          if (window.BotoAccess && BotoAccess.refresh) BotoAccess.refresh();
+          if (window.BotoApp && BotoApp.onSignIn) BotoApp.onSignIn(session.user);
         }
         authListeners.forEach(function (fn) {
           try { fn(event, session); } catch (e) {}
         });
       });
     } catch (e) {}
+
+    if (typeof window !== "undefined" && window.addEventListener) {
+      window.addEventListener("storage", function (e) {
+        if (e.key === SESSION_KEY || (e.key && e.key.indexOf("sb-") === 0 && e.key.indexOf("-auth-token") !== -1)) {
+          if (!e.newValue) {
+            try { localStorage.removeItem(SESSION_KEY); } catch (err) {}
+            if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+            if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+            if (window.BotoApp && BotoApp.onSignOut) BotoApp.onSignOut();
+            authListeners.forEach(function (fn) {
+              try { fn("SIGNED_OUT", null); } catch (err) {}
+            });
+          } else {
+            try {
+              var parsed = JSON.parse(e.newValue);
+              var u = parsed.user || parsed;
+              if (u) {
+                cacheSession(u);
+                if (window.BotoAccess && BotoAccess.refresh) BotoAccess.refresh();
+                if (window.BotoApp && BotoApp.onSignIn) BotoApp.onSignIn(u);
+                authListeners.forEach(function (fn) {
+                  try { fn("SIGNED_IN", { user: u }); } catch (err) {}
+                });
+              }
+            } catch (err) {}
+          }
+        }
+      });
+    }
   }
 
   initAuthWatcher();
