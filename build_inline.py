@@ -22,6 +22,7 @@ features = (ROOT / "agent" / "features.js").read_text(encoding="utf-8")
 app = (ROOT / "app.js").read_text(encoding="utf-8")
 community_js = (ROOT / "community.js").read_text(encoding="utf-8")
 community_data_js = (ROOT / "community-data.js").read_text(encoding="utf-8")
+auth_client_js = (ROOT / "auth-client.js").read_text(encoding="utf-8")
 # The Supabase SDK. Missed until now, so the single-file build carried a
 # bare <script src> that cannot resolve when the file is opened from disk:
 # Community would load and then fail every server call.
@@ -117,6 +118,11 @@ html = html.replace(
 html = html.replace(
     '<script src="./supabase.min.js"></script>',
     "<script>\n" + supabase_js + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./auth-client.js"></script>',
+    "<script>\n" + auth_client_js + "\n</script>",
     1,
 )
 html = html.replace(

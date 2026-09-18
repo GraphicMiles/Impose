@@ -6143,9 +6143,29 @@
   $("acctAuth").addEventListener("click", function () {
     var session = authSession();
     if (session) {
-      localStorage.removeItem("impose.auth.v1");
-      syncAccountMenu();
-      toast("Signed out. Your local chats are still here.");
+      /* The localStorage copy is a display cache for the avatar and the
+         name. Removing it used to be the whole of "sign out", which meant
+         the Supabase session survived: the menu said signed out and the
+         user could still post, comment and delete. Ending the real session
+         is the part that matters, and it has to come first. */
+      var done = function () {
+        localStorage.removeItem("impose.auth.v1");
+        if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+        syncAccountMenu();
+        toast("Signed out. Your local chats are still here.");
+      };
+      if (window.BotoAuth && BotoAuth.signOut) {
+        BotoAuth.signOut().then(done, function () {
+          /* The server refused or the network is down. Clear the local
+             session anyway: leaving someone signed in because logout
+             failed is the wrong direction to fail in, and the token
+             expires on its own. */
+          done();
+          toast("Signed out here. The session may still be active elsewhere.");
+        });
+      } else {
+        done();
+      }
       return;
     }
     window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";

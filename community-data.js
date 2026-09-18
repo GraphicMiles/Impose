@@ -70,8 +70,28 @@
     if (/post_gone/i.test(text)) {
       return { message: "That post was removed while you were writing.", retryable: false, code: "post_gone" };
     }
-    if (/row-level security|violates/i.test(text)) {
+    /* Check constraints before RLS. Both Postgres messages contain the
+       word "violates", so matching on that alone told someone whose post
+       was simply too long that they lacked permission: wrong, and it sends
+       them to ask for access they already have. 23514 is a constraint,
+       which is a fact about the input. */
+    if (/check constraint|23514/i.test(text + code)) {
+      if (/prompt/i.test(text)) {
+        return { message: "That post is too long. Shorten it and try again.", retryable: false, code: "too_long" };
+      }
+      if (/body/i.test(text)) {
+        return { message: "That comment is too long. Shorten it and try again.", retryable: false, code: "too_long" };
+      }
+      return { message: "Some of that could not be saved as written. Try shortening it.", retryable: false, code: "invalid" };
+    }
+    if (/row-level security|violates row-level/i.test(text)) {
       return { message: "You do not have permission to do that.", retryable: false, code: "denied" };
+    }
+    /* A null byte cannot be stored in a text column. Postgres calls this
+       an "unsupported Unicode escape sequence", which means nothing to
+       anyone typing into a box. */
+    if (/unsupported unicode|invalid byte sequence|0x00/i.test(text)) {
+      return { message: "That text contains a character we cannot store. Try retyping it.", retryable: false, code: "bad_text" };
     }
     if (/timeout|aborted/i.test(text)) {
       return { message: "That took too long. Check your connection and try again.", retryable: true, code: "timeout" };

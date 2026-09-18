@@ -620,6 +620,39 @@ test("reading replies never hijacks the composer", function () {
     "expanding renders and returns, full stop");
 });
 
+test("signing out ends the session, not just the local copy", function () {
+  /* flow.txt 6: authentication is a system, not a login page. Sign out
+     removed a localStorage key and nothing else, so the Supabase session
+     survived: the menu said signed out and the user could still post,
+     comment and delete. Measured before it was fixed. */
+  var app = read("app.js");
+  var at = app.indexOf('$("acctAuth").addEventListener');
+  var handler = app.slice(at, at + 1400);
+  ok(handler.indexOf("BotoAuth.signOut()") !== -1,
+    "the real session is ended, not only the display cache");
+  ok(handler.indexOf("BotoData.forgetUser") !== -1,
+    "and the cached identity is dropped with it");
+  ok(/signOut\(\)\.then\(done, function/.test(handler),
+    "a failed sign out still clears locally rather than leaving someone signed in");
+  ok(read("index.html").indexOf("auth-client.js") !== -1,
+    "auth-client is loaded where the menu lives, or the call silently no-ops");
+});
+
+test("a rejected value is not reported as a permission problem", function () {
+  /* Postgres says "violates" for both a check constraint and an RLS
+     policy. Matching on that word alone told someone whose post was too
+     long that they lacked permission, which sends them to ask for access
+     they already have. */
+  var data = read("community-data.js");
+  var i = data.indexOf("function shape");
+  var body = data.slice(i, i + 2600);
+  ok(body.indexOf("check constraint") < body.indexOf("row-level security"),
+    "constraints are matched before RLS, not swallowed by it");
+  ok(/That post is too long/.test(body), "and a length problem says so");
+  ok(/cannot store/.test(body),
+    "a byte Postgres cannot store is explained in words, not as an escape error");
+});
+
 test("a server misconfiguration is not shown to the user as their problem", function () {
   /* Reported from production: signing up answered 503 "accounts are not
      configured on the server", and that string was rendered verbatim
