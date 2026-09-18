@@ -59,6 +59,7 @@ and idle control are optional and disabled by default.
 | `SENDLIB_URL` | optional | Defaults to `https://sendlib.samueltuoyo.com/api/send`. |
 | `OTP_PEPPER` | generated, 32+ random chars | Mixed into the code hash. Set it before launch: rotating it later invalidates every code in flight, which is harmless, but leaving it empty weakens the stored hashes. |
 | `APP_URL` | optional | The sign-in link inside the waitlist approval email. Defaults to `https://impose-web.onrender.com`; set it when the UI moves to a custom domain. |
+| `APP_NAME` | `Impose` | Used in the email subject line. |
 
 ## Operator endpoints (CONTROL_KEY)
 
@@ -67,7 +68,12 @@ and idle control are optional and disabled by default.
 | `GET /admin/reports` | The moderation queue (newest first). |
 | `GET /admin/waitlist` | Who is waiting, oldest first, with position and account presence. |
 | `POST /admin/grant` | Grant day in one call: `{"email": "…"}` records the workspace grant, marks the waitlist row approved, and sends the approval email the sheet promises. Idempotent — re-granting sends nothing unless `{"notify": true}` forces a resend (the recovery path when the grant landed but the email did not). Refuses addresses with no account (404) and mail-floods (429, three per address per ten minutes). |
-| `APP_NAME` | `Impose` | Used in the email subject line. |
+
+## Session-authenticated endpoints (no CONTROL_KEY)
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /notify/grant` | Sends the approval email for a grant the database has already recorded. Authenticated by the caller's own Supabase session: GoTrue must accept the token, `is_admin()` must return true for its owner, and the workspace grant row must already exist. This is the path the in-app Admin panel uses, so no browser ever holds CONTROL_KEY. Shares the grantmail rate limit with `/admin/grant` (three emails per address per ten minutes). |
 
 ### Checking it works
 

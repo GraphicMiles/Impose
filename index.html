@@ -416,6 +416,7 @@ try {
       <button type="button" data-stab="prompts" role="tab" aria-selected="false">Prompts</button>
       <button type="button" data-stab="usage" role="tab" aria-selected="false">Usage</button>
       <button type="button" data-stab="data" role="tab" aria-selected="false">Data</button>
+      <button type="button" data-stab="admin" role="tab" aria-selected="false" id="settingsTabAdmin" hidden>Admin</button>
     </div>
     <div class="settings-body">
       <div data-pane="general">
@@ -517,6 +518,32 @@ try {
           </div>
         </section>
         <p class="version">Botocracy 1.2. Keys and chats stay in this browser.</p>
+      </div>
+      <div data-pane="admin" hidden>
+        <section class="settings-section">
+          <h3>Waitlist</h3>
+          <p class="fhelp">Granting records workspace access at once and sends the promised approval email. Only addresses with a signed-up account can be granted.</p>
+          <div id="adminWaitlist"></div>
+        </section>
+        <section class="settings-section">
+          <h3>Approved</h3>
+          <p class="fhelp">Already granted. Resend from here if the approval email did not land the first time.</p>
+          <div id="adminApproved"></div>
+        </section>
+        <section class="settings-section">
+          <h3>Admins</h3>
+          <p class="fhelp">Admins approve the waitlist and manage this list. An admin must already have an account. The owner cannot be removed.</p>
+          <div id="adminRoster"></div>
+          <div class="mem-add">
+            <input type="email" class="text-input" id="adminAddEmail" placeholder="Add an admin by email" autocomplete="off" maxlength="254">
+            <button class="btn" id="adminAddBtn" type="button"><i data-lucide="plus"></i><span>Add admin</span></button>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h3>Reports</h3>
+          <p class="fhelp">What readers flagged. Reviewing a report is done by an operator; this view is read-only.</p>
+          <div id="adminReports"></div>
+        </section>
       </div>
     </div>
   </div>

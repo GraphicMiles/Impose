@@ -1708,6 +1708,13 @@ html.reduce-motion .send-ring-fill { transition: none; }
 .mem-add { display: flex; gap: 8px; margin-top: 10px; }
 .mem-add .text-input { flex: 1; }
 
+/* Admin panel rows: an email with a small caption under it, and the one
+   action the role allows on that row. */
+.admin-row .admin-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.admin-row .admin-row-text strong { font-size: 13px; overflow-wrap: anywhere; }
+.admin-row .admin-row-text span { flex: none; font-size: 12px; color: var(--text-3); }
+.admin-row .btn.small, .admin-row .icon-btn { flex: none; }
+
 .lib-row {
   display: flex;
   align-items: center;

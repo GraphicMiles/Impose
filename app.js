@@ -6266,6 +6266,7 @@
         if (account) resetWorkspaceForSignOut();
         if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
         syncWorkspaceBadge();
+        refreshAdminTab();
         syncAccountMenu();
         toast(account
           ? "Signed out. Your workspace is saved to your account."
@@ -6773,6 +6774,13 @@
   }
 
   function switchTab(name) {
+    /* The admin pane only exists for accounts the database has placed in
+       the admins table. A hidden tab cannot be opened, by markup or by
+       code. */
+    if (name === "admin") {
+      var adminTab = $("settingsTabAdmin");
+      if (!adminTab || adminTab.hidden) name = "general";
+    }
     var tabs = settingsModal.querySelectorAll("[data-stab]");
     tabs.forEach(function (b) {
       b.setAttribute("aria-selected", b.dataset.stab === name ? "true" : "false");
@@ -6784,6 +6792,7 @@
     if (name === "usage") renderUsage();
     if (name === "prompts") renderLibrary();
     if (name === "providers") renderRelayCard();
+    if (name === "admin") renderAdminPanel();
   }
 
   /* First-run onboarding: once, and only for people with nothing set up. */
@@ -8151,6 +8160,289 @@
     box.innerHTML = html;
   }
 
+  /* ---------- admin panel ----------
+     The tab exists in the markup but stays hidden until the signed-in
+     account is proven to sit in the admins table. Every read and write
+     goes through SECURITY DEFINER RPCs that re-check the caller server
+     side, so the panel is a convenience, never the boundary. The one
+     relay call here - the approval email - authenticates with this
+     session's own token; CONTROL_KEY never enters the browser. */
+
+  function adminAccountReady() {
+    return !!(window.WSync && WSync.accountMode()) &&
+           !!(window.BotoData && BotoData.configured());
+  }
+
+  function refreshAdminTab() {
+    var tab = $("settingsTabAdmin");
+    if (!tab) return;
+    if (!adminAccountReady()) { tab.hidden = true; return; }
+    BotoData.isAdmin().then(function (yes) {
+      tab.hidden = !yes;
+      /* Losing the role while the panel is open (removed by another
+         admin) drops the viewer back out instead of leaving a dead pane. */
+      if (!yes && tab.getAttribute("aria-selected") === "true") switchTab("general");
+    });
+  }
+
+  function adminPaneNote(box, text) {
+    box.innerHTML = "";
+    var p = document.createElement("p");
+    p.className = "pane-note";
+    p.textContent = text;
+    box.appendChild(p);
+  }
+
+  function fmtAdminDate(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  /* The grant is recorded by the database; the email travels through the
+     relay, authenticated by this session so no key is shared with the
+     page. */
+  function notifyGrantEmail(email) {
+    var cfg = relayCfg();
+    if (!cfg.url) return Promise.resolve({ ok: false, error: "no relay is configured under Providers" });
+    return BotoData.sessionToken().then(function (token) {
+      if (!token) return { ok: false, error: "your session expired - sign in again" };
+      return fetch(cfg.url.replace(/\/+$/, "") + "/notify/grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ email: email }),
+        signal: withTimeout(15000)
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (body) {
+          if (res.ok) return { ok: true };
+          return { ok: false, error: String((body && body.detail) || ("the relay refused (" + res.status + ")")) };
+        });
+      }).catch(function () {
+        return { ok: false, error: "the relay could not be reached" };
+      });
+    });
+  }
+
+  function grantFromPanel(email, btn) {
+    btn.disabled = true;
+    BotoData.adminGrant(email).then(function (out) {
+      if (!out.ok) {
+        toast(out.error, null, null, 4200, "warn");
+        btn.disabled = false;
+        return;
+      }
+      notifyGrantEmail(email).then(function (mail) {
+        if (mail.ok) {
+          toast("Workspace opened for " + email + ". Approval email sent.", null, null, 4200, "success");
+        } else {
+          toast("Workspace opened for " + email + ", but the email failed: " + mail.error +
+                " Resend from the Approved list once mail is reachable.", null, null, 7000, "warn");
+        }
+        renderAdminWaitlist();
+        renderAdminApproved();
+      });
+    });
+  }
+
+  function adminWaitlistRow(w, box) {
+    var row = document.createElement("div");
+    row.className = "mem-row admin-row";
+    var left = document.createElement("div");
+    left.className = "admin-row-text";
+    var name = document.createElement("strong");
+    name.textContent = w.email;
+    var sub = document.createElement("span");
+    var bits = ["#" + w.queue_position, "joined " + fmtAdminDate(w.created_at)];
+    if (!w.has_account) bits.push("no account yet");
+    sub.textContent = bits.join(" · ");
+    left.appendChild(name);
+    left.appendChild(sub);
+    row.appendChild(left);
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn small";
+    btn.innerHTML = '<i data-lucide="key-round"></i><span>Grant</span>';
+    if (!w.has_account) {
+      btn.disabled = true;
+      btn.title = "This address has not signed up yet, so there is no account to open.";
+    } else {
+      btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
+    }
+    row.appendChild(btn);
+    box.appendChild(row);
+  }
+
+  function renderAdminWaitlist() {
+    var box = $("adminWaitlist");
+    if (!box) return;
+    adminPaneNote(box, "Loading the queue…");
+    BotoData.adminWaitlist("pending").then(function (out) {
+      box.innerHTML = "";
+      if (!out.ok) { adminPaneNote(box, out.error || "The queue could not be loaded."); return; }
+      var rows = out.data || [];
+      if (!rows.length) { adminPaneNote(box, "No one is waiting right now."); return; }
+      rows.forEach(function (w) { adminWaitlistRow(w, box); });
+      refreshIcons();
+    });
+  }
+
+  function renderAdminApproved() {
+    var box = $("adminApproved");
+    if (!box) return;
+    BotoData.adminWaitlist("approved").then(function (out) {
+      box.innerHTML = "";
+      if (!out.ok || !(out.data || []).length) {
+        adminPaneNote(box, out.ok ? "No one has been approved yet." : (out.error || "Could not load approvals."));
+        return;
+      }
+      out.data.forEach(function (w) {
+        var row = document.createElement("div");
+        row.className = "mem-row admin-row";
+        var left = document.createElement("div");
+        left.className = "admin-row-text";
+        var name = document.createElement("strong");
+        name.textContent = w.email;
+        var sub = document.createElement("span");
+        sub.textContent = "approved " + fmtAdminDate(w.created_at);
+        left.appendChild(name);
+        left.appendChild(sub);
+        row.appendChild(left);
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn small";
+        btn.innerHTML = '<i data-lucide="mail"></i><span>Resend email</span>';
+        btn.addEventListener("click", function () {
+          btn.disabled = true;
+          notifyGrantEmail(w.email).then(function (mail) {
+            btn.disabled = false;
+            toast(mail.ok ? "Approval email sent to " + w.email + "."
+                           : "The email failed: " + mail.error,
+                  null, null, 5000, mail.ok ? "success" : "warn");
+          });
+        });
+        row.appendChild(btn);
+        box.appendChild(row);
+        refreshIcons();
+      });
+    });
+  }
+
+  function renderAdminRoster() {
+    var box = $("adminRoster");
+    if (!box) return;
+    adminPaneNote(box, "Loading admins…");
+    BotoData.adminRoster().then(function (out) {
+      box.innerHTML = "";
+      if (!out.ok) { adminPaneNote(box, out.error || "The admin list could not be loaded."); return; }
+      var rows = out.data || [];
+      if (!rows.length) { adminPaneNote(box, "No admins are registered."); return; }
+      rows.forEach(function (a) {
+        var row = document.createElement("div");
+        row.className = "mem-row admin-row";
+        var left = document.createElement("div");
+        left.className = "admin-row-text";
+        var name = document.createElement("strong");
+        name.textContent = a.email;
+        var sub = document.createElement("span");
+        sub.textContent = (a.owner ? "owner · " : "") + "added " + fmtAdminDate(a.created_at);
+        left.appendChild(name);
+        left.appendChild(sub);
+        row.appendChild(left);
+        if (!a.owner) {
+          var x = document.createElement("button");
+          x.type = "button";
+          x.className = "icon-btn sm";
+          x.title = "Remove this admin";
+          x.setAttribute("aria-label", "Remove " + a.email + " as admin");
+          x.innerHTML = '<i data-lucide="x"></i>';
+          x.addEventListener("click", function () {
+            toast("Remove " + a.email + " as an admin?", "Remove", function () {
+              BotoData.adminRemove(a.user_id).then(function (res) {
+                toast(res.ok ? a.email + " is no longer an admin." : (res.error || "That did not work."),
+                      null, null, 4000, res.ok ? "success" : "warn");
+                if (res.ok) renderAdminRoster();
+              });
+            }, 8000, "warn");
+          });
+          row.appendChild(x);
+        }
+        box.appendChild(row);
+      });
+      refreshIcons();
+    });
+  }
+
+  function renderAdminReports() {
+    var box = $("adminReports");
+    if (!box) return;
+    adminPaneNote(box, "Loading reports…");
+    BotoData.adminReports().then(function (out) {
+      box.innerHTML = "";
+      if (!out.ok) { adminPaneNote(box, out.error || "Reports could not be loaded."); return; }
+      var rows = out.data || [];
+      if (!rows.length) { adminPaneNote(box, "No open reports. Flags from readers appear here."); return; }
+      rows.forEach(function (r) {
+        var row = document.createElement("div");
+        row.className = "mem-row admin-row";
+        var left = document.createElement("div");
+        left.className = "admin-row-text";
+        var name = document.createElement("strong");
+        var handle = r.reporter && r.reporter.handle ? "@" + r.reporter.handle : "";
+        name.textContent = (r.kind === "comment" ? "Comment" : "Post") + " flagged" +
+          (handle ? " by " + handle : "");
+        var sub = document.createElement("span");
+        sub.textContent = (r.reason || "no reason given") + " · " + fmtAdminDate(r.created_at);
+        left.appendChild(name);
+        left.appendChild(sub);
+        row.appendChild(left);
+        box.appendChild(row);
+      });
+    });
+  }
+
+  function renderAdminPanel() {
+    if (!adminAccountReady()) return;
+    /* Re-check the role every open: a tab cached visible must not outlive
+       the membership that made it visible. */
+    BotoData.isAdmin().then(function (yes) {
+      if (!yes) {
+        if (!$("settingsTabAdmin").hidden) refreshAdminTab();
+        return;
+      }
+      renderAdminWaitlist();
+      renderAdminApproved();
+      renderAdminRoster();
+      renderAdminReports();
+    });
+  }
+
+  $("adminAddBtn").addEventListener("click", function () {
+    var input = $("adminAddEmail");
+    var email = input.value.trim();
+    if (!email) { input.focus(); return; }
+    if (!adminAccountReady()) {
+      toast("Sign in to manage admins.", null, null, 3500, "warn");
+      return;
+    }
+    var btn = $("adminAddBtn");
+    btn.disabled = true;
+    BotoData.adminAdd(email).then(function (out) {
+      btn.disabled = false;
+      if (!out.ok) { toast(out.error, null, null, 4200, "warn"); return; }
+      var status = out.data && out.data.status;
+      if (status === "already") {
+        toast(email + " is already an admin.", null, null, 3500, "info");
+      } else {
+        toast(email + " can now approve the waitlist.", null, null, 4000, "success");
+      }
+      input.value = "";
+      renderAdminRoster();
+    });
+  });
+  $("adminAddEmail").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); $("adminAddBtn").click(); }
+  });
+
   /* ---------- relay status card ---------- */
 
   var relayCardBusy = false;
@@ -8415,6 +8707,7 @@
       BotoData.watchNotifications(syncWorkspaceBadge);
     }
     syncWorkspaceBadge();
+    refreshAdminTab();
 
     /* Signed-in boot: the cache copy rendered above is the fast path.
        Now make it correct: unlock provider keys, adopt newer backend

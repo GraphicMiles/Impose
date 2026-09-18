@@ -58,6 +58,12 @@
 
     if (window.BotoDebug) window.BotoDebug.error("data", text, code ? "code " + code : "");
 
+    /* A not-admin refusal (0017) carries errcode 42501, so it must be
+       named ahead of the generic auth rule or a signed-in reader would be
+       told to sign in again. */
+    if (/not_admin/i.test(text)) {
+      return { message: "That needs an admin account.", retryable: false, code: "not_admin" };
+    }
     if (/not_authenticated|42501|JWT/i.test(text + code)) {
       return { message: "Sign in to do that.", retryable: false, code: "auth" };
     }
@@ -137,6 +143,21 @@
     }
     if (/Failed to fetch|NetworkError|offline/i.test(text)) {
       return { message: "You appear to be offline.", retryable: true, code: "offline" };
+    }
+    /* The remaining admin RPC refusals (0017). They sit after the branches
+       the taste window asserts on, so growing them never breaks it. */
+    if (/no_account/i.test(text)) {
+      return { message: "No account uses that email yet. They need to sign up first.",
+               retryable: false, code: "no_account" };
+    }
+    if (/invalid_email/i.test(text)) {
+      return { message: "Enter a valid email address.", retryable: false, code: "invalid_email" };
+    }
+    if (/owner_protected/i.test(text)) {
+      return { message: "The owner cannot be removed.", retryable: false, code: "owner_protected" };
+    }
+    if (/last_admin/i.test(text)) {
+      return { message: "There has to be at least one admin.", retryable: false, code: "last_admin" };
     }
     /* Anything unrecognised is assumed transient: telling someone to retry
        a permanent failure wastes a tap, but telling them a transient one
@@ -453,6 +474,58 @@
      length of the undo window. */
   function restoreComment(id, body) {
     return run(function () { return db().rpc("restore_comment", { p_id: id, p_body: body }); });
+  }
+
+  /* ---------- the admin panel ----------
+     Authority lives in the database, not in a key the browser could hold.
+     Every call below is a SECURITY DEFINER RPC that re-checks the caller's
+     uid against the admins table, so an ordinary session gets a clean
+     refusal instead of data. The relay's CONTROL_KEY never enters this
+     file. */
+  function adminRpc(name, params) {
+    /* The raised refusals (not_admin, no_account, invalid_email,
+       owner_protected, last_admin) are translated into words by shape(),
+       once, alongside every other server refusal. */
+    return run(function () { return db().rpc(name, params || {}); });
+  }
+
+  function isAdmin() {
+    return adminRpc("is_admin").then(function (out) {
+      return out.ok && out.data === true;
+    });
+  }
+
+  function adminWaitlist(status) {
+    return adminRpc("admin_waitlist", { p_status: status || "pending" });
+  }
+
+  function adminRoster() {
+    return adminRpc("admin_roster");
+  }
+
+  function adminReports() {
+    return adminRpc("admin_reports");
+  }
+
+  function adminAdd(email) {
+    return adminRpc("admin_add", { p_email: String(email || "").trim() });
+  }
+
+  function adminRemove(userId) {
+    return adminRpc("admin_remove", { p_user_id: userId });
+  }
+
+  function adminGrant(email) {
+    return adminRpc("admin_grant", { p_email: String(email || "").trim() });
+  }
+
+  /* The signed-in session token, for calls the relay authenticates by
+     session instead of CONTROL_KEY (the grant approval email). */
+  function sessionToken() {
+    if (!configured()) return Promise.resolve(null);
+    return db().auth.getSession().then(function (res) {
+      return (res && res.data && res.data.session && res.data.session.access_token) || null;
+    }, function () { return null; });
   }
 
   function setLocked(id, locked) {
@@ -885,6 +958,15 @@
     setLocked: setLocked,
     setSaved: setSaved,
     toGeneration: toGeneration,
-    toComment: toComment
+    toComment: toComment,
+    /* admin panel */
+    isAdmin: isAdmin,
+    adminWaitlist: adminWaitlist,
+    adminRoster: adminRoster,
+    adminReports: adminReports,
+    adminAdd: adminAdd,
+    adminRemove: adminRemove,
+    adminGrant: adminGrant,
+    sessionToken: sessionToken
   };
 })();

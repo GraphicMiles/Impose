@@ -421,3 +421,61 @@ fit for a static host with a service worker.
 51/63/14/24/7/113; workspace sync round trip green; standalone build
 current; service worker v57 (fingerprint 687af06d6811); audit matrix
 6360/6360 and relay 1308/1308.
+
+---
+
+## ROUND 6 ADDENDUM — the admin role
+
+**Question that opened the round:** who approves the waitlist? Round 5
+built the grant machinery and an operator API, but authority lived in a
+shared secret (CONTROL_KEY) pasted into curl. There was no role, no
+roster, no in-product surface, and nothing to stop the key leaking.
+
+**1. Authority moves into the database.** Migration 0017 creates
+`public.admins` keyed to `auth.users`: membership is a row, not a
+secret. The table has RLS on and no client policies and no grants, so
+nothing touches it except the SECURITY DEFINER RPCs beside it, and every
+one of them re-checks the caller with `require_admin()` before doing
+anything. The role can only be exercised from a signed-in session, and
+admins are added by email only when the account already exists — an
+admin who cannot sign in cannot act. `rfarouq69@gmail.com` is seeded
+`owner = true`; the owner is irremovable (`owner_protected`) and the
+last admin can never be removed (`last_admin`), so the role cannot be
+emptied by accident or malice.
+
+RPCs shipped: `is_admin`, `admin_waitlist` (queue with `has_account`
+resolved against auth.users, because `join_waitlist` never stores a
+user_id), `admin_roster`, `admin_add`, `admin_remove`, `admin_grant`
+(records the workspace grant + approves the waitlist row; the database
+never sends mail), `admin_reports` (the moderation queue, newest first,
+reporter embedded). Anon has no EXECUTE on any of them; authenticated
+non-admins get `not_admin` (42501) from every gate.
+
+**2. The Admin panel.** Workspace Settings grows an Admin tab, hidden
+until `is_admin()` returns true for the signed-in account and hidden
+again on sign-out. It shows the pending queue (Grant button disabled
+for addresses with no account yet), the approved list (resend the email
+if the first send failed), the roster (add by email, remove anyone but
+the owner, with a confirm step), and the reports queue read-only.
+`openSettings("admin")` is guarded too: a hidden tab cannot be opened
+by markup or by code.
+
+**3. Approval email without a key in the browser.** Granting is two
+steps by design. The panel calls `admin_grant` (the database records
+access), then asks the relay to send the promised email through the new
+`POST /notify/grant`. That endpoint authenticates the caller's own
+session — GoTrue validates the token, `is_admin()` is evaluated with the
+caller's token, and the grant row must already exist for the target —
+so it can mail but never grant, and CONTROL_KEY stays out of the page.
+It shares the grantmail rate bucket with `/admin/grant`: three approval
+emails per address per ten minutes across both paths. Eleven new relay
+tests walk the refusal ladder (401 → 403 → 409 → send), the shared
+bucket, and the honest 502 on mail failure.
+
+**Verification at ship:** schema harness fully green including the new
+admin matrix (anon denied, non-admin denied on every RPC, add/already/
+no_account/invalid_email, remove + owner_protected, grant/already with
+the waitlist row untouched until approval, reports readable); pytest
+178 (11 new); node suites 51/63/14/24/7/113; workspace sync round trip
+green; standalone build current; service worker v58 (fingerprint
+21e5a0cf3e8c); audit matrix 6360/6360 and relay 1308/1308.
