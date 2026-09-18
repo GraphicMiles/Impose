@@ -111,13 +111,42 @@
     return detail || "That did not work. Try again.";
   }
 
+  /* A request that never settles is worse than one that fails: the button
+     stays disabled and the page waits forever. Measured on a relay that
+     accepted the connection and never answered, the signup form was still
+     locked after 22 seconds with nothing on screen to explain it.
+     flow.txt 10 names this outright.
+
+     AbortController rather than a bare timer, so the socket is released
+     instead of being left to finish into a handler nobody is waiting on. */
+  var REQUEST_TIMEOUT = 20000;
+
   function postJson(path, body) {
     var base = relayBase();
     if (!base) return Promise.reject(new Error("Verification is not configured yet."));
-    return fetch(base + path, {
+
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+    var timedOut = false;
+    var timer = setTimeout(function () {
+      timedOut = true;
+      if (controller) controller.abort();
+    }, REQUEST_TIMEOUT);
+
+    var opts = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
+    };
+    if (controller) opts.signal = controller.signal;
+
+    return fetch(base + path, opts).then(function (res) {
+      clearTimeout(timer);
+      return res;
+    }, function (err) {
+      clearTimeout(timer);
+      throw timedOut
+        ? new Error("That took too long. Check your connection and try again.")
+        : err;
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (!res.ok) {
@@ -128,7 +157,13 @@
         }
         return data;
       });
-    }, function () {
+    }, function (err) {
+      /* Preserve a message we already shaped. Overwriting it here turned a
+         timeout into "could not reach the server", which is a different
+         fact and sends the reader to check the wrong thing. */
+      if (err && err.message && /took too long|already has an account|switched on/i.test(err.message)) {
+        throw err;
+      }
       throw new Error("Could not reach the server. Check your connection.");
     });
   }

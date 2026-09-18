@@ -679,6 +679,39 @@ test("a server misconfiguration is not shown to the user as their problem", func
     "and warns when Sendlib is half configured, which silently emails nobody");
 });
 
+test("no network call can hang forever", function () {
+  /* architect 15 resilience, flow.txt 10. The auth transport had no
+     timeout at all: measured against a relay that accepted the connection
+     and never answered, the signup button was still disabled after 22
+     seconds with nothing on screen to explain it. */
+  var auth = read("auth-client.js");
+  ok(auth.indexOf("REQUEST_TIMEOUT") !== -1, "the auth transport bounds its wait");
+  ok(auth.indexOf("AbortController") !== -1,
+    "and releases the socket rather than leaving it to finish into nobody");
+  ok(/took too long/.test(auth), "the user is told what happened");
+  ok(/took too long\|already has an account\|switched on/.test(auth),
+    "and a shaped message is not overwritten by the generic transport handler");
+
+  var data = read("community-data.js");
+  ok(data.indexOf("function withTimeout") !== -1, "the data layer bounds its wait too");
+});
+
+test("retries are bounded, not merely backed off", function () {
+  /* A failure that never stops being retryable held the head of the
+     outbox forever and blocked every write behind it. Exponential and
+     jittered were already there; bounded was not. */
+  var data = read("community-data.js");
+  ok(/var MAX_ATTEMPTS = \d+;/.test(data), "the outbox has an attempt ceiling");
+  ok(/job\.attempts >= MAX_ATTEMPTS/.test(data), "and enforces it");
+  ok(/code: "exhausted"/.test(data),
+    "an exhausted job fails loudly instead of silently blocking the queue");
+
+  var view = read("community.js");
+  ok(/pollDelay = Math\.min\(POLL_MAX, pollDelay \* 2\)/.test(view), "the poll backs off");
+  ok(/Math\.random\(\) \* 5000/.test(view), "with jitter, so clients do not sync up");
+  ok(/pollFailures >= 6/.test(view), "and gives up rather than hammering a dead server");
+});
+
 test("the service worker version tracks the files it caches", function () {
   /* The debug panel fix shipped correct and invisible: the origin served
      the new app.js and styles.css, and every returning visitor kept the

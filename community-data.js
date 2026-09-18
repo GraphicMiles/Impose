@@ -433,6 +433,10 @@
      never left undefined. */
 
   var OUTBOX_KEY = "impose.cm.outbox.v1";
+  /* Six tries across reconnects, not six in a row: attempts persist with
+     the job, so a write that fails on every reconnection for a day still
+     stops rather than retrying forever. */
+  var MAX_ATTEMPTS = 6;
   var outbox = [];
   var draining = false;
   var onChange = null;
@@ -542,7 +546,26 @@
           settle(job, "fail", out);
           return step();
         }
+        /* Bounded retries. A "retryable" failure that never stops being
+           retryable, a server answering 500 to one malformed job, would
+           otherwise hold the head of the queue forever and block every
+           write behind it. Architect 15: retries are exponential, jittered
+           AND bounded; this had the first two and not the third.
+
+           At the limit the job is treated as permanently failed: the
+           caller is told, the card shows why, and the queue moves on
+           rather than the whole outbox dying behind one poisoned item. */
         job.error = out.error;
+        if (job.attempts >= MAX_ATTEMPTS) {
+          dropJob(job.key);
+          settle(job, "fail", {
+            ok: false,
+            error: "That could not be sent after several tries. " + out.error,
+            retryable: false,
+            code: "exhausted"
+          });
+          return step();
+        }
         saveOutbox();
         draining = false;
         return Promise.resolve();
