@@ -3,23 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Botocracy</title>
-<meta name="description" content="Botocracy. In bots we trust.">
+<title>Impose</title>
+<meta name="description" content="Impose. In bots we trust.">
 <link rel="canonical" href="https://impose-web.onrender.com/">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Botocracy">
-<meta property="og:title" content="Botocracy">
-<meta property="og:description" content="Botocracy. In bots we trust.">
+<meta property="og:site_name" content="Impose">
+<meta property="og:title" content="Impose">
+<meta property="og:description" content="Impose. In bots we trust.">
 <meta property="og:url" content="https://impose-web.onrender.com/">
 <meta property="og:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:secure_url" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Botocracy: in bots we trust.">
+<meta property="og:image:alt" content="Impose: in bots we trust.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Botocracy">
-<meta name="twitter:description" content="Botocracy. In bots we trust.">
+<meta name="twitter:title" content="Impose">
+<meta name="twitter:description" content="Impose. In bots we trust.">
 <meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta name="color-scheme" content="dark">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
@@ -4247,7 +4247,7 @@ try {
       </div>
     </header>
 
-    <!-- Mode switch, always visible: Community is the Botocracy feed, Workspace is the chat shell -->
+    <!-- Mode switch, always visible: Community is the Impose feed, Workspace is the chat shell -->
     <nav class="modebar" aria-label="Product mode">
       <div class="modeseg" role="tablist" aria-label="Mode">
         <button class="modeseg-tab" id="cmTabCommunity" role="tab" aria-selected="true" data-mode="community">
@@ -4372,7 +4372,7 @@ try {
                      layer and a plain textarea, never doubled text. -->
                 <div class="composer-hl" id="cmInputHl" aria-hidden="true"
                      style="position:absolute;inset:0;color:transparent;pointer-events:none"></div>
-                <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything, or just post a thought" aria-label="Message Botocracy"></textarea>
+                <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything, or just post a thought" aria-label="Message Impose"></textarea>
               </div>
               <div class="composer-row">
                 <button class="icon-btn" id="cmVisBtn" title="Visibility: Public" aria-label="Visibility: Public" aria-pressed="false">
@@ -4384,7 +4384,7 @@ try {
                 </button>
               </div>
             </div>
-            <p class="disclaimer">@bot answers are demo replies until launch. Botocracy can make mistakes. Check important info.</p>
+            <p class="disclaimer">@bot answers are demo replies until launch. Impose can make mistakes. Check important info.</p>
           </div>
         </div>
       </div>
@@ -4396,7 +4396,7 @@ try {
   <input type="file" id="filePicker" hidden multiple>
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
-    <textarea id="input" rows="1" maxlength="200000" placeholder="Ask anything, / for saved prompts" aria-label="Message Botocracy"></textarea>
+    <textarea id="input" rows="1" maxlength="200000" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
     <div class="composer-row">
       <button class="icon-btn" id="searchBtn" title="Assistant tools" aria-label="Assistant tools" aria-haspopup="menu">
         <i data-lucide="plus"></i>
@@ -4417,7 +4417,7 @@ try {
       </div>
     </div>
   </div>
-  <p class="disclaimer">Botocracy can make mistakes. Check important info.</p>
+  <p class="disclaimer">Impose can make mistakes. Check important info.</p>
   <div class="pop pop-sm slash-pop" id="slashPop" role="listbox" aria-label="Saved prompts" hidden>
     <p class="pop-label">Saved prompts</p>
     <div id="slashList"></div>
@@ -4496,7 +4496,7 @@ try {
   <button class="pop-item" id="acctAbout" role="menuitem"><i data-lucide="file-text"></i><span>About &amp; privacy</span></button>
   <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
   <button class="pop-item danger" id="acctWipe" role="menuitem"><i data-lucide="trash-2"></i><span>Delete all chats</span></button>
-  <p class="acct-foot">Botocracy 1.2 · Keys and chats stay in this browser.</p>
+  <p class="acct-foot">Impose 1.2 · Provider keys stay in this browser. Signed-in chats sync to your account, keys sealed.</p>
 </div>
 
 <div class="overlay" id="palette" hidden>
@@ -4526,7 +4526,7 @@ try {
     <div class="onboard-intro">
       <div class="onboard-badge"><i data-lucide="sparkles"></i></div>
       <div class="onboard-copy">
-        <h2 id="onboardTitle">Welcome to Botocracy</h2>
+        <h2 id="onboardTitle">Welcome to Impose</h2>
         <p class="onboard-sub">A chat app that shows its work. One thing to know before you start:</p>
       </div>
     </div>
@@ -4640,7 +4640,7 @@ try {
             <button class="btn" id="exportBtn"><i data-lucide="download"></i><span>Export</span></button>
           </div>
           <div class="setting-row">
-            <div class="setting-text"><strong>Import backup</strong><span>Restore a Botocracy JSON export</span></div>
+            <div class="setting-text"><strong>Import backup</strong><span>Restore a Impose JSON export</span></div>
             <button class="btn" id="importBtn"><i data-lucide="upload"></i><span>Import</span></button>
           </div>
           <input type="file" id="importPicker" accept="application/json,.json" hidden>
@@ -4662,7 +4662,7 @@ try {
             <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
           </div>
         </section>
-        <p class="version">Botocracy 1.2. Keys and chats stay in this browser.</p>
+        <p class="version">Impose 1.2. Provider keys stay in this browser. Signed-in chats sync to your account, keys sealed.</p>
       </div>
     </div>
   </div>
@@ -4814,7 +4814,7 @@ try {
           </div>
           <div class="field">
             <label class="flabel" for="pfHeaders">Extra headers</label>
-            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Botocracy" spellcheck="false"></textarea>
+            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Impose" spellcheck="false"></textarea>
             <p class="fhelp">One per line, written as Name: value.</p>
           </div>
           <p class="flabel gap">Prices, per million tokens (optional, for cost estimates)</p>
@@ -5077,7 +5077,7 @@ try {
 <div id="opStatus" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<noscript><p style="padding:24px;font-family:sans-serif">Botocracy needs JavaScript to run.</p></noscript>
+<noscript><p style="padding:24px;font-family:sans-serif">Impose needs JavaScript to run.</p></noscript>
 <script>
 /**
  * @license lucide v1.45.0 - ISC
@@ -8527,8 +8527,13 @@ window.BotoConfig = {
       if (!r.ok) throw new Error("access check failed: " + r.status);
       return r.json();
     }).then(function (grant) {
+      /* The RPC returns a table, so PostgREST answers with a one-row
+         array. Reading .can_use_workspace off the array read undefined,
+         which told every granted member they were still waitlisted. */
+      if (Array.isArray(grant)) grant = grant[0] || {};
+      grant = grant || {};
       /* The RPC returns exactly one typed verdict; nothing else is trusted. */
-      state = grant && grant.can_use_workspace ? "granted" : "waitlisted";
+      state = grant.can_use_workspace ? "granted" : "waitlisted";
       grantCache = { status: state, email: grant.email || "", position: grant.waitlist_position || null, at: Date.now() };
       writeCache(grantCache);
       notify();
@@ -8599,7 +8604,17 @@ window.BotoConfig = {
       }
       return r.json();
     }).then(function (res) {
-      grantCache = { status: "waitlisted", email: clean, position: res && res.position || null, at: Date.now() };
+      /* Same table shape: one row in an array, column waitlist_position.
+         The old read (res.position) was always undefined, so "you are
+         number N in line" never once showed a number. */
+      if (Array.isArray(res)) res = res[0] || {};
+      var position = (res && (res.waitlist_position != null ? res.waitlist_position : res.position)) || null;
+      /* An "approved" answer here is information about the address, not
+         a grant for this browser: the RPC is anonymous by design, so the
+         unlock still requires signing in (my_workspace_access decides).
+         The cache stays waitlisted; refresh() flips it after sign-in. */
+      grantCache = { status: "waitlisted", email: clean, position: position,
+                     approved: !!(res && res.status === "approved"), at: Date.now() };
       writeCache(grantCache);
       state = "waitlisted";
       notify();
@@ -8896,12 +8911,46 @@ window.BotoConfig = {
     return false;
   }
 
+  /* The relay key mints workspace grants and sends mail: it is the most
+     powerful credential the workspace can hold, and it used to travel
+     plaintext through the cache and the backend blob while the provider
+     keys beside it were sealed. Same treatment now. */
+  function sealSettings(settings, key) {
+    if (!settings || typeof settings.relayKey !== "string" || !settings.relayKey) {
+      /* No live key: keep relayKeyEnc as the surviving sealed form. */
+      return Promise.resolve(settings);
+    }
+    return sealText(settings.relayKey, key).then(function (blob) {
+      var sealed = Object.assign({}, settings, { relayKeyEnc: blob });
+      delete sealed.relayKey;
+      return sealed;
+    });
+  }
+
+  function openSettings(settings, key) {
+    if (!settings || !settings.relayKeyEnc || typeof settings.relayKey === "string") {
+      return Promise.resolve(false);
+    }
+    return openText(settings.relayKeyEnc, key).then(function (plain) {
+      settings.relayKey = plain;
+      delete settings.relayKeyEnc;
+      return true;
+    }, function () { return false; /* wrong key: stays locked */ });
+  }
+
   /* ---------- persistence ---------- */
 
   var lastRev = 0;
   var pushTimer = null;
   var pushing = false;
   var pendingPayload = null;
+
+  /* Called when a save is refused because another device wrote first
+     (stale_workspace from migration 0019). Receives the remote copy and
+     a keepMine() that re-pushes this device's payload as an informed
+     overwrite. The app decides what the person sees. */
+  var onConflict = null;
+  function setConflictHandler(fn) { onConflict = fn; }
 
   function client() {
     /* The shared SDK client handles token refresh; reuse it whenever it
@@ -8928,10 +8977,28 @@ window.BotoConfig = {
       }, function () { return null; });
   }
 
-  function push(uid, payloadObj) {
+  function push(uid, payloadObj, force) {
     var c = client();
     if (!c) return Promise.resolve(null);
-    return c.rpc("save_workspace", { p_data: payloadObj }).then(function (res) {
+    /* The rev this device last saw travels with the write. The database
+       refuses the save if another device wrote since (stale_workspace),
+       which is the difference between losing a workspace silently and
+       asking the person in front of it. force=true is the informed
+       overwrite after they chose "keep mine". */
+    var args = { p_data: payloadObj,
+                 p_expected_rev: (force || !lastRev) ? null : lastRev };
+    return c.rpc("save_workspace", args).then(function (res) {
+      if (res && res.error) {
+        var msg = String(res.error.message || "");
+        /* An unupgraded database does not know p_expected_rev yet.
+           Retry the old shape rather than failing every save. */
+        if (/save_workspace/.test(msg) && /function|schema cache/i.test(msg)) {
+          return c.rpc("save_workspace", { p_data: payloadObj });
+        }
+        return res;
+      }
+      return res;
+    }).then(function (res) {
       if (res && res.error) throw res.error;
       var rev = res && res.data && res.data.rev;
       if (rev) {
@@ -8952,6 +9019,31 @@ window.BotoConfig = {
     });
   }
 
+  /* A refused save means another device holds a newer rev. Fetch that
+     copy and hand both to the app; swallowing the refusal here would be
+     the same silent loss the CAS exists to prevent. */
+  function handleStale(uid, payload) {
+    return pull(uid).then(function (remote) {
+      if (remote && remote.rev) lastRev = remote.rev;
+      if (onConflict) {
+        try {
+          onConflict(remote, function keepMine() {
+            return push(uid, payload, true).catch(function () { return null; });
+          });
+        } catch (e) { /* the handler is advisory */ }
+        return null;
+      }
+      /* No handler registered: adopt the server's rev and re-push this
+         payload as the newer write. Last-write-wins, but at a known rev
+         instead of blind. */
+      return push(uid, payload, true).catch(function () { return null; });
+    });
+  }
+
+  function isStale(err) {
+    return !!err && /stale_workspace/i.test(String(err.message || err));
+  }
+
   function schedulePush(uid, payloadObj) {
     pendingPayload = payloadObj;
     if (pushTimer) return;
@@ -8961,7 +9053,8 @@ window.BotoConfig = {
       pendingPayload = null;
       if (!payload || !userId()) return;
       pushing = true;
-      push(uid, payload).catch(function () {
+      push(uid, payload).catch(function (err) {
+        if (isStale(err)) return handleStale(uid, payload);
         /* Offline or transient failure: the payload stays in the local
            cache and the next save pushes it. */
       }).then(function () { pushing = false; });
@@ -8973,7 +9066,12 @@ window.BotoConfig = {
     var payload = pendingPayload;
     pendingPayload = null;
     var uid = userId();
-    if (payload && uid) return push(uid, payload).catch(function () { return null; });
+    if (payload && uid) {
+      return push(uid, payload).catch(function (err) {
+        if (isStale(err)) return handleStale(uid, payload);
+        return null;
+      });
+    }
     return Promise.resolve(null);
   }
 
@@ -8995,6 +9093,9 @@ window.BotoConfig = {
       if (!key || !subtleCrypto()) return copy;
       return sealProviders(copy.providers, key).then(function (sealed) {
         copy.providers = sealed;
+        return sealSettings(copy.settings, key);
+      }).then(function (sealedSettings) {
+        copy.settings = sealedSettings;
         return copy;
       });
     }).then(function (sealedCopy) {
@@ -9033,10 +9134,22 @@ window.BotoConfig = {
     });
   }
 
+  /* Take the other device's copy: cache it and let the caller reload so
+     the whole engine boots from it, same path as pullIfNewer. */
+  function adoptRemote(remote) {
+    var uid = userId();
+    if (!uid || !remote || !remote.data) return false;
+    lastRev = remote.rev || lastRev;
+    try { writeCache(uid, { v: 2, rev: lastRev, data: remote.data }); }
+    catch (e) { /* cache is optional; the backend copy stands */ }
+    return true;
+  }
+
   /* Unlock provider keys for this session. Returns the number of
      providers that became usable. */
   function unlockProviders(providers, settings, uid) {
-    if (!anySealedProvider(providers)) return Promise.resolve(0);
+    var sealedRelay = !!(settings && settings.relayKeyEnc && typeof settings.relayKey !== "string");
+    if (!anySealedProvider(providers) && !sealedRelay) return Promise.resolve(0);
     if (!subtleCrypto()) return Promise.resolve(0);
     var mode = settings && settings.keyMode === "passphrase" ? "passphrase" : "device";
     var keyPromise = mode === "passphrase"
@@ -9051,7 +9164,10 @@ window.BotoConfig = {
           if (before && before.keyEnc && typeof before.apiKey !== "string" && typeof opened[i].apiKey === "string") gained++;
           providers[i] = opened[i];
         }
-        return gained;
+        if (!sealedRelay) return gained;
+        return openSettings(settings, key).then(function (openedRelay) {
+          return gained + (openedRelay ? 1 : 0);
+        });
       });
     });
   }
@@ -9078,7 +9194,9 @@ window.BotoConfig = {
         if (!gained && anySealedProvider(providers)) throw new Error("That passphrase could not unlock the keys.");
         setUnlockedKey(key);
         for (var j = 0; j < opened.length; j++) providers[j] = opened[j];
-        return gained;
+        return openSettings(settings, key).then(function (openedRelay) {
+          return gained + (openedRelay ? 1 : 0);
+        });
       });
     });
   }
@@ -9107,6 +9225,8 @@ window.BotoConfig = {
     pullIfNewer: pullIfNewer,
     persist: persist,
     flushNow: flushNow,
+    setConflictHandler: setConflictHandler,
+    adoptRemote: adoptRemote,
     unlockProviders: unlockProviders,
     unlockWithPassphrase: unlockWithPassphrase,
     armPassphraseLock: armPassphraseLock,
@@ -9124,7 +9244,7 @@ window.BotoConfig = {
 
 </script>
 <script>
-/* Botocracy chat client. Bring your own key: providers speak OpenAI style,
+/* Impose chat client. Bring your own key: providers speak OpenAI style,
    Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
   "use strict";
@@ -9180,7 +9300,7 @@ window.BotoConfig = {
   function yesTrans(els) {
     for (var i = 0; i < els.length; i++) els[i].style.transition = "";
   }
-  var SYS_MSG = "You are Botocracy, a helpful assistant running inside a web chat app with rich rendering: markdown, highlighted code blocks, image galleries, and clickable links. Never describe yourself as a CLI, terminal, or text-only system, and never claim you cannot display rich content. Be direct and concrete; skip filler, self-introductions, and restating the question.";
+  var SYS_MSG = "You are Impose, a helpful assistant running inside a web chat app with rich rendering: markdown, highlighted code blocks, image galleries, and clickable links. Never describe yourself as a CLI, terminal, or text-only system, and never claim you cannot display rich content. Be direct and concrete; skip filler, self-introductions, and restating the question.";
 
   /* Base persona + per chat instructions + memory, assembled once per send. */
   function getSystemMsg(chat) {
@@ -15601,7 +15721,7 @@ window.BotoConfig = {
     if ($("acctShare").disabled) { toast("Nothing to share yet."); return; }
     var chat = getChat(activeId);
     var text = chat.title + "\n\n" + chat.messages.map(function (m) {
-      return (m.role === "user" ? "You: " : "Botocracy: ") + m.content;
+      return (m.role === "user" ? "You: " : "Impose: ") + m.content;
     }).join("\n\n");
     if (navigator.share) {
       navigator.share({ title: chat.title, text: text }).then(function () {
@@ -15701,7 +15821,7 @@ window.BotoConfig = {
     if (!chat) return;
     var lines = ["# " + chat.title, ""];
     chat.messages.forEach(function (m) {
-      lines.push(m.role === "user" ? "You:" : "Botocracy:");
+      lines.push(m.role === "user" ? "You:" : "Impose:");
       lines.push(m.content || "");
       lines.push("");
     });
@@ -16053,7 +16173,7 @@ window.BotoConfig = {
   });
 
   function fbContextLine() {
-    return "Botocracy 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
+    return "Impose 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
   }
 
   function fbDraft() {
@@ -16272,14 +16392,14 @@ window.BotoConfig = {
     r.onload = function () {
       var data;
       try { data = JSON.parse(String(r.result || "")); }
-      catch (e) { toast.error("That file is not an Botocracy backup."); return; }
+      catch (e) { toast.error("That file is not an Impose backup."); return; }
       if (data && data.format === "impose-encrypted-v1") {
         pendingEnc = data;
         openEncModal("decrypt");
         return;
       }
       try { applyImportData(data); }
-      catch (e) { toast.error("That file is not an Botocracy backup."); }
+      catch (e) { toast.error("That file is not an Impose backup."); }
     };
     r.readAsText(f);
   });
@@ -16687,10 +16807,10 @@ window.BotoConfig = {
     });
     var help = $("pfKindHelp");
     if (edKind === "gemini") {
-      help.textContent = "Gemini speaks its own shape. Botocracy handles that for you.";
+      help.textContent = "Gemini speaks its own shape. Impose handles that for you.";
       help.hidden = false;
     } else if (edKind === "anthropic") {
-      help.textContent = "Anthropic speaks its own shape. Botocracy handles that for you.";
+      help.textContent = "Anthropic speaks its own shape. Impose handles that for you.";
       help.hidden = false;
     } else {
       help.hidden = true;
@@ -17448,7 +17568,11 @@ window.BotoConfig = {
     var name = document.createElement("strong");
     name.textContent = w.email;
     var sub = document.createElement("span");
-    var bits = ["#" + w.queue_position, "joined " + fmtAdminDate(w.created_at)];
+    /* Rows that joined before positions were assigned (migration 0019)
+       carry null; "joined <date>" alone is the honest render for them. */
+    var bits = [];
+    if (w.queue_position != null) bits.push("#" + w.queue_position);
+    bits.push("joined " + fmtAdminDate(w.created_at));
     if (!w.has_account) bits.push("no account yet");
     sub.textContent = bits.join(" · ");
     left.appendChild(name);
@@ -17713,6 +17837,34 @@ window.BotoConfig = {
         left.appendChild(name);
         left.appendChild(sub);
         row.appendChild(left);
+        /* A report is a journey that must reach a terminal state. These
+           buttons close it; the database re-checks the capability. */
+        var acts = document.createElement("div");
+        acts.className = "admin-row-acts";
+        [["Dismiss", "dismissed"], ["Actioned", "actioned"]].forEach(function (pair) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "btn small";
+          b.textContent = pair[0];
+          b.addEventListener("click", function () {
+            b.disabled = true;
+            BotoData.adminResolveReport(r.id, pair[1]).then(function (res) {
+              if (!res.ok) {
+                toast(res.error || "That did not work.", null, null, 4200, "warn");
+                b.disabled = false;
+                return;
+              }
+              var st = res.data && res.data.status;
+              toast(st === "gone" ? "That report no longer exists."
+                : st === "already" ? "Someone else already settled that report."
+                : "Report closed as " + pair[1] + ".", null, null, 3500,
+                st === "gone" ? "warn" : "success");
+              renderAdminReports();
+            });
+          });
+          acts.appendChild(b);
+        });
+        row.appendChild(acts);
         box.appendChild(row);
       });
     });
@@ -18038,6 +18190,28 @@ window.BotoConfig = {
       (function bootAccount() {
         var uid = WSync.userId();
         WSync.sweepCaches(uid);
+
+        /* A save refused because another device wrote first. The person
+           chooses which copy survives; silence here is how a workspace
+           vanishes. "Load newest" adopts the other device's copy and
+           reboots from it; the action button keeps this device's work
+           as an informed overwrite. */
+        if (WSync.setConflictHandler) {
+          WSync.setConflictHandler(function (remote, keepMine) {
+            toast("This workspace changed on another device. Load its copy, or keep this one.",
+              "Keep this one",
+              function () { keepMine(); },
+              15000, "warn");
+            toast("Load the other device's copy (replaces unsaved edits here).",
+              "Load newest",
+              function () {
+                if (WSync.adoptRemote && WSync.adoptRemote(remote)) {
+                  window.location.reload();
+                }
+              },
+              15000, "info");
+          });
+        }
         WSync.unlockProviders(state.providers, state.settings, uid).then(function (gained) {
           if (gained > 0) {
             renderModelMenu();
@@ -18983,6 +19157,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return adminRpc("admin_reports");
   }
 
+  /* Close a report: reviewed, actioned or dismissed. The capability
+     check (moderation.manage) lives in the database, same as reading. */
+  function adminResolveReport(id, status) {
+    return adminRpc("admin_resolve_report", { p_id: id, p_status: status });
+  }
+
   function adminAdd(email) {
     return adminRpc("admin_add", { p_email: String(email || "").trim() });
   }
@@ -19464,6 +19644,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     adminWaitlist: adminWaitlist,
     adminRoster: adminRoster,
     adminReports: adminReports,
+    adminResolveReport: adminResolveReport,
     adminAdd: adminAdd,
     adminRemove: adminRemove,
     adminGrant: adminGrant,
@@ -19478,7 +19659,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
 </script>
 <script>
-/* Community mode for the Botocracy shell: the Slopify prototype, ported 1:1.
+/* Community mode for the Impose shell: the Slopify prototype, ported 1:1.
    Owns the Community | Workspace mode switch, the engagement ranked feed,
    generation detail with threaded discussion, remix/challenge flows, the new
    posts pill, pull to refresh, and paginated infinite scroll. It never
@@ -19488,7 +19669,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 (function () {
   "use strict";
 
-  /* v6: ported into the Botocracy shell as Community mode. The cache is
+  /* v6: ported into the Impose shell as Community mode. The cache is
      scoped per identity: every signed-in account gets its own key plus
      one shared anonymous key. A cache is only ever read by the identity
      that wrote it, so another person's private posts or "own" flags can
@@ -22256,7 +22437,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   /* Demo engine: deterministic canned responses shaped by the prompt.
-     Production swaps this for the Botocracy provider layer over SSE. */
+     Production swaps this for the Impose provider layer over SSE. */
   function replyFor(gen) {
     var p = gen.prompt.toLowerCase();
     var out = "";

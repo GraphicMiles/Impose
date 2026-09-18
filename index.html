@@ -3,23 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Botocracy</title>
-<meta name="description" content="Botocracy. In bots we trust.">
+<title>Impose</title>
+<meta name="description" content="Impose. In bots we trust.">
 <link rel="canonical" href="https://impose-web.onrender.com/">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Botocracy">
-<meta property="og:title" content="Botocracy">
-<meta property="og:description" content="Botocracy. In bots we trust.">
+<meta property="og:site_name" content="Impose">
+<meta property="og:title" content="Impose">
+<meta property="og:description" content="Impose. In bots we trust.">
 <meta property="og:url" content="https://impose-web.onrender.com/">
 <meta property="og:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:secure_url" content="https://impose-web.onrender.com/og-image.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Botocracy: in bots we trust.">
+<meta property="og:image:alt" content="Impose: in bots we trust.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Botocracy">
-<meta name="twitter:description" content="Botocracy. In bots we trust.">
+<meta name="twitter:title" content="Impose">
+<meta name="twitter:description" content="Impose. In bots we trust.">
 <meta name="twitter:image" content="https://impose-web.onrender.com/og-image.jpg">
 <meta name="color-scheme" content="dark">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
@@ -108,7 +108,7 @@ try {
       </div>
     </header>
 
-    <!-- Mode switch, always visible: Community is the Botocracy feed, Workspace is the chat shell -->
+    <!-- Mode switch, always visible: Community is the Impose feed, Workspace is the chat shell -->
     <nav class="modebar" aria-label="Product mode">
       <div class="modeseg" role="tablist" aria-label="Mode">
         <button class="modeseg-tab" id="cmTabCommunity" role="tab" aria-selected="true" data-mode="community">
@@ -233,7 +233,7 @@ try {
                      layer and a plain textarea, never doubled text. -->
                 <div class="composer-hl" id="cmInputHl" aria-hidden="true"
                      style="position:absolute;inset:0;color:transparent;pointer-events:none"></div>
-                <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything, or just post a thought" aria-label="Message Botocracy"></textarea>
+                <textarea id="cmInput" rows="1" maxlength="4000" placeholder="Ask @bot anything, or just post a thought" aria-label="Message Impose"></textarea>
               </div>
               <div class="composer-row">
                 <button class="icon-btn" id="cmVisBtn" title="Visibility: Public" aria-label="Visibility: Public" aria-pressed="false">
@@ -245,7 +245,7 @@ try {
                 </button>
               </div>
             </div>
-            <p class="disclaimer">@bot answers are demo replies until launch. Botocracy can make mistakes. Check important info.</p>
+            <p class="disclaimer">@bot answers are demo replies until launch. Impose can make mistakes. Check important info.</p>
           </div>
         </div>
       </div>
@@ -257,7 +257,7 @@ try {
   <input type="file" id="filePicker" hidden multiple>
   <div id="attachPreview" class="attach-preview" hidden></div>
   <div class="composer" id="composer">
-    <textarea id="input" rows="1" maxlength="200000" placeholder="Ask anything, / for saved prompts" aria-label="Message Botocracy"></textarea>
+    <textarea id="input" rows="1" maxlength="200000" placeholder="Ask anything, / for saved prompts" aria-label="Message Impose"></textarea>
     <div class="composer-row">
       <button class="icon-btn" id="searchBtn" title="Assistant tools" aria-label="Assistant tools" aria-haspopup="menu">
         <i data-lucide="plus"></i>
@@ -278,7 +278,7 @@ try {
       </div>
     </div>
   </div>
-  <p class="disclaimer">Botocracy can make mistakes. Check important info.</p>
+  <p class="disclaimer">Impose can make mistakes. Check important info.</p>
   <div class="pop pop-sm slash-pop" id="slashPop" role="listbox" aria-label="Saved prompts" hidden>
     <p class="pop-label">Saved prompts</p>
     <div id="slashList"></div>
@@ -357,7 +357,7 @@ try {
   <button class="pop-item" id="acctAbout" role="menuitem"><i data-lucide="file-text"></i><span>About &amp; privacy</span></button>
   <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
   <button class="pop-item danger" id="acctWipe" role="menuitem"><i data-lucide="trash-2"></i><span>Delete all chats</span></button>
-  <p class="acct-foot">Botocracy 1.2 · Keys and chats stay in this browser.</p>
+  <p class="acct-foot">Impose 1.2 · Provider keys stay in this browser. Signed-in chats sync to your account, keys sealed.</p>
 </div>
 
 <div class="overlay" id="palette" hidden>
@@ -387,7 +387,7 @@ try {
     <div class="onboard-intro">
       <div class="onboard-badge"><i data-lucide="sparkles"></i></div>
       <div class="onboard-copy">
-        <h2 id="onboardTitle">Welcome to Botocracy</h2>
+        <h2 id="onboardTitle">Welcome to Impose</h2>
         <p class="onboard-sub">A chat app that shows its work. One thing to know before you start:</p>
       </div>
     </div>
@@ -501,7 +501,7 @@ try {
             <button class="btn" id="exportBtn"><i data-lucide="download"></i><span>Export</span></button>
           </div>
           <div class="setting-row">
-            <div class="setting-text"><strong>Import backup</strong><span>Restore a Botocracy JSON export</span></div>
+            <div class="setting-text"><strong>Import backup</strong><span>Restore a Impose JSON export</span></div>
             <button class="btn" id="importBtn"><i data-lucide="upload"></i><span>Import</span></button>
           </div>
           <input type="file" id="importPicker" accept="application/json,.json" hidden>
@@ -523,7 +523,7 @@ try {
             <button class="btn danger hold" id="holdDelete"><span class="fill" aria-hidden="true"></span><i data-lucide="trash-2"></i><span>Hold to delete</span></button>
           </div>
         </section>
-        <p class="version">Botocracy 1.2. Keys and chats stay in this browser.</p>
+        <p class="version">Impose 1.2. Provider keys stay in this browser. Signed-in chats sync to your account, keys sealed.</p>
       </div>
     </div>
   </div>
@@ -675,7 +675,7 @@ try {
           </div>
           <div class="field">
             <label class="flabel" for="pfHeaders">Extra headers</label>
-            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Botocracy" spellcheck="false"></textarea>
+            <textarea class="text-input mono text-area" id="pfHeaders" rows="3" placeholder="X-Title: Impose" spellcheck="false"></textarea>
             <p class="fhelp">One per line, written as Name: value.</p>
           </div>
           <p class="flabel gap">Prices, per million tokens (optional, for cost estimates)</p>
@@ -938,7 +938,7 @@ try {
 <div id="opStatus" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <div id="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<noscript><p style="padding:24px;font-family:sans-serif">Botocracy needs JavaScript to run.</p></noscript>
+<noscript><p style="padding:24px;font-family:sans-serif">Impose needs JavaScript to run.</p></noscript>
 <script src="./lucide.min.js"></script>
 <script src="./anime.min.js"></script>
 <script src="./agent/trace.js"></script>

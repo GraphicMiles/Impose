@@ -263,12 +263,46 @@
     return false;
   }
 
+  /* The relay key mints workspace grants and sends mail: it is the most
+     powerful credential the workspace can hold, and it used to travel
+     plaintext through the cache and the backend blob while the provider
+     keys beside it were sealed. Same treatment now. */
+  function sealSettings(settings, key) {
+    if (!settings || typeof settings.relayKey !== "string" || !settings.relayKey) {
+      /* No live key: keep relayKeyEnc as the surviving sealed form. */
+      return Promise.resolve(settings);
+    }
+    return sealText(settings.relayKey, key).then(function (blob) {
+      var sealed = Object.assign({}, settings, { relayKeyEnc: blob });
+      delete sealed.relayKey;
+      return sealed;
+    });
+  }
+
+  function openSettings(settings, key) {
+    if (!settings || !settings.relayKeyEnc || typeof settings.relayKey === "string") {
+      return Promise.resolve(false);
+    }
+    return openText(settings.relayKeyEnc, key).then(function (plain) {
+      settings.relayKey = plain;
+      delete settings.relayKeyEnc;
+      return true;
+    }, function () { return false; /* wrong key: stays locked */ });
+  }
+
   /* ---------- persistence ---------- */
 
   var lastRev = 0;
   var pushTimer = null;
   var pushing = false;
   var pendingPayload = null;
+
+  /* Called when a save is refused because another device wrote first
+     (stale_workspace from migration 0019). Receives the remote copy and
+     a keepMine() that re-pushes this device's payload as an informed
+     overwrite. The app decides what the person sees. */
+  var onConflict = null;
+  function setConflictHandler(fn) { onConflict = fn; }
 
   function client() {
     /* The shared SDK client handles token refresh; reuse it whenever it
@@ -295,10 +329,28 @@
       }, function () { return null; });
   }
 
-  function push(uid, payloadObj) {
+  function push(uid, payloadObj, force) {
     var c = client();
     if (!c) return Promise.resolve(null);
-    return c.rpc("save_workspace", { p_data: payloadObj }).then(function (res) {
+    /* The rev this device last saw travels with the write. The database
+       refuses the save if another device wrote since (stale_workspace),
+       which is the difference between losing a workspace silently and
+       asking the person in front of it. force=true is the informed
+       overwrite after they chose "keep mine". */
+    var args = { p_data: payloadObj,
+                 p_expected_rev: (force || !lastRev) ? null : lastRev };
+    return c.rpc("save_workspace", args).then(function (res) {
+      if (res && res.error) {
+        var msg = String(res.error.message || "");
+        /* An unupgraded database does not know p_expected_rev yet.
+           Retry the old shape rather than failing every save. */
+        if (/save_workspace/.test(msg) && /function|schema cache/i.test(msg)) {
+          return c.rpc("save_workspace", { p_data: payloadObj });
+        }
+        return res;
+      }
+      return res;
+    }).then(function (res) {
       if (res && res.error) throw res.error;
       var rev = res && res.data && res.data.rev;
       if (rev) {
@@ -319,6 +371,31 @@
     });
   }
 
+  /* A refused save means another device holds a newer rev. Fetch that
+     copy and hand both to the app; swallowing the refusal here would be
+     the same silent loss the CAS exists to prevent. */
+  function handleStale(uid, payload) {
+    return pull(uid).then(function (remote) {
+      if (remote && remote.rev) lastRev = remote.rev;
+      if (onConflict) {
+        try {
+          onConflict(remote, function keepMine() {
+            return push(uid, payload, true).catch(function () { return null; });
+          });
+        } catch (e) { /* the handler is advisory */ }
+        return null;
+      }
+      /* No handler registered: adopt the server's rev and re-push this
+         payload as the newer write. Last-write-wins, but at a known rev
+         instead of blind. */
+      return push(uid, payload, true).catch(function () { return null; });
+    });
+  }
+
+  function isStale(err) {
+    return !!err && /stale_workspace/i.test(String(err.message || err));
+  }
+
   function schedulePush(uid, payloadObj) {
     pendingPayload = payloadObj;
     if (pushTimer) return;
@@ -328,7 +405,8 @@
       pendingPayload = null;
       if (!payload || !userId()) return;
       pushing = true;
-      push(uid, payload).catch(function () {
+      push(uid, payload).catch(function (err) {
+        if (isStale(err)) return handleStale(uid, payload);
         /* Offline or transient failure: the payload stays in the local
            cache and the next save pushes it. */
       }).then(function () { pushing = false; });
@@ -340,7 +418,12 @@
     var payload = pendingPayload;
     pendingPayload = null;
     var uid = userId();
-    if (payload && uid) return push(uid, payload).catch(function () { return null; });
+    if (payload && uid) {
+      return push(uid, payload).catch(function (err) {
+        if (isStale(err)) return handleStale(uid, payload);
+        return null;
+      });
+    }
     return Promise.resolve(null);
   }
 
@@ -362,6 +445,9 @@
       if (!key || !subtleCrypto()) return copy;
       return sealProviders(copy.providers, key).then(function (sealed) {
         copy.providers = sealed;
+        return sealSettings(copy.settings, key);
+      }).then(function (sealedSettings) {
+        copy.settings = sealedSettings;
         return copy;
       });
     }).then(function (sealedCopy) {
@@ -400,10 +486,22 @@
     });
   }
 
+  /* Take the other device's copy: cache it and let the caller reload so
+     the whole engine boots from it, same path as pullIfNewer. */
+  function adoptRemote(remote) {
+    var uid = userId();
+    if (!uid || !remote || !remote.data) return false;
+    lastRev = remote.rev || lastRev;
+    try { writeCache(uid, { v: 2, rev: lastRev, data: remote.data }); }
+    catch (e) { /* cache is optional; the backend copy stands */ }
+    return true;
+  }
+
   /* Unlock provider keys for this session. Returns the number of
      providers that became usable. */
   function unlockProviders(providers, settings, uid) {
-    if (!anySealedProvider(providers)) return Promise.resolve(0);
+    var sealedRelay = !!(settings && settings.relayKeyEnc && typeof settings.relayKey !== "string");
+    if (!anySealedProvider(providers) && !sealedRelay) return Promise.resolve(0);
     if (!subtleCrypto()) return Promise.resolve(0);
     var mode = settings && settings.keyMode === "passphrase" ? "passphrase" : "device";
     var keyPromise = mode === "passphrase"
@@ -418,7 +516,10 @@
           if (before && before.keyEnc && typeof before.apiKey !== "string" && typeof opened[i].apiKey === "string") gained++;
           providers[i] = opened[i];
         }
-        return gained;
+        if (!sealedRelay) return gained;
+        return openSettings(settings, key).then(function (openedRelay) {
+          return gained + (openedRelay ? 1 : 0);
+        });
       });
     });
   }
@@ -445,7 +546,9 @@
         if (!gained && anySealedProvider(providers)) throw new Error("That passphrase could not unlock the keys.");
         setUnlockedKey(key);
         for (var j = 0; j < opened.length; j++) providers[j] = opened[j];
-        return gained;
+        return openSettings(settings, key).then(function (openedRelay) {
+          return gained + (openedRelay ? 1 : 0);
+        });
       });
     });
   }
@@ -474,6 +577,8 @@
     pullIfNewer: pullIfNewer,
     persist: persist,
     flushNow: flushNow,
+    setConflictHandler: setConflictHandler,
+    adoptRemote: adoptRemote,
     unlockProviders: unlockProviders,
     unlockWithPassphrase: unlockWithPassphrase,
     armPassphraseLock: armPassphraseLock,

@@ -87,6 +87,46 @@ services:
       - path: /sw.js
         name: Cache-Control
         value: "no-cache"
+      # The rewritten routes serve HTML too, but the /*.html rule does not
+      # match an extensionless path, so they fell through to the default
+      # edge caching and pinned exactly the pages that change with auth
+      # and capabilities for five minutes. Name them.
+      - path: /admin
+        name: Cache-Control
+        value: "no-cache"
+      - path: /sign-in
+        name: Cache-Control
+        value: "no-cache"
+      - path: /sign-up
+        name: Cache-Control
+        value: "no-cache"
+      - path: /forgot-password
+        name: Cache-Control
+        value: "no-cache"
+      - path: /otp
+        name: Cache-Control
+        value: "no-cache"
+      - path: /reset-password
+        name: Cache-Control
+        value: "no-cache"
+      - path: /about
+        name: Cache-Control
+        value: "no-cache"
+      - path: /privacy
+        name: Cache-Control
+        value: "no-cache"
+      - path: /terms
+        name: Cache-Control
+        value: "no-cache"
+      - path: /data-security
+        name: Cache-Control
+        value: "no-cache"
+      - path: /contact
+        name: Cache-Control
+        value: "no-cache"
+      - path: /acceptable-use
+        name: Cache-Control
+        value: "no-cache"
       # Code and styles are revalidated rather than trusted blindly: the
       # filenames are not content-hashed, so a long max-age would serve a
       # stale app.js after a deploy. must-revalidate with a short window

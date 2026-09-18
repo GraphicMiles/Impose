@@ -37,7 +37,7 @@
   if (backBtn) {
     var canGoBack = window.history.length > 1 && document.referrer !== "";
     if (!canGoBack) {
-      backBtn.innerHTML = '<i data-lucide="info"></i><span>Read about Botocracy</span>';
+      backBtn.innerHTML = '<i data-lucide="info"></i><span>Read about Impose</span>';
       if (window.lucide) window.lucide.createIcons();
       backBtn.addEventListener("click", function () { window.location.href = "./about"; });
     } else {

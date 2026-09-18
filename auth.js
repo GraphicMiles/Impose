@@ -375,7 +375,7 @@
 
     function showVerified() {
       $("successTitle").textContent = "Email verified";
-      $("successCopy").textContent = "Your Botocracy account is ready to use.";
+      $("successCopy").textContent = "Your Impose account is ready to use.";
       var go = $("successAction");
       if (go) go.href = finishHref();
       route("success");

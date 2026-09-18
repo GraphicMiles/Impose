@@ -33,7 +33,7 @@ eval(fs.readFileSync(path.join(__dirname, "..", "workspace-sync.js"), "utf8"));
     chats: [{ id: "c1", title: "Hello", messages: [] }],
     providers: [{ id: "p1", name: "OpenAI", authStyle: "bearer", apiKey: "sk-SECRET-123", model: "gpt-x" }],
     folders: [], outbox: [], library: [], memories: [],
-    settings: { theme: "dark" }
+    settings: { theme: "dark", relayKey: "relay-CONTROL-456" }
   };
 
   // 1. device-tier persist seals the key in the cache
@@ -45,13 +45,18 @@ eval(fs.readFileSync(path.join(__dirname, "..", "workspace-sync.js"), "utf8"));
   assert.ok(store["impose.wsk.u1"].length >= 40, "wrapping key is 32 bytes b64");
   var leaked = JSON.stringify(cached);
   assert.ok(leaked.indexOf("sk-SECRET-123") === -1, "plaintext never serialized");
+  // the relay key is the strongest credential in the blob: sealed too
+  assert.strictEqual(cached.data.settings.relayKey, undefined, "no plaintext relayKey in cache");
+  assert.ok(cached.data.settings.relayKeyEnc && cached.data.settings.relayKeyEnc.ct, "relayKeyEnc present");
+  assert.ok(leaked.indexOf("relay-CONTROL-456") === -1, "relay key plaintext never serialized");
 
   // 2. boot + unlock restores it
   var boot = WSync.bootPayload();
   assert.strictEqual(boot.providers[0].apiKey, undefined, "boot payload still sealed");
   var gained = await WSync.unlockProviders(boot.providers, boot.settings, "u1");
-  assert.strictEqual(gained, 1, "one key unlocked");
+  assert.strictEqual(gained, 2, "provider key and relay key unlocked");
   assert.strictEqual(boot.providers[0].apiKey, "sk-SECRET-123", "round-trip plaintext restored");
+  assert.strictEqual(boot.settings.relayKey, "relay-CONTROL-456", "relay key round-trips too");
 
   // 3. passphrase tier: arm lock, persist, then only the passphrase opens it
   boot.settings.keyMode = "passphrase";

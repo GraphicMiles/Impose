@@ -1,4 +1,4 @@
-/* Community mode for the Botocracy shell: the Slopify prototype, ported 1:1.
+/* Community mode for the Impose shell: the Slopify prototype, ported 1:1.
    Owns the Community | Workspace mode switch, the engagement ranked feed,
    generation detail with threaded discussion, remix/challenge flows, the new
    posts pill, pull to refresh, and paginated infinite scroll. It never
@@ -8,7 +8,7 @@
 (function () {
   "use strict";
 
-  /* v6: ported into the Botocracy shell as Community mode. The cache is
+  /* v6: ported into the Impose shell as Community mode. The cache is
      scoped per identity: every signed-in account gets its own key plus
      one shared anonymous key. A cache is only ever read by the identity
      that wrote it, so another person's private posts or "own" flags can
@@ -2776,7 +2776,7 @@
   }
 
   /* Demo engine: deterministic canned responses shaped by the prompt.
-     Production swaps this for the Botocracy provider layer over SSE. */
+     Production swaps this for the Impose provider layer over SSE. */
   function replyFor(gen) {
     var p = gen.prompt.toLowerCase();
     var out = "";

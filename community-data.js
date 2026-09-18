@@ -530,6 +530,12 @@
     return adminRpc("admin_reports");
   }
 
+  /* Close a report: reviewed, actioned or dismissed. The capability
+     check (moderation.manage) lives in the database, same as reading. */
+  function adminResolveReport(id, status) {
+    return adminRpc("admin_resolve_report", { p_id: id, p_status: status });
+  }
+
   function adminAdd(email) {
     return adminRpc("admin_add", { p_email: String(email || "").trim() });
   }
@@ -1011,6 +1017,7 @@
     adminWaitlist: adminWaitlist,
     adminRoster: adminRoster,
     adminReports: adminReports,
+    adminResolveReport: adminResolveReport,
     adminAdd: adminAdd,
     adminRemove: adminRemove,
     adminGrant: adminGrant,

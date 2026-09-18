@@ -96,8 +96,13 @@
       if (!r.ok) throw new Error("access check failed: " + r.status);
       return r.json();
     }).then(function (grant) {
+      /* The RPC returns a table, so PostgREST answers with a one-row
+         array. Reading .can_use_workspace off the array read undefined,
+         which told every granted member they were still waitlisted. */
+      if (Array.isArray(grant)) grant = grant[0] || {};
+      grant = grant || {};
       /* The RPC returns exactly one typed verdict; nothing else is trusted. */
-      state = grant && grant.can_use_workspace ? "granted" : "waitlisted";
+      state = grant.can_use_workspace ? "granted" : "waitlisted";
       grantCache = { status: state, email: grant.email || "", position: grant.waitlist_position || null, at: Date.now() };
       writeCache(grantCache);
       notify();
@@ -168,7 +173,17 @@
       }
       return r.json();
     }).then(function (res) {
-      grantCache = { status: "waitlisted", email: clean, position: res && res.position || null, at: Date.now() };
+      /* Same table shape: one row in an array, column waitlist_position.
+         The old read (res.position) was always undefined, so "you are
+         number N in line" never once showed a number. */
+      if (Array.isArray(res)) res = res[0] || {};
+      var position = (res && (res.waitlist_position != null ? res.waitlist_position : res.position)) || null;
+      /* An "approved" answer here is information about the address, not
+         a grant for this browser: the RPC is anonymous by design, so the
+         unlock still requires signing in (my_workspace_access decides).
+         The cache stays waitlisted; refresh() flips it after sign-in. */
+      grantCache = { status: "waitlisted", email: clean, position: position,
+                     approved: !!(res && res.status === "approved"), at: Date.now() };
       writeCache(grantCache);
       state = "waitlisted";
       notify();

@@ -1,4 +1,4 @@
-/* Botocracy chat client. Bring your own key: providers speak OpenAI style,
+/* Impose chat client. Bring your own key: providers speak OpenAI style,
    Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
   "use strict";
@@ -54,7 +54,7 @@
   function yesTrans(els) {
     for (var i = 0; i < els.length; i++) els[i].style.transition = "";
   }
-  var SYS_MSG = "You are Botocracy, a helpful assistant running inside a web chat app with rich rendering: markdown, highlighted code blocks, image galleries, and clickable links. Never describe yourself as a CLI, terminal, or text-only system, and never claim you cannot display rich content. Be direct and concrete; skip filler, self-introductions, and restating the question.";
+  var SYS_MSG = "You are Impose, a helpful assistant running inside a web chat app with rich rendering: markdown, highlighted code blocks, image galleries, and clickable links. Never describe yourself as a CLI, terminal, or text-only system, and never claim you cannot display rich content. Be direct and concrete; skip filler, self-introductions, and restating the question.";
 
   /* Base persona + per chat instructions + memory, assembled once per send. */
   function getSystemMsg(chat) {
@@ -6475,7 +6475,7 @@
     if ($("acctShare").disabled) { toast("Nothing to share yet."); return; }
     var chat = getChat(activeId);
     var text = chat.title + "\n\n" + chat.messages.map(function (m) {
-      return (m.role === "user" ? "You: " : "Botocracy: ") + m.content;
+      return (m.role === "user" ? "You: " : "Impose: ") + m.content;
     }).join("\n\n");
     if (navigator.share) {
       navigator.share({ title: chat.title, text: text }).then(function () {
@@ -6575,7 +6575,7 @@
     if (!chat) return;
     var lines = ["# " + chat.title, ""];
     chat.messages.forEach(function (m) {
-      lines.push(m.role === "user" ? "You:" : "Botocracy:");
+      lines.push(m.role === "user" ? "You:" : "Impose:");
       lines.push(m.content || "");
       lines.push("");
     });
@@ -6927,7 +6927,7 @@
   });
 
   function fbContextLine() {
-    return "Botocracy 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
+    return "Impose 1.2 · " + (state.settings.theme || "dark") + " theme · " + (activeProvider() ? "provider mode" : "demo mode");
   }
 
   function fbDraft() {
@@ -7146,14 +7146,14 @@
     r.onload = function () {
       var data;
       try { data = JSON.parse(String(r.result || "")); }
-      catch (e) { toast.error("That file is not an Botocracy backup."); return; }
+      catch (e) { toast.error("That file is not an Impose backup."); return; }
       if (data && data.format === "impose-encrypted-v1") {
         pendingEnc = data;
         openEncModal("decrypt");
         return;
       }
       try { applyImportData(data); }
-      catch (e) { toast.error("That file is not an Botocracy backup."); }
+      catch (e) { toast.error("That file is not an Impose backup."); }
     };
     r.readAsText(f);
   });
@@ -7561,10 +7561,10 @@
     });
     var help = $("pfKindHelp");
     if (edKind === "gemini") {
-      help.textContent = "Gemini speaks its own shape. Botocracy handles that for you.";
+      help.textContent = "Gemini speaks its own shape. Impose handles that for you.";
       help.hidden = false;
     } else if (edKind === "anthropic") {
-      help.textContent = "Anthropic speaks its own shape. Botocracy handles that for you.";
+      help.textContent = "Anthropic speaks its own shape. Impose handles that for you.";
       help.hidden = false;
     } else {
       help.hidden = true;
@@ -8322,7 +8322,11 @@
     var name = document.createElement("strong");
     name.textContent = w.email;
     var sub = document.createElement("span");
-    var bits = ["#" + w.queue_position, "joined " + fmtAdminDate(w.created_at)];
+    /* Rows that joined before positions were assigned (migration 0019)
+       carry null; "joined <date>" alone is the honest render for them. */
+    var bits = [];
+    if (w.queue_position != null) bits.push("#" + w.queue_position);
+    bits.push("joined " + fmtAdminDate(w.created_at));
     if (!w.has_account) bits.push("no account yet");
     sub.textContent = bits.join(" · ");
     left.appendChild(name);
@@ -8587,6 +8591,34 @@
         left.appendChild(name);
         left.appendChild(sub);
         row.appendChild(left);
+        /* A report is a journey that must reach a terminal state. These
+           buttons close it; the database re-checks the capability. */
+        var acts = document.createElement("div");
+        acts.className = "admin-row-acts";
+        [["Dismiss", "dismissed"], ["Actioned", "actioned"]].forEach(function (pair) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "btn small";
+          b.textContent = pair[0];
+          b.addEventListener("click", function () {
+            b.disabled = true;
+            BotoData.adminResolveReport(r.id, pair[1]).then(function (res) {
+              if (!res.ok) {
+                toast(res.error || "That did not work.", null, null, 4200, "warn");
+                b.disabled = false;
+                return;
+              }
+              var st = res.data && res.data.status;
+              toast(st === "gone" ? "That report no longer exists."
+                : st === "already" ? "Someone else already settled that report."
+                : "Report closed as " + pair[1] + ".", null, null, 3500,
+                st === "gone" ? "warn" : "success");
+              renderAdminReports();
+            });
+          });
+          acts.appendChild(b);
+        });
+        row.appendChild(acts);
         box.appendChild(row);
       });
     });
@@ -8912,6 +8944,28 @@
       (function bootAccount() {
         var uid = WSync.userId();
         WSync.sweepCaches(uid);
+
+        /* A save refused because another device wrote first. The person
+           chooses which copy survives; silence here is how a workspace
+           vanishes. "Load newest" adopts the other device's copy and
+           reboots from it; the action button keeps this device's work
+           as an informed overwrite. */
+        if (WSync.setConflictHandler) {
+          WSync.setConflictHandler(function (remote, keepMine) {
+            toast("This workspace changed on another device. Load its copy, or keep this one.",
+              "Keep this one",
+              function () { keepMine(); },
+              15000, "warn");
+            toast("Load the other device's copy (replaces unsaved edits here).",
+              "Load newest",
+              function () {
+                if (WSync.adoptRemote && WSync.adoptRemote(remote)) {
+                  window.location.reload();
+                }
+              },
+              15000, "info");
+          });
+        }
         WSync.unlockProviders(state.providers, state.settings, uid).then(function (gained) {
           if (gained > 0) {
             renderModelMenu();
