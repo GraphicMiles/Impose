@@ -117,13 +117,16 @@ try {
           Workspace
         </button><span class="modeseg-glide" id="cmModeGlide" aria-hidden="true"></span>
       </div>
-      <!-- The inbox. In the mode bar because it belongs to Community and
-           must be reachable from the feed and a thread alike. -->
-      <button class="notif-btn" id="cmNotifBtn" type="button" hidden
-              aria-label="Notifications" title="Notifications">
-        <i data-lucide="bell"></i>
-        <span class="notif-dot" id="cmNotifDot" hidden></span>
-      </button>
+      <div class="modebar-right">
+        <!-- The inbox. In the mode bar because it belongs to Community and
+             must be reachable from the feed and a thread alike. -->
+        <button class="notif-btn" id="cmNotifBtn" type="button" hidden
+                aria-label="Notifications" title="Notifications">
+          <i data-lucide="bell"></i>
+          <span class="notif-dot" id="cmNotifDot" hidden></span>
+        </button>
+        <button class="avatar avatar-btn cm-avatar-btn" id="cmAvatarBtn" title="Account" aria-label="Account" aria-haspopup="menu">Y</button>
+      </div>
     </nav>
 
     <div id="wsContent" hidden>
@@ -350,7 +353,9 @@ try {
       <span class="acct-sub" id="acctSub">Local profile</span>
     </div>
   </div>
-    <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
+  <button class="pop-item" id="acctCustomizeProfile" role="menuitem"><i data-lucide="user-pen"></i><span>Customize profile</span></button>
+  <button class="pop-item" id="acctCheckWaitlist" role="menuitem"><i data-lucide="shield-check"></i><span id="acctWaitlistStatusLabel">Beta status</span></button>
+  <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
     <button class="pop-item" id="acctShare" role="menuitem" disabled><i data-lucide="share"></i><span>Share chat</span></button>
   <button class="pop-item" id="acctSettings" role="menuitem"><i data-lucide="settings"></i><span>Settings</span></button>
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
@@ -544,7 +549,10 @@ try {
           <span id="adminWho">&nbsp;</span>
         </div>
       </div>
-      <a class="btn" id="adminExit" href="./"><span>Back to Community</span></a>
+      <div class="admin-head-actions">
+        <button class="btn" id="adminSignOutBtn" type="button" hidden><span>Sign out</span></button>
+        <a class="btn" id="adminExit" href="./"><span>Back to Community</span></a>
+      </div>
     </header>
 
     <section class="admin-card" id="adminBooting">
@@ -560,7 +568,10 @@ try {
     <section class="admin-card" id="adminDenied" hidden>
       <h2>Not available to this account</h2>
       <p class="admin-help">This is the workspace administration console. If you think this account should hold it, ask whoever manages this installation.</p>
-      <a class="btn" href="./"><span>Back to Community</span></a>
+      <div class="admin-denied-actions">
+        <button class="btn primary" id="adminDeniedSignOut" type="button"><span>Sign in with another account</span></button>
+        <a class="btn" href="./"><span>Back to Community</span></a>
+      </div>
     </section>
 
     <section class="admin-card admin-bootstrap" id="adminBootstrap" hidden>
@@ -871,6 +882,51 @@ try {
       </button>
     </div>
     <div class="notif-list" id="cmNotifList"></div>
+  </div>
+</div>
+
+<div class="overlay center" id="profileCustomModal" hidden>
+  <div class="sheet profile-custom-sheet" role="dialog" aria-modal="true" aria-labelledby="profileCustomTitle">
+    <div class="settings-head">
+      <h2 id="profileCustomTitle">Customize profile</h2>
+      <button class="icon-btn" id="profileCustomClose" type="button" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="profile-custom-body">
+      <div class="profile-section">
+        <label class="field-label">Avatar</label>
+        <p class="profile-help">Select a character for your public profile.</p>
+        <div class="avatar-picker-grid" id="avatarPickerGrid" role="radiogroup" aria-label="Character avatar picker"></div>
+      </div>
+
+      <div class="profile-section">
+        <label class="field-label" for="customProfileHandle">Username</label>
+        <div class="handle-input-wrap">
+          <span class="handle-at">@</span>
+          <input type="text" class="text-input" id="customProfileHandle" maxlength="30" autocomplete="off" spellcheck="false" placeholder="username">
+        </div>
+        <p class="profile-quota-note" id="customProfileQuotaNote">3 changes every 21 days from last exhaustion.</p>
+      </div>
+
+      <div class="profile-section">
+        <label class="field-label" for="customProfileName">Display name</label>
+        <input type="text" class="text-input" id="customProfileName" maxlength="40" autocomplete="off" placeholder="Your name">
+      </div>
+
+      <div class="profile-section">
+        <div class="bio-label-row">
+          <label class="field-label" for="customProfileBio">Bio</label>
+          <span class="bio-counter" id="customProfileBioCounter">0 / 300</span>
+        </div>
+        <textarea class="text-input bio-textarea" id="customProfileBio" rows="3" maxlength="300" placeholder="A short bio..."></textarea>
+      </div>
+
+      <div class="profile-custom-actions">
+        <button class="btn" id="profileCustomCancel" type="button">Cancel</button>
+        <button class="btn primary" id="profileCustomSave" type="button">Save profile</button>
+      </div>
+    </div>
   </div>
 </div>
 
