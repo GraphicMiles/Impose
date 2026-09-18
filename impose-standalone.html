@@ -2119,6 +2119,11 @@ body.cm-detail-mode .cm-scope .cm-view,
 .cm-scope body.cm-detail-mode .cm-view { padding-top: 0; }
 
 .modebar .modeseg { pointer-events: auto; }
+/* The bar is pointer-events:none so the fade zone lets taps reach the feed
+   beneath it. Anything interactive in there has to opt back in, or it is
+   visible and unclickable: the bell was, and a bell you cannot press is
+   worse than no bell. */
+.modebar .notif-btn { pointer-events: auto; }
 
 /* Mode gates. The two surfaces are different entities with different UI:
    Community's header is ONLY the mode switch row - no topbar, no profile,
@@ -3377,6 +3382,86 @@ body:not(.community-mode) .modebar { display: none; }
 }
 .cm-scope .detail-loading p { margin: 0; max-width: 34ch; line-height: 1.5; }
 
+/* ---------- notifications ---------- */
+
+/* In the mode bar, so it is reachable from the feed and a thread alike. */
+.cm-scope .notif-btn {
+  /* Absolute, because the bar centres its capsule with justify-content and
+     a flex sibling would shove that capsule off-centre. */
+  position: absolute;
+  right: 12px;
+  top: max(10px, env(safe-area-inset-top));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-3);
+  color: var(--text-2);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.cm-scope .notif-btn .lucide { width: 18px; height: 18px; }
+@media (hover: hover) { .cm-scope .notif-btn:hover { background: var(--hover); color: var(--text); } }
+
+/* A dot, not a number. The exact count of things you have not read is not
+   information you act on; that there is something new is. */
+.cm-scope .notif-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+}
+
+.cm-scope .notif-sheet { max-width: 460px; }
+.cm-scope .notif-list { max-height: min(60dvh, 520px); overflow-y: auto; padding: 4px 0 8px; }
+
+.cm-scope .notif-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--r-3);
+  transition: background-color 140ms ease;
+}
+@media (hover: hover) { .cm-scope .notif-row:hover { background: var(--hover); } }
+.cm-scope .notif-row.unread { background: var(--bg-2); }
+.cm-scope .notif-who { font-weight: 600; font-size: 14px; }
+.cm-scope .notif-what { font-size: 14px; color: var(--text-2); }
+.cm-scope .notif-excerpt {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-scope .notif-when { display: block; margin-top: 4px; font-size: 12px; color: var(--text-3); }
+
+/* ---------- profiles ---------- */
+
+.cm-scope .profile-head { padding: 20px 16px 8px; }
+.cm-scope .profile-card { display: flex; flex-direction: column; gap: 10px; }
+.cm-scope .profile-ava { width: 56px; height: 56px; border-radius: 999px; }
+.cm-scope .profile-id { display: flex; flex-direction: column; gap: 2px; }
+.cm-scope .profile-name { margin: 0; font-size: 19px; font-weight: 650; }
+.cm-scope .profile-handle { font-size: 14px; color: var(--text-3); }
+.cm-scope .profile-bio { margin: 2px 0 0; font-size: 14.5px; line-height: 1.5; color: var(--text-2); max-width: 56ch; }
+.cm-scope .profile-meta { margin: 0; font-size: 13px; color: var(--text-3); }
+
+/* A handle is a destination now, not decoration. Underlined only on
+   hover so a feed of cards does not read as a page of links. */
+.cm-scope .gen-handle,
+.cm-scope .comment-handle { text-decoration: none; }
+@media (hover: hover) {
+  .cm-scope .gen-handle:hover,
+  .cm-scope .comment-handle:hover { text-decoration: underline; }
+}
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -3975,6 +4060,13 @@ try {
           Workspace
         </button><span class="modeseg-glide" id="cmModeGlide" aria-hidden="true"></span>
       </div>
+      <!-- The inbox. In the mode bar because it belongs to Community and
+           must be reachable from the feed and a thread alike. -->
+      <button class="notif-btn" id="cmNotifBtn" type="button" hidden
+              aria-label="Notifications" title="Notifications">
+        <i data-lucide="bell"></i>
+        <span class="notif-dot" id="cmNotifDot" hidden></span>
+      </button>
     </nav>
 
     <div id="wsContent" hidden>
@@ -4043,6 +4135,16 @@ try {
 
       <div class="cm-view" id="cmDetailView" hidden>
         <div class="detail" id="cmDetail"></div>
+      </div>
+
+      <div class="cm-view" id="cmProfileView" hidden>
+        <div class="profile-head" id="cmProfile"></div>
+        <div class="feed-list" id="cmProfileList"></div>
+        <div class="feed-loader" id="cmProfileLoader" hidden role="status"
+             aria-label="Loading more posts"><span class="spinner"></span></div>
+        <div class="feed-empty" id="cmProfileEmpty" hidden>
+          <p class="feed-empty-sub">No posts yet.</p>
+        </div>
       </div>
 
       <div class="composer-dock cm-composer-dock" id="cmComposerDock">
@@ -4579,6 +4681,18 @@ try {
       </div>
     </div>
     <button class="btn wl-continue" id="accessContinue">Keep browsing Community</button>
+  </div>
+</div>
+
+<div class="overlay center" id="cmNotifSheet" hidden>
+  <div class="sheet notif-sheet" role="dialog" aria-modal="true" aria-label="Notifications">
+    <div class="settings-head">
+      <h2>Notifications</h2>
+      <button class="icon-btn" id="cmNotifClose" type="button" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="notif-list" id="cmNotifList"></div>
   </div>
 </div>
 
@@ -17276,6 +17390,104 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* Reconnecting is the moment queued work should move. */
   window.addEventListener("online", function () { drain(); });
 
+  /* ---------- notifications ---------- */
+
+  function notifications(limit) {
+    return run(function () {
+      return db().rpc("notifications_page", { p_limit: limit || 20 });
+    }).then(function (out) {
+      if (!out.ok) return out;
+      return {
+        ok: true,
+        data: (out.data || []).map(function (r) {
+          return {
+            id: r.id,
+            kind: r.kind,
+            actor: {
+              name: r.actor_name || r.actor_handle || "Someone",
+              handle: r.actor_handle ? "@" + String(r.actor_handle).replace(/^@/, "") : "@someone"
+            },
+            genId: r.generation_id,
+            commentId: r.comment_id,
+            excerpt: r.excerpt || "",
+            read: !!r.read_at,
+            createdAt: r.created_at ? Date.parse(r.created_at) : Date.now()
+          };
+        })
+      };
+    });
+  }
+
+  function unreadCount() {
+    return run(function () { return db().rpc("notifications_unread"); })
+      .then(function (out) { return out.ok ? { ok: true, data: out.data || 0 } : out; });
+  }
+
+  function markAllRead() {
+    return run(function () { return db().rpc("notifications_mark_read"); });
+  }
+
+  /* ---------- profiles ---------- */
+
+  function profile(handle) {
+    return run(function () {
+      return db().rpc("profile_by_handle", { p_handle: String(handle || "").replace(/^@/, "") });
+    }).then(function (out) {
+      if (!out.ok) return out;
+      var r = Array.isArray(out.data) ? out.data[0] : out.data;
+      if (!r) return { ok: true, data: null };
+      return {
+        ok: true,
+        data: {
+          id: r.id,
+          handle: "@" + String(r.handle || "").replace(/^@/, ""),
+          name: r.display_name || r.handle,
+          bio: r.bio || "",
+          joinedAt: r.created_at ? Date.parse(r.created_at) : 0,
+          posts: r.post_count || 0,
+          isMe: !!r.is_me
+        }
+      };
+    });
+  }
+
+  /* Same cursor shape as feedPage, so the view reuses one pagination path
+     rather than growing a second that drifts from it. */
+  function profileFeed(handle, cursor) {
+    return currentUser().then(function (user) {
+      var myId = user && user.id;
+      return run(function () {
+        return db().rpc("profile_feed", {
+          p_handle: String(handle || "").replace(/^@/, ""),
+          p_before_time: (cursor && cursor.time) || null,
+          p_before_id: (cursor && cursor.id) || null,
+          p_limit: PAGE_SIZE
+        });
+      }).then(function (out) {
+        if (!out.ok) return out;
+        var rows = out.data || [];
+        var last = rows[rows.length - 1];
+        return {
+          ok: true,
+          data: {
+            items: rows.map(function (r) { return toGeneration(r, myId); }),
+            done: rows.length < PAGE_SIZE,
+            cursor: last ? { time: last.created_at, id: last.id } : null
+          }
+        };
+      });
+    });
+  }
+
+  function updateProfile(name, bio) {
+    return run(function () {
+      return db().rpc("update_my_profile", { p_display_name: name, p_bio: bio });
+    }).then(function (out) {
+      if (out.ok) cachedProfile = null; /* the header renders from this */
+      return out;
+    });
+  }
+
   /* ---------- realtime ----------
 
      Replaces waiting up to 25 seconds to learn that someone replied. The
@@ -17292,6 +17504,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var channel = null;
   var onFeedChange = null;
   var onThreadChange = null;
+  var onNotify = null;
   var watchedGen = null;
 
   function realtimeUp() {
@@ -17300,6 +17513,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   /* Called with (kind, payload) where kind is "feed" or "thread". */
   function watchFeed(fn) { onFeedChange = fn; ensureChannel(); }
+
+  /* The badge should not wait for a page load to be right. */
+  function watchNotifications(fn) { onNotify = fn; ensureChannel(); }
 
   /* A thread subscription is scoped to one post: subscribing to every
      comment on the platform to render one page would be a bandwidth bug
@@ -17323,6 +17539,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
             { event: "*", schema: "public", table: "generations" },
             function (payload) {
               if (onFeedChange) onFeedChange(payload);
+            })
+        .on("postgres_changes",
+            { event: "INSERT", schema: "public", table: "notifications" },
+            function () {
+              /* RLS already limits this stream to rows addressed to this
+                 reader, so arrival is the signal. The count is refetched
+                 rather than incremented locally: a counter the client
+                 maintains drifts the moment two tabs are open. */
+              if (onNotify) onNotify();
             })
         .on("postgres_changes",
             { event: "*", schema: "public", table: "comments" },
@@ -17354,7 +17579,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   window.BotoData = {
     configured: configured,
+    notifications: notifications,
+    unreadCount: unreadCount,
+    markAllRead: markAllRead,
+    profile: profile,
+    profileFeed: profileFeed,
+    updateProfile: updateProfile,
     watchFeed: watchFeed,
+    watchNotifications: watchNotifications,
     watchThread: watchThread,
     unwatchThread: unwatchThread,
     closeRealtime: closeRealtime,
@@ -18133,6 +18365,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
     var feedView = $("cmFeedView");
     var detailView = $("cmDetailView");
+    if (hash.indexOf("#/u/") === 0) {
+      if (window.BotoData && BotoData.unwatchThread) BotoData.unwatchThread();
+      renderProfile(decodeURIComponent(hash.slice(4)));
+      showMode("community");
+      setDetailChrome(true);
+      feedView.hidden = true;
+      detailView.hidden = true;
+      $("cmProfileView").hidden = false;
+      setGenDock(false);
+      window.scrollTo(0, 0);
+      return;
+    }
+    $("cmProfileView").hidden = true;
+
     if (hash.indexOf("#/g/") === 0) {
       var id = hash.slice(4);
       var gen = genById(id);
@@ -18195,6 +18441,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     /* Leaving the detail view: stop listening for that thread so a busy
        post does not keep waking a reader who has gone back to the feed. */
     if (window.BotoData && BotoData.unwatchThread) BotoData.unwatchThread();
+    $("cmProfileView").hidden = true;
     renderFeed();
     showMode("community");
     setDetailChrome(false);
@@ -18267,6 +18514,182 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
          its draft and its reply target alone. */
       if ($("cmCommentList")) refreshThreadOnly(genId);
       else renderDetail(gen);
+    });
+  }
+
+  /* ---------- notifications ----------
+     The other half of a social loop. Realtime already updated a page you
+     were looking at; this tells you about the ones you are not. */
+
+  function notifLabel(n) {
+    if (n.kind === "reply") return "replied to your comment";
+    if (n.kind === "comment") return "commented on your post";
+    if (n.kind === "challenge") return "challenged your post";
+    return "remixed your post";
+  }
+
+  function syncNotifBadge() {
+    var btn = $("cmNotifBtn");
+    if (!btn) return;
+    /* Signed out there is no inbox, so the bell is not a control that
+       does nothing: it is absent. */
+    if (!myUserId || !liveOnline()) { btn.hidden = true; return; }
+    btn.hidden = false;
+    BotoData.unreadCount().then(function (out) {
+      if (!out.ok) return;
+      var dot = $("cmNotifDot");
+      if (dot) dot.hidden = !out.data;
+    });
+  }
+
+  function openNotifications() {
+    var sheet = $("cmNotifSheet");
+    var list = $("cmNotifList");
+    sheet.hidden = false;
+    list.innerHTML = '<div class="detail-loading"><span class="spinner"></span></div>';
+    refreshIcons();
+
+    BotoData.notifications(30).then(function (out) {
+      if (!out.ok) {
+        list.innerHTML = '<p class="feed-empty-sub">' + esc(out.error) + "</p>";
+        return;
+      }
+      if (!out.data.length) {
+        list.innerHTML = '<p class="feed-empty-sub">Nothing yet. ' +
+          "When someone replies to you it shows up here.</p>";
+        return;
+      }
+      list.innerHTML = out.data.map(function (n) {
+        return '<button class="notif-row' + (n.read ? "" : " unread") +
+                 '" data-gen="' + esc(n.genId || "") + '">' +
+                 '<span class="notif-who">' + esc(n.actor.name) + "</span> " +
+                 '<span class="notif-what">' + notifLabel(n) + "</span>" +
+                 (n.excerpt ? '<span class="notif-excerpt">' + esc(n.excerpt) + "</span>" : "") +
+                 '<span class="notif-when">' + esc(timeAgo(n.createdAt)) + "</span>" +
+               "</button>";
+      }).join("");
+
+      /* Marked read on open, not on tap: having seen the list is the
+         thing the badge is about. */
+      BotoData.markAllRead().then(function () {
+        var dot = $("cmNotifDot");
+        if (dot) dot.hidden = true;
+      });
+    });
+  }
+
+  function initNotifications() {
+    var btn = $("cmNotifBtn");
+    if (!btn) return;
+    btn.addEventListener("click", openNotifications);
+    $("cmNotifClose").addEventListener("click", function () {
+      $("cmNotifSheet").hidden = true;
+    });
+    $("cmNotifSheet").addEventListener("click", function (e) {
+      if (e.target === $("cmNotifSheet")) { $("cmNotifSheet").hidden = true; return; }
+      var row = e.target.closest("[data-gen]");
+      if (!row) return;
+      var id = row.getAttribute("data-gen");
+      $("cmNotifSheet").hidden = true;
+      /* Every notification opens the thing it is about. A list of events
+         with nowhere to go is a dead end. */
+      if (id) location.hash = "#/g/" + id;
+    });
+  }
+
+  /* ---------- profiles ----------
+     @handle rendered on every card and linked nowhere, so a reader could
+     not see who they were talking to. flow.txt 3: every button must have a
+     destination. */
+
+  var profileCursor = null;
+  var profileDone = false;
+  var profileLoading = false;
+  var profileHandle = null;
+
+  function renderProfile(handle) {
+    profileHandle = String(handle || "").replace(/^@/, "");
+    profileCursor = null;
+    profileDone = false;
+    profileLoading = false;
+    $("cmProfileList").innerHTML = "";
+    $("cmProfileEmpty").hidden = true;
+    $("cmProfile").innerHTML = '<div class="detail-loading"><span class="spinner"></span></div>';
+
+    if (!liveOnline()) {
+      $("cmProfile").innerHTML = '<div class="detail-loading"><p>Profiles need a connection.</p></div>';
+      return;
+    }
+
+    BotoData.profile(profileHandle).then(function (out) {
+      if (location.hash !== "#/u/" + encodeURIComponent(profileHandle)) return;
+      if (!out.ok) {
+        $("cmProfile").innerHTML = '<div class="detail-loading"><p>' + esc(out.error) + "</p></div>";
+        return;
+      }
+      if (!out.data) {
+        /* An unknown handle is a real destination with a real answer, not
+           a blank page. */
+        $("cmProfile").innerHTML =
+          '<div class="detail-missing"><h2>No such person</h2>' +
+          "<p>Nobody here uses " + esc("@" + profileHandle) + ".</p>" +
+          '<a class="btn" href="#/">Back to the feed</a></div>';
+        refreshIcons();
+        return;
+      }
+      var p = out.data;
+      $("cmProfile").innerHTML =
+        '<div class="profile-card">' +
+          avatar(p, "profile-ava") +
+          '<div class="profile-id">' +
+            '<h2 class="profile-name">' + esc(p.name) + "</h2>" +
+            '<span class="profile-handle">' + esc(p.handle) + "</span>" +
+          "</div>" +
+          (p.bio ? '<p class="profile-bio">' + esc(p.bio) + "</p>" : "") +
+          '<p class="profile-meta">' +
+            p.posts + (p.posts === 1 ? " post" : " posts") +
+            (p.joinedAt ? " \u00b7 joined " + timeAgo(p.joinedAt) : "") +
+          "</p>" +
+          (p.isMe ? '<button class="btn" id="cmEditProfile" type="button">Edit profile</button>' : "") +
+        "</div>";
+      refreshIcons();
+      var edit = $("cmEditProfile");
+      if (edit) edit.addEventListener("click", editProfile);
+      loadProfilePage();
+    });
+  }
+
+  function loadProfilePage() {
+    if (profileLoading || profileDone || !profileHandle) return;
+    profileLoading = true;
+    $("cmProfileLoader").hidden = false;
+    BotoData.profileFeed(profileHandle, profileCursor).then(function (out) {
+      profileLoading = false;
+      $("cmProfileLoader").hidden = true;
+      if (!out.ok) return;
+      absorb(out.data.items);
+      var list = $("cmProfileList");
+      out.data.items.forEach(function (gen) { list.appendChild(buildCard(gen, false)); });
+      profileCursor = out.data.cursor;
+      profileDone = out.data.done;
+      $("cmProfileEmpty").hidden = !(profileDone && list.children.length === 0);
+      refreshIcons();
+    });
+  }
+
+  /* Editing is a prompt rather than a form: two fields did not justify a
+     modal, and a prompt cannot leave the page in a half-saved state. */
+  function editProfile() {
+    BotoData.profile(profileHandle).then(function (out) {
+      if (!out.ok || !out.data) return;
+      var name = window.prompt("Display name", out.data.name);
+      if (name === null) return;
+      var bio = window.prompt("Bio, up to 300 characters", out.data.bio || "");
+      if (bio === null) return;
+      BotoData.updateProfile(name, bio).then(function (res) {
+        if (!res.ok) { notify(res.error); return; }
+        renderProfile(profileHandle);
+      });
     });
   }
 
@@ -18385,7 +18808,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         avatar(gen.creator, "gen-avatar") +
         '<div class="gen-id">' +
           '<span class="gen-name">' + esc(gen.creator.name) + "</span>" +
-          '<span class="gen-handle">' + esc(gen.creator.handle) + "</span>" +
+          '<a class="gen-handle" href="#/u/' +
+            encodeURIComponent(String(gen.creator.handle).replace(/^@/, "")) + '">' +
+            esc(gen.creator.handle) + "</a>" +
           '<span class="gen-time">' + esc(timeAgo(gen.createdAt)) + "</span>" +
           badges +
         "</div>" +
@@ -18857,7 +19282,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           '<div class="comment-main">' +
             '<div class="comment-id">' +
               '<span class="comment-name">' + esc(c.creator.name) + "</span>" +
-              '<span class="comment-handle">' + esc(c.creator.handle) + "</span>" +
+              '<a class="comment-handle" href="#/u/' +
+                encodeURIComponent(String(c.creator.handle).replace(/^@/, "")) + '">' +
+                esc(c.creator.handle) + "</a>" +
               '<span class="comment-time">' + esc(timeAgo(c.createdAt)) + "</span>" +
             "</div>" +
             '<p class="comment-text">' +
@@ -20186,6 +20613,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       BotoData.currentUser().then(function (u) {
         myUserId = u && u.id;
         startRealtime();
+        syncNotifBadge();
+        if (BotoData.watchNotifications) {
+          BotoData.watchNotifications(syncNotifBadge);
+        }
       });
       /* A job that outlived the tab has no closures left, so settlement
          goes through these. Same path, whether the write was queued a
@@ -20214,6 +20645,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       BotoData.drain().then(reapOrphanedPending);
     }
     initPill();
+    initNotifications();
     initFeedRetry();
     initPullRefresh();
     schedulePoll();

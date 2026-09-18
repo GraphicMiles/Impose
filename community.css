@@ -64,6 +64,11 @@ body.cm-detail-mode .cm-scope .cm-view,
 .cm-scope body.cm-detail-mode .cm-view { padding-top: 0; }
 
 .modebar .modeseg { pointer-events: auto; }
+/* The bar is pointer-events:none so the fade zone lets taps reach the feed
+   beneath it. Anything interactive in there has to opt back in, or it is
+   visible and unclickable: the bell was, and a bell you cannot press is
+   worse than no bell. */
+.modebar .notif-btn { pointer-events: auto; }
 
 /* Mode gates. The two surfaces are different entities with different UI:
    Community's header is ONLY the mode switch row - no topbar, no profile,
@@ -1321,3 +1326,83 @@ body:not(.community-mode) .modebar { display: none; }
   font-size: 14px;
 }
 .cm-scope .detail-loading p { margin: 0; max-width: 34ch; line-height: 1.5; }
+
+/* ---------- notifications ---------- */
+
+/* In the mode bar, so it is reachable from the feed and a thread alike. */
+.cm-scope .notif-btn {
+  /* Absolute, because the bar centres its capsule with justify-content and
+     a flex sibling would shove that capsule off-centre. */
+  position: absolute;
+  right: 12px;
+  top: max(10px, env(safe-area-inset-top));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-3);
+  color: var(--text-2);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.cm-scope .notif-btn .lucide { width: 18px; height: 18px; }
+@media (hover: hover) { .cm-scope .notif-btn:hover { background: var(--hover); color: var(--text); } }
+
+/* A dot, not a number. The exact count of things you have not read is not
+   information you act on; that there is something new is. */
+.cm-scope .notif-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+}
+
+.cm-scope .notif-sheet { max-width: 460px; }
+.cm-scope .notif-list { max-height: min(60dvh, 520px); overflow-y: auto; padding: 4px 0 8px; }
+
+.cm-scope .notif-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--r-3);
+  transition: background-color 140ms ease;
+}
+@media (hover: hover) { .cm-scope .notif-row:hover { background: var(--hover); } }
+.cm-scope .notif-row.unread { background: var(--bg-2); }
+.cm-scope .notif-who { font-weight: 600; font-size: 14px; }
+.cm-scope .notif-what { font-size: 14px; color: var(--text-2); }
+.cm-scope .notif-excerpt {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-scope .notif-when { display: block; margin-top: 4px; font-size: 12px; color: var(--text-3); }
+
+/* ---------- profiles ---------- */
+
+.cm-scope .profile-head { padding: 20px 16px 8px; }
+.cm-scope .profile-card { display: flex; flex-direction: column; gap: 10px; }
+.cm-scope .profile-ava { width: 56px; height: 56px; border-radius: 999px; }
+.cm-scope .profile-id { display: flex; flex-direction: column; gap: 2px; }
+.cm-scope .profile-name { margin: 0; font-size: 19px; font-weight: 650; }
+.cm-scope .profile-handle { font-size: 14px; color: var(--text-3); }
+.cm-scope .profile-bio { margin: 2px 0 0; font-size: 14.5px; line-height: 1.5; color: var(--text-2); max-width: 56ch; }
+.cm-scope .profile-meta { margin: 0; font-size: 13px; color: var(--text-3); }
+
+/* A handle is a destination now, not decoration. Underlined only on
+   hover so a feed of cards does not read as a page of links. */
+.cm-scope .gen-handle,
+.cm-scope .comment-handle { text-decoration: none; }
+@media (hover: hover) {
+  .cm-scope .gen-handle:hover,
+  .cm-scope .comment-handle:hover { text-decoration: underline; }
+}

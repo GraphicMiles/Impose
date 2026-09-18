@@ -116,6 +116,38 @@
   /* With Supabase configured these forms talk to a real backend. Without
      it the page keeps its previous local behaviour so the demo still
      deploys; `live()` is the switch, and every caller has both paths. */
+  /* One password rule for the whole product. The reset form used to check
+     only length, so someone could weaken a password below what signup had
+     already told them was required. Stated once here, and enforced again
+     on the server, which is the check that actually counts. */
+  var PASSWORD_RULE = "Use 8 characters, a number, and a special character.";
+
+  function passwordProblem(value) {
+    var v = String(value || "");
+    if (v.length < 8 || !/\d/.test(v) || !/[^A-Za-z0-9]/.test(v)) return PASSWORD_RULE;
+    if (v.length > 200) return "That password is too long.";
+    return "";
+  }
+
+  /* Addresses that cannot receive mail, or exist to be discarded. Mirrors
+     the server list; the server is the one that decides. Checked here only
+     so the answer is instant instead of a round trip. */
+  var THROWAWAY = /(^|\.)(example\.(com|org|net|edu)|test\.com|invalid|localhost|mailinator\.com|tempmail\.com|temp-mail\.org|guerrillamail\.com|10minutemail\.com|throwawaymail\.com|yopmail\.com|trashmail\.com|sharklasers\.com|getnada\.com|dispostable\.com|maildrop\.cc|fakeinbox\.com|mailnesia\.com|mohmal\.com|moakt\.com)$/i;
+
+  function emailProblem(value) {
+    var v = String(value || "").trim().toLowerCase();
+    if (!validEmail(v)) return "Enter a valid email address.";
+    var local = v.slice(0, v.lastIndexOf("@"));
+    if (local.charAt(0) === "." || local.charAt(local.length - 1) === "." ||
+        local.indexOf("..") !== -1) {
+      return "Enter a valid email address.";
+    }
+    if (THROWAWAY.test(v.slice(v.lastIndexOf("@") + 1))) {
+      return "That email provider is not accepted. Use an address you can receive mail at.";
+    }
+    return "";
+  }
+
   function live() {
     return !!(window.BotoAuth && window.BotoAuth.configured());
   }
@@ -210,8 +242,10 @@
     var email = $("signUpEmail").value.trim();
     var password = $("signUpPassword").value;
     var okay = true;
-    if (!validEmail(email)) { setError("signUpEmail", "Enter a valid email address."); okay = false; }
-    if (password.length < 8 || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) { setError("signUpPassword", "Use 8 characters, a number, and a special character."); okay = false; }
+    var emailErr = emailProblem(email);
+    if (emailErr) { setError("signUpEmail", emailErr); okay = false; }
+    var pwErr = passwordProblem(password);
+    if (pwErr) { setError("signUpPassword", pwErr); okay = false; }
     if (!$("terms").checked) { setError("terms", "Accept the terms to continue."); okay = false; }
     if (!okay) { focusFirstError(event.currentTarget); return; }
     savePending(email, "signup");
@@ -239,8 +273,10 @@
     event.preventDefault();
     clearErrors();
     var email = $("forgotEmail").value.trim();
-    if (!validEmail(email)) {
-      setError("forgotEmail", "Enter the email linked to your account.");
+    var forgotErr = emailProblem(email);
+    if (forgotErr) {
+      setError("forgotEmail", forgotErr === "Enter a valid email address."
+        ? "Enter the email linked to your account." : forgotErr);
       focusFirstError(event.currentTarget);
       return;
     }
@@ -401,7 +437,10 @@
     var password = $("resetPassword").value;
     var confirmation = $("confirmPassword").value;
     var okay = true;
-    if (password.length < 8) { setError("resetPassword", "Use at least 8 characters."); okay = false; }
+    /* Was length only, which let a reset set a password signup would have
+       refused. Same rule now, in both places. */
+    var resetErr = passwordProblem(password);
+    if (resetErr) { setError("resetPassword", resetErr); okay = false; }
     if (confirmation !== password) { setError("confirmPassword", "Passwords do not match."); okay = false; }
     if (!okay) { focusFirstError(event.currentTarget); return; }
     var form = event.currentTarget;

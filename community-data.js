@@ -581,6 +581,104 @@
   /* Reconnecting is the moment queued work should move. */
   window.addEventListener("online", function () { drain(); });
 
+  /* ---------- notifications ---------- */
+
+  function notifications(limit) {
+    return run(function () {
+      return db().rpc("notifications_page", { p_limit: limit || 20 });
+    }).then(function (out) {
+      if (!out.ok) return out;
+      return {
+        ok: true,
+        data: (out.data || []).map(function (r) {
+          return {
+            id: r.id,
+            kind: r.kind,
+            actor: {
+              name: r.actor_name || r.actor_handle || "Someone",
+              handle: r.actor_handle ? "@" + String(r.actor_handle).replace(/^@/, "") : "@someone"
+            },
+            genId: r.generation_id,
+            commentId: r.comment_id,
+            excerpt: r.excerpt || "",
+            read: !!r.read_at,
+            createdAt: r.created_at ? Date.parse(r.created_at) : Date.now()
+          };
+        })
+      };
+    });
+  }
+
+  function unreadCount() {
+    return run(function () { return db().rpc("notifications_unread"); })
+      .then(function (out) { return out.ok ? { ok: true, data: out.data || 0 } : out; });
+  }
+
+  function markAllRead() {
+    return run(function () { return db().rpc("notifications_mark_read"); });
+  }
+
+  /* ---------- profiles ---------- */
+
+  function profile(handle) {
+    return run(function () {
+      return db().rpc("profile_by_handle", { p_handle: String(handle || "").replace(/^@/, "") });
+    }).then(function (out) {
+      if (!out.ok) return out;
+      var r = Array.isArray(out.data) ? out.data[0] : out.data;
+      if (!r) return { ok: true, data: null };
+      return {
+        ok: true,
+        data: {
+          id: r.id,
+          handle: "@" + String(r.handle || "").replace(/^@/, ""),
+          name: r.display_name || r.handle,
+          bio: r.bio || "",
+          joinedAt: r.created_at ? Date.parse(r.created_at) : 0,
+          posts: r.post_count || 0,
+          isMe: !!r.is_me
+        }
+      };
+    });
+  }
+
+  /* Same cursor shape as feedPage, so the view reuses one pagination path
+     rather than growing a second that drifts from it. */
+  function profileFeed(handle, cursor) {
+    return currentUser().then(function (user) {
+      var myId = user && user.id;
+      return run(function () {
+        return db().rpc("profile_feed", {
+          p_handle: String(handle || "").replace(/^@/, ""),
+          p_before_time: (cursor && cursor.time) || null,
+          p_before_id: (cursor && cursor.id) || null,
+          p_limit: PAGE_SIZE
+        });
+      }).then(function (out) {
+        if (!out.ok) return out;
+        var rows = out.data || [];
+        var last = rows[rows.length - 1];
+        return {
+          ok: true,
+          data: {
+            items: rows.map(function (r) { return toGeneration(r, myId); }),
+            done: rows.length < PAGE_SIZE,
+            cursor: last ? { time: last.created_at, id: last.id } : null
+          }
+        };
+      });
+    });
+  }
+
+  function updateProfile(name, bio) {
+    return run(function () {
+      return db().rpc("update_my_profile", { p_display_name: name, p_bio: bio });
+    }).then(function (out) {
+      if (out.ok) cachedProfile = null; /* the header renders from this */
+      return out;
+    });
+  }
+
   /* ---------- realtime ----------
 
      Replaces waiting up to 25 seconds to learn that someone replied. The
@@ -597,6 +695,7 @@
   var channel = null;
   var onFeedChange = null;
   var onThreadChange = null;
+  var onNotify = null;
   var watchedGen = null;
 
   function realtimeUp() {
@@ -605,6 +704,9 @@
 
   /* Called with (kind, payload) where kind is "feed" or "thread". */
   function watchFeed(fn) { onFeedChange = fn; ensureChannel(); }
+
+  /* The badge should not wait for a page load to be right. */
+  function watchNotifications(fn) { onNotify = fn; ensureChannel(); }
 
   /* A thread subscription is scoped to one post: subscribing to every
      comment on the platform to render one page would be a bandwidth bug
@@ -628,6 +730,15 @@
             { event: "*", schema: "public", table: "generations" },
             function (payload) {
               if (onFeedChange) onFeedChange(payload);
+            })
+        .on("postgres_changes",
+            { event: "INSERT", schema: "public", table: "notifications" },
+            function () {
+              /* RLS already limits this stream to rows addressed to this
+                 reader, so arrival is the signal. The count is refetched
+                 rather than incremented locally: a counter the client
+                 maintains drifts the moment two tabs are open. */
+              if (onNotify) onNotify();
             })
         .on("postgres_changes",
             { event: "*", schema: "public", table: "comments" },
@@ -659,7 +770,14 @@
 
   window.BotoData = {
     configured: configured,
+    notifications: notifications,
+    unreadCount: unreadCount,
+    markAllRead: markAllRead,
+    profile: profile,
+    profileFeed: profileFeed,
+    updateProfile: updateProfile,
     watchFeed: watchFeed,
+    watchNotifications: watchNotifications,
     watchThread: watchThread,
     unwatchThread: unwatchThread,
     closeRealtime: closeRealtime,

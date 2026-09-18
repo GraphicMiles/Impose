@@ -1111,10 +1111,48 @@ async def file_proxy(request: Request):
 # --------------------------------------------------------------------------- #
 
 
+# Addresses that exist to be thrown away. A disposable signup takes a
+# handle, can post, and is unreachable the moment it is abused: there is no
+# account to warn, suspend or email. The list is the common providers plus
+# the ones already seen on this project; it is not exhaustive and is not
+# meant to be. A determined person will get past it, which is fine. The
+# purpose is to stop casual throwaway signups, not to win an arms race.
+#
+# example.com and friends are RFC 2606 reserved names that can never
+# receive mail, so a signup using one can never be verified.
+_BLOCKED_EMAIL_DOMAINS = {
+    "example.com", "example.org", "example.net", "example.edu",
+    "test.com", "invalid", "localhost", "loadtest.invalid",
+    "mailinator.com", "tempmail.com", "temp-mail.org", "guerrillamail.com",
+    "10minutemail.com", "throwawaymail.com", "yopmail.com", "trashmail.com",
+    "sharklasers.com", "getnada.com", "dispostable.com", "maildrop.cc",
+    "fakeinbox.com", "mailnesia.com", "spamgourmet.com", "mintemail.com",
+    "tempinbox.com", "emailondeck.com", "moakt.com", "mohmal.com",
+}
+
+_BLOCKED_EMAIL_PREFIXES = ("mailinator.", "yopmail.")
+
+
 def _otp_email(data: dict) -> str:
     email = str(data.get("email", "")).strip().lower()
+
+    # Shape first, so a malformed address never reaches the domain rules.
     if not email or len(email) > 254 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-        raise HTTPException(status_code=400, detail="a valid email address is required")
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+
+    local, _, domain = email.rpartition("@")
+
+    # A leading or trailing dot in the local part, or two in a row, is
+    # invalid per RFC 5322 and is a common way to slip past naive checks.
+    if local.startswith(".") or local.endswith(".") or ".." in local:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+
+    if domain in _BLOCKED_EMAIL_DOMAINS or domain.startswith(_BLOCKED_EMAIL_PREFIXES):
+        raise HTTPException(
+            status_code=400,
+            detail="That email provider is not accepted. Use an address you can receive mail at.",
+        )
+
     return email
 
 
@@ -1125,10 +1163,20 @@ def _otp_password(data: dict) -> str:
     that counts, because a request does not have to come from our page.
     """
     password = str(data.get("password", ""))
+
+    # The same rule the signup form states. It was only checking length, so
+    # a request that skipped the form, or the password reset flow which has
+    # its own weaker client check, could set a password the product had
+    # already told the user was not allowed. The strength rule now lives in
+    # one place and that place is the server.
     if len(password) < 8:
-        raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+        raise HTTPException(status_code=400, detail="Use at least 8 characters.")
     if len(password) > 200:
-        raise HTTPException(status_code=400, detail="password is too long")
+        raise HTTPException(status_code=400, detail="That password is too long.")
+    if not re.search(r"\d", password):
+        raise HTTPException(status_code=400, detail="Include at least one number.")
+    if not re.search(r"[^A-Za-z0-9]", password):
+        raise HTTPException(status_code=400, detail="Include at least one special character.")
     return password
 
 

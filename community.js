@@ -742,6 +742,20 @@
     }
     var feedView = $("cmFeedView");
     var detailView = $("cmDetailView");
+    if (hash.indexOf("#/u/") === 0) {
+      if (window.BotoData && BotoData.unwatchThread) BotoData.unwatchThread();
+      renderProfile(decodeURIComponent(hash.slice(4)));
+      showMode("community");
+      setDetailChrome(true);
+      feedView.hidden = true;
+      detailView.hidden = true;
+      $("cmProfileView").hidden = false;
+      setGenDock(false);
+      window.scrollTo(0, 0);
+      return;
+    }
+    $("cmProfileView").hidden = true;
+
     if (hash.indexOf("#/g/") === 0) {
       var id = hash.slice(4);
       var gen = genById(id);
@@ -804,6 +818,7 @@
     /* Leaving the detail view: stop listening for that thread so a busy
        post does not keep waking a reader who has gone back to the feed. */
     if (window.BotoData && BotoData.unwatchThread) BotoData.unwatchThread();
+    $("cmProfileView").hidden = true;
     renderFeed();
     showMode("community");
     setDetailChrome(false);
@@ -876,6 +891,182 @@
          its draft and its reply target alone. */
       if ($("cmCommentList")) refreshThreadOnly(genId);
       else renderDetail(gen);
+    });
+  }
+
+  /* ---------- notifications ----------
+     The other half of a social loop. Realtime already updated a page you
+     were looking at; this tells you about the ones you are not. */
+
+  function notifLabel(n) {
+    if (n.kind === "reply") return "replied to your comment";
+    if (n.kind === "comment") return "commented on your post";
+    if (n.kind === "challenge") return "challenged your post";
+    return "remixed your post";
+  }
+
+  function syncNotifBadge() {
+    var btn = $("cmNotifBtn");
+    if (!btn) return;
+    /* Signed out there is no inbox, so the bell is not a control that
+       does nothing: it is absent. */
+    if (!myUserId || !liveOnline()) { btn.hidden = true; return; }
+    btn.hidden = false;
+    BotoData.unreadCount().then(function (out) {
+      if (!out.ok) return;
+      var dot = $("cmNotifDot");
+      if (dot) dot.hidden = !out.data;
+    });
+  }
+
+  function openNotifications() {
+    var sheet = $("cmNotifSheet");
+    var list = $("cmNotifList");
+    sheet.hidden = false;
+    list.innerHTML = '<div class="detail-loading"><span class="spinner"></span></div>';
+    refreshIcons();
+
+    BotoData.notifications(30).then(function (out) {
+      if (!out.ok) {
+        list.innerHTML = '<p class="feed-empty-sub">' + esc(out.error) + "</p>";
+        return;
+      }
+      if (!out.data.length) {
+        list.innerHTML = '<p class="feed-empty-sub">Nothing yet. ' +
+          "When someone replies to you it shows up here.</p>";
+        return;
+      }
+      list.innerHTML = out.data.map(function (n) {
+        return '<button class="notif-row' + (n.read ? "" : " unread") +
+                 '" data-gen="' + esc(n.genId || "") + '">' +
+                 '<span class="notif-who">' + esc(n.actor.name) + "</span> " +
+                 '<span class="notif-what">' + notifLabel(n) + "</span>" +
+                 (n.excerpt ? '<span class="notif-excerpt">' + esc(n.excerpt) + "</span>" : "") +
+                 '<span class="notif-when">' + esc(timeAgo(n.createdAt)) + "</span>" +
+               "</button>";
+      }).join("");
+
+      /* Marked read on open, not on tap: having seen the list is the
+         thing the badge is about. */
+      BotoData.markAllRead().then(function () {
+        var dot = $("cmNotifDot");
+        if (dot) dot.hidden = true;
+      });
+    });
+  }
+
+  function initNotifications() {
+    var btn = $("cmNotifBtn");
+    if (!btn) return;
+    btn.addEventListener("click", openNotifications);
+    $("cmNotifClose").addEventListener("click", function () {
+      $("cmNotifSheet").hidden = true;
+    });
+    $("cmNotifSheet").addEventListener("click", function (e) {
+      if (e.target === $("cmNotifSheet")) { $("cmNotifSheet").hidden = true; return; }
+      var row = e.target.closest("[data-gen]");
+      if (!row) return;
+      var id = row.getAttribute("data-gen");
+      $("cmNotifSheet").hidden = true;
+      /* Every notification opens the thing it is about. A list of events
+         with nowhere to go is a dead end. */
+      if (id) location.hash = "#/g/" + id;
+    });
+  }
+
+  /* ---------- profiles ----------
+     @handle rendered on every card and linked nowhere, so a reader could
+     not see who they were talking to. flow.txt 3: every button must have a
+     destination. */
+
+  var profileCursor = null;
+  var profileDone = false;
+  var profileLoading = false;
+  var profileHandle = null;
+
+  function renderProfile(handle) {
+    profileHandle = String(handle || "").replace(/^@/, "");
+    profileCursor = null;
+    profileDone = false;
+    profileLoading = false;
+    $("cmProfileList").innerHTML = "";
+    $("cmProfileEmpty").hidden = true;
+    $("cmProfile").innerHTML = '<div class="detail-loading"><span class="spinner"></span></div>';
+
+    if (!liveOnline()) {
+      $("cmProfile").innerHTML = '<div class="detail-loading"><p>Profiles need a connection.</p></div>';
+      return;
+    }
+
+    BotoData.profile(profileHandle).then(function (out) {
+      if (location.hash !== "#/u/" + encodeURIComponent(profileHandle)) return;
+      if (!out.ok) {
+        $("cmProfile").innerHTML = '<div class="detail-loading"><p>' + esc(out.error) + "</p></div>";
+        return;
+      }
+      if (!out.data) {
+        /* An unknown handle is a real destination with a real answer, not
+           a blank page. */
+        $("cmProfile").innerHTML =
+          '<div class="detail-missing"><h2>No such person</h2>' +
+          "<p>Nobody here uses " + esc("@" + profileHandle) + ".</p>" +
+          '<a class="btn" href="#/">Back to the feed</a></div>';
+        refreshIcons();
+        return;
+      }
+      var p = out.data;
+      $("cmProfile").innerHTML =
+        '<div class="profile-card">' +
+          avatar(p, "profile-ava") +
+          '<div class="profile-id">' +
+            '<h2 class="profile-name">' + esc(p.name) + "</h2>" +
+            '<span class="profile-handle">' + esc(p.handle) + "</span>" +
+          "</div>" +
+          (p.bio ? '<p class="profile-bio">' + esc(p.bio) + "</p>" : "") +
+          '<p class="profile-meta">' +
+            p.posts + (p.posts === 1 ? " post" : " posts") +
+            (p.joinedAt ? " \u00b7 joined " + timeAgo(p.joinedAt) : "") +
+          "</p>" +
+          (p.isMe ? '<button class="btn" id="cmEditProfile" type="button">Edit profile</button>' : "") +
+        "</div>";
+      refreshIcons();
+      var edit = $("cmEditProfile");
+      if (edit) edit.addEventListener("click", editProfile);
+      loadProfilePage();
+    });
+  }
+
+  function loadProfilePage() {
+    if (profileLoading || profileDone || !profileHandle) return;
+    profileLoading = true;
+    $("cmProfileLoader").hidden = false;
+    BotoData.profileFeed(profileHandle, profileCursor).then(function (out) {
+      profileLoading = false;
+      $("cmProfileLoader").hidden = true;
+      if (!out.ok) return;
+      absorb(out.data.items);
+      var list = $("cmProfileList");
+      out.data.items.forEach(function (gen) { list.appendChild(buildCard(gen, false)); });
+      profileCursor = out.data.cursor;
+      profileDone = out.data.done;
+      $("cmProfileEmpty").hidden = !(profileDone && list.children.length === 0);
+      refreshIcons();
+    });
+  }
+
+  /* Editing is a prompt rather than a form: two fields did not justify a
+     modal, and a prompt cannot leave the page in a half-saved state. */
+  function editProfile() {
+    BotoData.profile(profileHandle).then(function (out) {
+      if (!out.ok || !out.data) return;
+      var name = window.prompt("Display name", out.data.name);
+      if (name === null) return;
+      var bio = window.prompt("Bio, up to 300 characters", out.data.bio || "");
+      if (bio === null) return;
+      BotoData.updateProfile(name, bio).then(function (res) {
+        if (!res.ok) { notify(res.error); return; }
+        renderProfile(profileHandle);
+      });
     });
   }
 
@@ -994,7 +1185,9 @@
         avatar(gen.creator, "gen-avatar") +
         '<div class="gen-id">' +
           '<span class="gen-name">' + esc(gen.creator.name) + "</span>" +
-          '<span class="gen-handle">' + esc(gen.creator.handle) + "</span>" +
+          '<a class="gen-handle" href="#/u/' +
+            encodeURIComponent(String(gen.creator.handle).replace(/^@/, "")) + '">' +
+            esc(gen.creator.handle) + "</a>" +
           '<span class="gen-time">' + esc(timeAgo(gen.createdAt)) + "</span>" +
           badges +
         "</div>" +
@@ -1466,7 +1659,9 @@
           '<div class="comment-main">' +
             '<div class="comment-id">' +
               '<span class="comment-name">' + esc(c.creator.name) + "</span>" +
-              '<span class="comment-handle">' + esc(c.creator.handle) + "</span>" +
+              '<a class="comment-handle" href="#/u/' +
+                encodeURIComponent(String(c.creator.handle).replace(/^@/, "")) + '">' +
+                esc(c.creator.handle) + "</a>" +
               '<span class="comment-time">' + esc(timeAgo(c.createdAt)) + "</span>" +
             "</div>" +
             '<p class="comment-text">' +
@@ -2795,6 +2990,10 @@
       BotoData.currentUser().then(function (u) {
         myUserId = u && u.id;
         startRealtime();
+        syncNotifBadge();
+        if (BotoData.watchNotifications) {
+          BotoData.watchNotifications(syncNotifBadge);
+        }
       });
       /* A job that outlived the tab has no closures left, so settlement
          goes through these. Same path, whether the write was queued a
@@ -2823,6 +3022,7 @@
       BotoData.drain().then(reapOrphanedPending);
     }
     initPill();
+    initNotifications();
     initFeedRetry();
     initPullRefresh();
     schedulePoll();
