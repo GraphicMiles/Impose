@@ -754,7 +754,10 @@
   var channel = null;
   var onFeedChange = null;
   var onThreadChange = null;
-  var onNotify = null;
+  /* A list, not a slot: the community bell and the workspace badge both
+     need the arrival signal, and a single slot would let whichever
+     registered last silence the other. */
+  var notifyListeners = [];
   var watchedGen = null;
 
   function realtimeUp() {
@@ -764,8 +767,17 @@
   /* Called with (kind, payload) where kind is "feed" or "thread". */
   function watchFeed(fn) { onFeedChange = fn; ensureChannel(); }
 
-  /* The badge should not wait for a page load to be right. */
-  function watchNotifications(fn) { onNotify = fn; ensureChannel(); }
+  /* The badge should not wait for a page load to be right. Idempotent per
+     listener: re-registering on a re-render must not stack duplicates. */
+  function watchNotifications(fn) {
+    if (typeof fn === "function" && notifyListeners.indexOf(fn) === -1) {
+      notifyListeners.push(fn);
+    }
+    ensureChannel();
+  }
+  function unwatchNotifications(fn) {
+    notifyListeners = notifyListeners.filter(function (f) { return f !== fn; });
+  }
 
   /* A thread subscription is scoped to one post: subscribing to every
      comment on the platform to render one page would be a bandwidth bug
@@ -797,7 +809,9 @@
                  reader, so arrival is the signal. The count is refetched
                  rather than incremented locally: a counter the client
                  maintains drifts the moment two tabs are open. */
-              if (onNotify) onNotify();
+              if (notifyListeners.length) {
+                notifyListeners.slice().forEach(function (fn) { fn(); });
+              }
             })
         .on("postgres_changes",
             { event: "*", schema: "public", table: "comments" },
@@ -841,6 +855,7 @@
     updateProfile: updateProfile,
     watchFeed: watchFeed,
     watchNotifications: watchNotifications,
+    unwatchNotifications: unwatchNotifications,
     watchThread: watchThread,
     unwatchThread: unwatchThread,
     closeRealtime: closeRealtime,

@@ -833,6 +833,14 @@
 
   function route() {
     var hash = location.hash || "#/";
+    /* Shareable alias: /u/@handle/post/<id> names the same post detail as
+       /g/<id>. The handle segment is descriptive; the post id is
+       authoritative, so the short form stays canonical everywhere the
+       app generates links and the long form is simply accepted. */
+    var postAt = hash.indexOf("/post/");
+    if (hash.indexOf("#/u/") === 0 && postAt > -1) {
+      hash = "#/g/" + decodeURIComponent(hash.slice(postAt + 6));
+    }
     if (hash === "#/workspace" || hash.indexOf("#chat=") === 0) {
       if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
         /* Community is open; the Workspace is grant-gated. Land the user in

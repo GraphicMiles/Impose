@@ -62,7 +62,13 @@ from relay.files import discover_files
 from relay import otp_store
 from relay import reports_store
 from relay import supabase_admin
-from relay.mailer import MailFailed, send_code, configured as mailer_configured, probe as mailer_probe
+from relay.mailer import (
+    MailFailed,
+    send_code,
+    send_grant,
+    configured as mailer_configured,
+    probe as mailer_probe,
+)
 from relay.source_intelligence import CATALOG
 
 BASE_DIR = Path(os.environ.get("CP_DIR", str(Path(__file__).resolve().parent)))
@@ -1903,6 +1909,99 @@ async def admin_reports(request: Request, status: str = "pending", limit: int = 
     except reports_store.ReportsError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc))
     return {"count": len(rows), "reports": rows}
+
+
+@app.get("/admin/waitlist")
+async def admin_waitlist(request: Request, status: str = "pending", limit: int = 100):
+    """The waitlist queue, readable only with the CONTROL_KEY.
+
+    The operator's view of who is waiting, oldest first, with position and
+    whether the address already has an account (user_id). Pairs with
+    /admin/grant: read the queue here, grant from there.
+    """
+    _authed(request)
+    if status not in ("pending", "approved", "rejected"):
+        raise HTTPException(status_code=400, detail="unknown status")
+    if not supabase_admin.configured():
+        raise HTTPException(status_code=503, detail="accounts are not configured on the server")
+    try:
+        rows = await supabase_admin.fetch_waitlist(status=status, limit=limit)
+    except supabase_admin.AdminError as exc:
+        print(f"[admin] waitlist read failed: {exc.detail}")
+        raise HTTPException(status_code=exc.status, detail=exc.safe)
+    return {"count": len(rows), "waitlist": rows}
+
+
+@app.post("/admin/grant")
+async def admin_grant(request: Request):
+    """Grant day, in one call: CONTROL_KEY only.
+
+    Looks the account up by email, records the workspace grant, marks the
+    waitlist row approved, and sends the approval email the sheet promised
+    ("We'll email you when your seat opens"). Idempotent: re-granting an
+    already-granted address reports already_granted and sends nothing,
+    unless notify=true forces a resend (the recovery path when the grant
+    landed but the email did not).
+    """
+    _authed(request)
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+
+    email = _otp_email(data)
+    notify = bool(data.get("notify"))
+
+    # An operator typo loop should not become a mail flood: three approval
+    # emails per address per ten minutes is generous and still bounded.
+    if _rate_hit("grantmail", email, 3, 600.0):
+        raise HTTPException(status_code=429, detail="too many approval emails to this address; try again later")
+
+    if not supabase_admin.configured():
+        raise HTTPException(status_code=503, detail="accounts are not configured on the server")
+
+    user = await supabase_admin.find_user_by_email(email)
+    if not user:
+        # No account, no grant: the grant row keys off auth.users, and an
+        # email without an account cannot sign in to receive the payoff.
+        raise HTTPException(status_code=404, detail="no account uses that email yet; they need to sign up before a grant can land")
+
+    try:
+        is_new = await supabase_admin.grant_workspace(user["id"])
+        if is_new:
+            await supabase_admin.approve_waitlist(email)
+    except supabase_admin.AdminError as exc:
+        print(f"[admin] grant failed for {email}: {exc.detail}")
+        raise HTTPException(status_code=exc.status, detail=exc.safe)
+
+    delivery = "email" if mailer_configured() else "console"
+    if is_new or notify:
+        try:
+            await send_grant(email)
+        except MailFailed as exc:
+            # The grant is recorded; the email is not. Say exactly that so
+            # the operator retries with notify=true instead of guessing.
+            print(f"[admin] grant email failed for {email}: {exc}")
+            raise HTTPException(
+                status_code=502,
+                detail="the grant is recorded but the approval email failed; retry with notify=true",
+            )
+        return {
+            "ok": True,
+            "user_id": user["id"],
+            "granted": "new" if is_new else "already_granted",
+            "email": "sent",
+            "delivery": delivery,
+        }
+    return {
+        "ok": True,
+        "user_id": user["id"],
+        "granted": "already_granted",
+        "email": "skipped",
+        "delivery": delivery,
+    }
 
 
 @app.get("/admin/status")

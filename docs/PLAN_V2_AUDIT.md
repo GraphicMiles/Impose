@@ -378,3 +378,46 @@ key reaches the cache across both tiers (now in the CI gate).
 **Deferred (recorded, not discovered):** waitlist email + workspace
 notification badge (Phase-C SHOULD_HAVE); `/u/@handle/post/…`-style
 routing cosmetics. Push to origin still pending a fresh credential.
+
+---
+
+## ROUND 5 EXECUTION ADDENDUM (2026-09-18)
+
+The two items deferred from Round 4 as Phase-C SHOULD_HAVE, plus the
+routing question closed out.
+
+**1. Waitlist approval email (Phase C).** The sheet already promised
+"We'll email you when your seat opens"; this pass keeps the promise.
+Grant day is now one operator call: `POST /admin/grant {"email": …}`
+(CONTROL_KEY) looks the account up, records the workspace grant
+(service role, idempotent via ignore-duplicates), marks the waitlist
+row approved, and sends the approval email through the existing Sendlib
+mailer (console mode when unconfigured, like the OTP path). A companion
+`GET /admin/waitlist` gives the operator the queue: who is waiting,
+oldest first, position, account presence. Safety rails: addresses
+without an account are refused (a grant keys off auth.users), approval
+emails are capped at three per address per ten minutes, and a failed
+send returns 502 with "retry with notify=true" instead of pretending
+the flow landed. `notify=true` on a re-grant is the recovery path when
+the grant recorded but the email did not. Eleven new relay tests pin
+the gate, the idempotency and the honest-failure behaviour.
+
+**2. Workspace notification badge.** The community bell hides with the
+mode bar, so Workspace carried no unread signal at all. The communicate
+icon in the workspace topbar now carries the same dot the bell uses:
+`watchNotifications` in community-data.js became a listener list (the
+bell and the badge register independently), and app.js syncs the dot
+from `notifications_unread` on boot, on realtime arrivals, and clears
+it on sign-out. Signed out, there is no dot.
+
+**3. Routing.** The four docs contain no requirement beyond the routes
+that already exist (`#/g/<id>`, `#/u/@handle`, `#/workspace`). The
+doc-shaped `/u/@handle/post/<id>` form is now accepted as an alias for
+`#/g/<id>`; the short form stays canonical everywhere the app generates
+links. No further routing work proposed: hash routing is the correct
+fit for a static host with a service worker.
+
+**Verification at ship:** pytest 167 (11 new); node suites
+51/63/14/24/7/113; workspace sync round trip green; standalone build
+current; service worker v57 (fingerprint 687af06d6811); audit matrix
+6360/6360 and relay 1308/1308.

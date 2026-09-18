@@ -234,6 +234,20 @@ body:not(.nav-open) .sidebar-inner {
 .icon-btn:active { transform: scale(0.93); background: var(--press); }
 .icon-btn .lucide, .icon-btn i[data-lucide] { width: 20px; height: 20px; }
 
+/* Unread dot on the workspace communicate icon. Same signal as the
+   community bell: that something new exists, not the exact count - the
+   number is not what you act on. */
+.ws-notif-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+}
+
 .sidebar-nav { display: flex; flex-direction: column; gap: 1px; padding-bottom: 6px; }
 
 .side-action {
@@ -4077,6 +4091,10 @@ try {
         </button>
         <button class="icon-btn" id="wsModeBtn" title="Community feed" aria-label="Switch to the Community feed">
           <i data-lucide="users-round"></i>
+          <!-- The same unread signal the community bell carries, surfaced
+               on the workspace's communicate icon so activity is visible
+               without leaving the workspace. -->
+          <span class="ws-notif-dot" id="wsNotifDot" hidden></span>
         </button>
         <button class="avatar avatar-btn" id="avatarBtn" title="Account" aria-label="Account" aria-haspopup="menu">Y</button>
       </div>
@@ -15050,6 +15068,22 @@ window.BotoConfig = {
     showPop($("accountMenu"), trigger, { side: side, align: align });
   }
 
+  /* The community bell hides with the mode bar, so the workspace carries
+     its own copy of the same signal on the communicate icon: activity
+     stays visible without leaving the workspace. Signed out there is no
+     inbox, so there is no dot either. */
+  function syncWorkspaceBadge() {
+    var dot = $("wsNotifDot");
+    if (!dot) return;
+    if (!(window.WSync && WSync.accountMode()) || !(window.BotoData && BotoData.configured())) {
+      dot.hidden = true;
+      return;
+    }
+    BotoData.unreadCount().then(function (out) {
+      if (out && out.ok) dot.hidden = !out.data;
+    });
+  }
+
   function wipeAll() {
     state.chats = [];
     state.outbox = [];
@@ -15125,6 +15159,7 @@ window.BotoConfig = {
         if (window.WSync) WSync.signOutReset(uidBefore);
         if (account) resetWorkspaceForSignOut();
         if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+        syncWorkspaceBadge();
         syncAccountMenu();
         toast(account
           ? "Signed out. Your workspace is saved to your account."
@@ -17268,6 +17303,13 @@ window.BotoConfig = {
     }
     maybeOnboard();
 
+    /* Unread activity on the communicate icon. The realtime watcher and
+       the first count fetch both no-op cleanly when signed out. */
+    if (window.BotoData && BotoData.watchNotifications) {
+      BotoData.watchNotifications(syncWorkspaceBadge);
+    }
+    syncWorkspaceBadge();
+
     /* Signed-in boot: the cache copy rendered above is the fast path.
        Now make it correct: unlock provider keys, adopt newer backend
        data, and offer the one-time import of pre-account local chats. */
@@ -18444,7 +18486,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var channel = null;
   var onFeedChange = null;
   var onThreadChange = null;
-  var onNotify = null;
+  /* A list, not a slot: the community bell and the workspace badge both
+     need the arrival signal, and a single slot would let whichever
+     registered last silence the other. */
+  var notifyListeners = [];
   var watchedGen = null;
 
   function realtimeUp() {
@@ -18454,8 +18499,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* Called with (kind, payload) where kind is "feed" or "thread". */
   function watchFeed(fn) { onFeedChange = fn; ensureChannel(); }
 
-  /* The badge should not wait for a page load to be right. */
-  function watchNotifications(fn) { onNotify = fn; ensureChannel(); }
+  /* The badge should not wait for a page load to be right. Idempotent per
+     listener: re-registering on a re-render must not stack duplicates. */
+  function watchNotifications(fn) {
+    if (typeof fn === "function" && notifyListeners.indexOf(fn) === -1) {
+      notifyListeners.push(fn);
+    }
+    ensureChannel();
+  }
+  function unwatchNotifications(fn) {
+    notifyListeners = notifyListeners.filter(function (f) { return f !== fn; });
+  }
 
   /* A thread subscription is scoped to one post: subscribing to every
      comment on the platform to render one page would be a bandwidth bug
@@ -18487,7 +18541,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
                  reader, so arrival is the signal. The count is refetched
                  rather than incremented locally: a counter the client
                  maintains drifts the moment two tabs are open. */
-              if (onNotify) onNotify();
+              if (notifyListeners.length) {
+                notifyListeners.slice().forEach(function (fn) { fn(); });
+              }
             })
         .on("postgres_changes",
             { event: "*", schema: "public", table: "comments" },
@@ -18531,6 +18587,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     updateProfile: updateProfile,
     watchFeed: watchFeed,
     watchNotifications: watchNotifications,
+    unwatchNotifications: unwatchNotifications,
     watchThread: watchThread,
     unwatchThread: unwatchThread,
     closeRealtime: closeRealtime,
@@ -19401,6 +19458,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function route() {
     var hash = location.hash || "#/";
+    /* Shareable alias: /u/@handle/post/<id> names the same post detail as
+       /g/<id>. The handle segment is descriptive; the post id is
+       authoritative, so the short form stays canonical everywhere the
+       app generates links and the long form is simply accepted. */
+    var postAt = hash.indexOf("/post/");
+    if (hash.indexOf("#/u/") === 0 && postAt > -1) {
+      hash = "#/g/" + decodeURIComponent(hash.slice(postAt + 6));
+    }
     if (hash === "#/workspace" || hash.indexOf("#chat=") === 0) {
       if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
         /* Community is open; the Workspace is grant-gated. Land the user in

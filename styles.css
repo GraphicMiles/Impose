@@ -202,6 +202,20 @@ body:not(.nav-open) .sidebar-inner {
 .icon-btn:active { transform: scale(0.93); background: var(--press); }
 .icon-btn .lucide, .icon-btn i[data-lucide] { width: 20px; height: 20px; }
 
+/* Unread dot on the workspace communicate icon. Same signal as the
+   community bell: that something new exists, not the exact count - the
+   number is not what you act on. */
+.ws-notif-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+}
+
 .sidebar-nav { display: flex; flex-direction: column; gap: 1px; padding-bottom: 6px; }
 
 .side-action {

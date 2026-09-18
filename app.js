@@ -6174,6 +6174,22 @@
     showPop($("accountMenu"), trigger, { side: side, align: align });
   }
 
+  /* The community bell hides with the mode bar, so the workspace carries
+     its own copy of the same signal on the communicate icon: activity
+     stays visible without leaving the workspace. Signed out there is no
+     inbox, so there is no dot either. */
+  function syncWorkspaceBadge() {
+    var dot = $("wsNotifDot");
+    if (!dot) return;
+    if (!(window.WSync && WSync.accountMode()) || !(window.BotoData && BotoData.configured())) {
+      dot.hidden = true;
+      return;
+    }
+    BotoData.unreadCount().then(function (out) {
+      if (out && out.ok) dot.hidden = !out.data;
+    });
+  }
+
   function wipeAll() {
     state.chats = [];
     state.outbox = [];
@@ -6249,6 +6265,7 @@
         if (window.WSync) WSync.signOutReset(uidBefore);
         if (account) resetWorkspaceForSignOut();
         if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+        syncWorkspaceBadge();
         syncAccountMenu();
         toast(account
           ? "Signed out. Your workspace is saved to your account."
@@ -8391,6 +8408,13 @@
       save();
     }
     maybeOnboard();
+
+    /* Unread activity on the communicate icon. The realtime watcher and
+       the first count fetch both no-op cleanly when signed out. */
+    if (window.BotoData && BotoData.watchNotifications) {
+      BotoData.watchNotifications(syncWorkspaceBadge);
+    }
+    syncWorkspaceBadge();
 
     /* Signed-in boot: the cache copy rendered above is the fast path.
        Now make it correct: unlock provider keys, adopt newer backend

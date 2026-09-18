@@ -217,3 +217,113 @@ async def issue_session(email: str, password: str) -> dict:
             status=401,
         )
     return response.json()
+
+
+# ---------- workspace grants + waitlist (service role over PostgREST) ----------
+# Grants are inserted by the operator, never by a client; the table has no
+# client policies, so only this key can write it. These helpers are the
+# relay side of the "grant day" flow: flip the grant, mark the waitlist row
+# approved, and the approval email goes out.
+
+def _postgrest_headers() -> dict:
+    key = _service_key()
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+
+
+async def grant_workspace(user_id: str) -> bool:
+    """Insert a workspace grant. Returns True only if the row is new.
+
+    Idempotent by construction: a second grant for the same user is ignored
+    (ignore-duplicates), so a retried approval never double-sends or errors.
+    The caller uses the True/False to decide whether the email should go out.
+    """
+    url = _url() + "/rest/v1/workspace_grants"
+    headers = _postgrest_headers()
+    headers["Prefer"] = "resolution=ignore-duplicates,return=representation"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(
+                url, headers=headers, json={"user_id": user_id}
+            )
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"grant insert transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "The grant could not be recorded. Try again shortly.",
+            f"grant insert -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )
+    try:
+        rows = response.json()
+    except ValueError:
+        rows = []
+    return bool(rows)
+
+
+async def approve_waitlist(email: str) -> None:
+    """Mark the waitlist row for an address as approved.
+
+    Best-effort bookkeeping: a join stores the email, and this flips its
+    status so the queue reflects reality. A missing row (someone granted
+    without joining) is not an error.
+    """
+    url = _url() + "/rest/v1/waitlist"
+    headers = _postgrest_headers()
+    headers["Prefer"] = "return=minimal"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            await client.patch(
+                url,
+                headers=headers,
+                params={"email": f"eq.{email}"},
+                json={"status": "approved"},
+            )
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"waitlist update transport error: {exc}",
+        ) from exc
+
+
+async def fetch_waitlist(status: str = "pending", limit: int = 100) -> list:
+    """The waitlist queue for the operator, oldest first.
+
+    Service role only: the table has no client policies, so this read is
+    the one place the queue becomes visible outside the database.
+    """
+    url = _url() + "/rest/v1/waitlist"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.get(
+                url,
+                headers=_postgrest_headers(),
+                params={
+                    "status": f"eq.{status}",
+                    "order": "created_at.asc",
+                    "limit": str(max(1, min(limit, 500))),
+                    "select": "id,email,status,position,created_at,user_id",
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"waitlist read transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "The waitlist could not be read. Try again shortly.",
+            f"waitlist read -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )
+    try:
+        rows = response.json()
+    except ValueError:
+        rows = []
+    return rows if isinstance(rows, list) else []

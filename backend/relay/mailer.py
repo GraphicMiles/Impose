@@ -99,25 +99,25 @@ def _html_body(code: str, purpose: str, minutes: int) -> str:
     )
 
 
-async def send_code(email: str, code: str, purpose: str, ttl_seconds: int) -> None:
-    """Email one code. Raises MailFailed if it could not be handed off."""
-    minutes = max(1, ttl_seconds // 60)
+async def send_message(email: str, subject: str, text: str, html: str) -> None:
+    """Hand one message to the transport. Raises MailFailed on refusal.
+
+    The console-mode fallback keeps every flow developable without a
+    Sendlib account: the message is logged instead of sent.
+    """
     api_key = os.environ.get("SENDLIB_API_KEY", "")
     sender = os.environ.get("SENDLIB_FROM", "")
 
     if not api_key or not sender:
-        # Console mode. Without this, nobody can develop the flow without a
-        # Sendlib account, and the first thing they would do is stub it out
-        # somewhere less safe.
-        print(f"[otp] {purpose} code for {email}: {code} (expires in {minutes}m)")
+        print(f"[mail] to {email}: {subject}")
         return
 
     payload = {
         "from": sender,
         "to": email,
-        "subject": _subject(purpose),
-        "text": _text_body(code, purpose, minutes),
-        "html": _html_body(code, purpose, minutes),
+        "subject": subject,
+        "text": text,
+        "html": html,
     }
     reply_to = os.environ.get("SENDLIB_REPLY_TO", "")
     if reply_to:
@@ -139,6 +139,75 @@ async def send_code(email: str, code: str, purpose: str, ttl_seconds: int) -> No
         raise MailFailed(
             f"sendlib rejected the message: {response.status_code} {response.text[:300]}"
         )
+
+
+async def send_code(email: str, code: str, purpose: str, ttl_seconds: int) -> None:
+    """Email one code. Raises MailFailed if it could not be handed off.
+
+    Console mode prints the code itself: without a Sendlib account this
+    is how a developer receives the OTP, so the print is the feature.
+    """
+    minutes = max(1, ttl_seconds // 60)
+    if not (os.environ.get("SENDLIB_API_KEY") and os.environ.get("SENDLIB_FROM")):
+        print(f"[otp] {purpose} code for {email}: {code} (expires in {minutes}m)")
+        return
+    await send_message(
+        email,
+        _subject(purpose),
+        _text_body(code, purpose, minutes),
+        _html_body(code, purpose, minutes),
+    )
+
+
+# ---------- the waitlist payoff ----------
+# The sheet promises "We'll email you when your seat opens," so the grant
+# email is a kept promise, not a nicety. Deliberately plain, like the code
+# mail: one good sentence, one link, no images, no tracking.
+
+def _app_url() -> str:
+    """The sign-in link in the grant email. APP_URL overrides for custom
+    domains; the default is the deployed web origin."""
+    return os.environ.get("APP_URL", "https://impose-web.onrender.com").rstrip("/")
+
+
+def _grant_subject() -> str:
+    return f"You're in — your {APP_NAME} workspace is ready"
+
+
+def _grant_text() -> str:
+    return (
+        "Your waitlist seat just opened.\n\n"
+        f"Sign in to open your workspace: {_app_url()}/sign-in\n\n"
+        "Your workspace is yours: chats, saved history and your own provider "
+        "keys, synced to your account.\n\n"
+        "If you did not join the waitlist, someone used this address — "
+        "sign in and check your account, or ignore this email.\n"
+    )
+
+
+def _grant_html() -> str:
+    url = _app_url() + "/sign-in"
+    return (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;'
+        'font-size:15px;line-height:1.6;color:#1a1a1a">'
+        "<p>Your waitlist seat just opened.</p>"
+        f'<p style="margin:24px 0"><a href="{url}" '
+        'style="display:inline-block;padding:10px 18px;border-radius:10px;'
+        'background:#1a1a1a;color:#fff;text-decoration:none;font-weight:600">'
+        f"Open your {APP_NAME} workspace</a></p>"
+        '<p style="color:#666;font-size:13px">Or sign in at '
+        f'<a href="{url}">{url}</a>. Your workspace is yours: chats, saved '
+        "history and your own provider keys, synced to your account.</p>"
+        '<p style="color:#666;font-size:13px">If you did not join the '
+        "waitlist, someone used this address — sign in and check your "
+        "account, or ignore this email.</p>"
+        "</div>"
+    )
+
+
+async def send_grant(email: str) -> None:
+    """The approval email. Raises MailFailed if it could not be handed off."""
+    await send_message(email, _grant_subject(), _grant_text(), _grant_html())
 
 
 async def probe() -> str:

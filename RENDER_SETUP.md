@@ -58,6 +58,15 @@ and idle control are optional and disabled by default.
 | `SENDLIB_ORIGIN` | optional | Sent as the `Origin` header so Sendlib can match its per-key allowlist. Defaults to `https://impose-relay.onrender.com`. **Add that exact value to the key's allowed origins in the Sendlib dashboard**, or sends are refused with `Origin not allowed: 'unknown'` even though the key is correct. |
 | `SENDLIB_URL` | optional | Defaults to `https://sendlib.samueltuoyo.com/api/send`. |
 | `OTP_PEPPER` | generated, 32+ random chars | Mixed into the code hash. Set it before launch: rotating it later invalidates every code in flight, which is harmless, but leaving it empty weakens the stored hashes. |
+| `APP_URL` | optional | The sign-in link inside the waitlist approval email. Defaults to `https://impose-web.onrender.com`; set it when the UI moves to a custom domain. |
+
+## Operator endpoints (CONTROL_KEY)
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /admin/reports` | The moderation queue (newest first). |
+| `GET /admin/waitlist` | Who is waiting, oldest first, with position and account presence. |
+| `POST /admin/grant` | Grant day in one call: `{"email": "…"}` records the workspace grant, marks the waitlist row approved, and sends the approval email the sheet promises. Idempotent — re-granting sends nothing unless `{"notify": true}` forces a resend (the recovery path when the grant landed but the email did not). Refuses addresses with no account (404) and mail-floods (429, three per address per ten minutes). |
 | `APP_NAME` | `Impose` | Used in the email subject line. |
 
 ### Checking it works
