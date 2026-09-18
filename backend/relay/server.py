@@ -191,19 +191,54 @@ _state_lock = threading.Lock()
 # --- auth + proxy rate limiting (per client IP, in memory) ---
 _RATE_BUCKETS = {}
 _rate_lock = threading.Lock()
+_rate_pruned_at = 0.0
 
 
 def _client_ip(request: Request) -> str:
+    """The address to hold limits against.
+
+    Behind a terminating proxy (Render) request.client.host is the load
+    balancer, so every caller on earth shares one bucket and per-IP limits
+    become one global limit that a single abuser spends. The proxy appends
+    the hop it saw to X-Forwarded-For, so the RIGHTMOST parseable entry is
+    the one the infrastructure added: a client that prepends its own fake
+    value cannot move what we read. No usable header falls back to the
+    socket address, which keeps direct deployments honest.
+    """
+    fwd = request.headers.get("x-forwarded-for", "")
+    for part in reversed([p.strip() for p in fwd.split(",") if p.strip()]):
+        try:
+            ipaddress.ip_address(part)
+            return part
+        except ValueError:
+            continue
     try:
         return request.client.host if request.client else "?"
     except Exception:
         return "?"
 
 
+def _rate_prune(now: float) -> None:
+    """Drop buckets quiet for an hour. Called under _rate_lock, throttled
+    to once a minute: the dict otherwise grows forever, one key per
+    address and email ever seen, which is a slow leak no traffic pattern
+    ever empties."""
+    global _rate_pruned_at
+    if now - _rate_pruned_at < 60.0:
+        return
+    _rate_pruned_at = now
+    cutoff = now - 3600.0
+    stale = [key for key, events in _RATE_BUCKETS.items()
+             if not events or events[-1] < cutoff]
+    for key in stale:
+        _RATE_BUCKETS.pop(key, None)
+
+
 def _rate_hit(bucket: str, key: str, limit: int, window: float) -> bool:
     """Record one event; True when the caller is over the limit."""
     now = time.time()
     with _rate_lock:
+        _rate_prune(now)
         events = _RATE_BUCKETS.setdefault(f"{bucket}:{key}", [])
         cutoff = now - window
         while events and events[0] < cutoff:

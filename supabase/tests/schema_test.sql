@@ -666,5 +666,120 @@ select test_denied('the RPC names an oversized comment', $$
 
 reset role;
 
+-- ============ write rate limits (0014) ============
+-- The budgets are fixed one-minute windows. Force the suite into a fresh
+-- window so nothing an earlier section wrote counts against them: the
+-- assertions below name exact counts, and a boundary in the middle of the
+-- section would reset the counters underfoot.
+do $$
+begin
+  perform pg_sleep(60 - (extract(epoch from now())::bigint % 60) + 1);
+end $$;
+
+reset role;
+
+select test_ok('rate_hit counts inside one statement',
+  not public.rate_hit('unit:test', 2, 60)
+  and not public.rate_hit('unit:test', 2, 60)
+  and public.rate_hit('unit:test', 2, 60));
+
+-- ------------------------------------------------ the @bot cooldown
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+select test_ok('three addressed posts in a minute are fine',
+  (select count(*) from (
+    select public.create_generation(gen_random_uuid(), 'bot ask ' || i, '', true)
+      from generate_series(1, 3) i
+  ) x) = 3);
+
+select test_denied('the fourth @bot call inside the minute is cooled down', $$
+  select public.create_generation(gen_random_uuid(), 'bot ask 4', '', true)$$);
+
+-- ------------------------------------------------- the per-user post cap
+select test_ok('plain posts up to the budget still land',
+  (select count(*) from (
+    select public.create_generation(gen_random_uuid(), 'rate post ' || i, 'x')
+      from generate_series(1, 4) i
+  ) x) = 4);
+
+select public.create_generation('dddddddd-0000-0000-0000-0000000000e8',
+  'rate post five', 'x');
+
+select test_denied('the ninth write in the minute is refused', $$
+  select public.create_generation(gen_random_uuid(), 'one too many', 'x')$$);
+
+select test_ok('and the refusal created nothing',
+  (select count(*) from public.generations
+    where author_id = '11111111-1111-1111-1111-111111111111'
+      and (prompt like 'rate post%' or prompt like 'bot ask%')) = 8);
+
+-- A retry of an already-landed key is a replay, not a new write: it must
+-- return the stored row even though the budget is spent.
+select test_ok('an idempotent replay spends no budget',
+  (select id from public.create_generation('dddddddd-0000-0000-0000-0000000000e8',
+     'rate post five', 'x')) =
+  (select id from public.generations where prompt = 'rate post five'));
+
+-- ------------------------------------------------- comment caps
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+select test_ok('five comments on one thread are fine',
+  (select count(*) from (
+    select public.create_comment(gen_random_uuid(),
+      'a0000000-0000-0000-0000-000000000001', 'thread comment ' || i)
+      from generate_series(1, 5) i
+  ) x) = 5);
+
+select test_denied('the sixth comment on the same thread is cooled down', $$
+  select public.create_comment(gen_random_uuid(),
+    'a0000000-0000-0000-0000-000000000001', 'one too many')$$);
+
+select test_ok('the user budget still has room across other threads',
+  (select count(*) from (
+    select public.create_comment(gen_random_uuid(),
+      'a0000000-0000-0000-0000-000000000002', 'second thread ' || i)
+      from generate_series(1, 5) i
+    union all
+    select public.create_comment(gen_random_uuid(),
+      'b0000000-0000-0000-0000-000000000001', 'third thread ' || i)
+      from generate_series(1, 4) i
+  ) x) = 9);
+
+select test_denied('the sixteenth comment in the minute is refused outright', $$
+  select public.create_comment(gen_random_uuid(),
+    'b0000000-0000-0000-0000-000000000001', 'over the user budget')$$);
+
+-- --------------------------- deleted posts keep no readable discussion
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+insert into public.generations (id, author_id, prompt, response)
+values ('eeeeeeee-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111', 'soon deleted', 'x');
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+insert into public.comments (id, generation_id, author_id, body)
+values ('eeeeeeee-0000-0000-0000-000000000002',
+        'eeeeeeee-0000-0000-0000-000000000001',
+        '22222222-2222-2222-2222-222222222222', 'comment on a doomed post');
+
+select test_ok('the comment is readable while the post lives',
+  (select count(*) from public.comments
+    where generation_id = 'eeeeeeee-0000-0000-0000-000000000001') = 1);
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+update public.generations set deleted_at = now()
+ where id = 'eeeeeeee-0000-0000-0000-000000000001';
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_ok('a soft-deleted post hides its comments from the API',
+  (select count(*) from public.comments
+    where generation_id = 'eeeeeeee-0000-0000-0000-000000000001') = 0);
+
+select test_ok('and the thread RPC serves nothing for it either',
+  (select count(*) from public.thread_for('eeeeeeee-0000-0000-0000-000000000001')) = 0);
+
+reset role;
+
 \echo ''
 \echo 'All schema assertions passed.'
