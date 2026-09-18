@@ -27,7 +27,7 @@ ADMIN = {"id": "admin-1", "email": "owner@company.com"}
 TARGET = {"id": "u-222", "email": "invited@company.com"}
 
 
-def _stub_notify(monkeypatch, *, session=True, is_admin=True,
+def _stub_notify(monkeypatch, *, session=True, can=True,
                  found=True, granted=True):
     calls = {}
 
@@ -35,9 +35,10 @@ def _stub_notify(monkeypatch, *, session=True, is_admin=True,
         calls["verify_token"] = token
         return dict(ADMIN) if session else None
 
-    async def admin_check(token):
+    async def admin_check(token, action):
         calls["admin_token"] = token
-        return is_admin
+        calls["admin_action"] = action
+        return can
 
     async def find(email):
         calls["find"] = email
@@ -48,7 +49,7 @@ def _stub_notify(monkeypatch, *, session=True, is_admin=True,
         return granted
 
     monkeypatch.setattr(supabase_admin, "verify_session", verify)
-    monkeypatch.setattr(supabase_admin, "session_is_admin", admin_check)
+    monkeypatch.setattr(supabase_admin, "session_can", admin_check)
     monkeypatch.setattr(supabase_admin, "find_user_by_email", find)
     monkeypatch.setattr(supabase_admin, "has_workspace_grant", has_grant)
     monkeypatch.setattr(supabase_admin, "configured", lambda: True)
@@ -85,12 +86,18 @@ def test_notify_rejects_a_dead_token(monkeypatch):
 
 
 def test_notify_refuses_a_non_admin_session(monkeypatch):
-    _stub_notify(monkeypatch, is_admin=False)
-    _stub_mail(monkeypatch)
+    _stub_notify(monkeypatch, can=False)
+    sent = _stub_mail(monkeypatch)
     res = client.post("/notify/grant",
                       headers={"Authorization": "Bearer someone-elses-jwt"},
                       json={"email": TARGET["email"]})
     assert res.status_code == 403
+    # Generic refusal: the body must not name admins, capabilities, or any
+    # part of the admin system the caller is not entitled to learn about.
+    body = res.text.lower()
+    for leak in ("company.com", "admin", "capab", "waitlist", "supabase"):
+        assert leak not in body, f"refusal leaked {leak!r}"
+    assert not sent, "a refused call must not reach the mailer"
 
 
 def test_notify_refuses_an_address_without_an_account(monkeypatch):
@@ -129,6 +136,7 @@ def test_notify_sends_the_email_for_a_recorded_grant(monkeypatch):
     # The caller's token is what both checks ran with — never a key.
     assert calls["verify_token"] == "admin-jwt"
     assert calls["admin_token"] == "admin-jwt"
+    assert calls["admin_action"] == "notify_grant"
 
 
 def test_notify_rejects_a_malformed_email(monkeypatch):

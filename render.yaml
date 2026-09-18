@@ -43,6 +43,16 @@ services:
       - type: rewrite
         source: /acceptable-use
         destination: /acceptable-use.html
+      # The admin console is a route on the existing app, deliberately
+      # public: the page carries no privilege, and every action re-checks
+      # the session's capabilities in the database. It serves index.html
+      # because the console is that same document in admin mode.
+      - type: rewrite
+        source: /admin
+        destination: /index.html
+      - type: rewrite
+        source: /admin/
+        destination: /index.html
       # Anything else lands on the branded 404, which explains what happened
       # and offers a route back. Keep this rule LAST: Render matches in order.
       - type: rewrite

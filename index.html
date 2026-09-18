@@ -416,10 +416,16 @@ try {
       <button type="button" data-stab="prompts" role="tab" aria-selected="false">Prompts</button>
       <button type="button" data-stab="usage" role="tab" aria-selected="false">Usage</button>
       <button type="button" data-stab="data" role="tab" aria-selected="false">Data</button>
-      <button type="button" data-stab="admin" role="tab" aria-selected="false" id="settingsTabAdmin" hidden>Admin</button>
     </div>
     <div class="settings-body">
       <div data-pane="general">
+
+        <section class="settings-section" id="adminLinkSection" hidden>
+          <div class="setting-row">
+            <div class="setting-text"><strong>Admin console</strong><span>Waitlist, admins and reports, at /admin</span></div>
+            <a class="btn" id="adminConsoleLink" href="./admin"><i data-lucide="shield"></i><span>Open</span></a>
+          </div>
+        </section>
 
         <section class="settings-section">
           <h3>Messages</h3>
@@ -519,32 +525,84 @@ try {
         </section>
         <p class="version">Botocracy 1.2. Keys and chats stay in this browser.</p>
       </div>
-      <div data-pane="admin" hidden>
-        <section class="settings-section">
-          <h3>Waitlist</h3>
-          <p class="fhelp">Granting records workspace access at once and sends the promised approval email. Only addresses with a signed-up account can be granted.</p>
-          <div id="adminWaitlist"></div>
-        </section>
-        <section class="settings-section">
-          <h3>Approved</h3>
-          <p class="fhelp">Already granted. Resend from here if the approval email did not land the first time.</p>
-          <div id="adminApproved"></div>
-        </section>
-        <section class="settings-section">
-          <h3>Admins</h3>
-          <p class="fhelp">Admins approve the waitlist and manage this list. An admin must already have an account. The owner cannot be removed.</p>
-          <div id="adminRoster"></div>
-          <div class="mem-add">
-            <input type="email" class="text-input" id="adminAddEmail" placeholder="Add an admin by email" autocomplete="off" maxlength="254">
-            <button class="btn" id="adminAddBtn" type="button"><i data-lucide="plus"></i><span>Add admin</span></button>
-          </div>
-        </section>
-        <section class="settings-section">
-          <h3>Reports</h3>
-          <p class="fhelp">What readers flagged. Reviewing a report is done by an operator; this view is read-only.</p>
-          <div id="adminReports"></div>
-        </section>
+    </div>
+  </div>
+</div>
+
+<!-- Admin console: same application, its own surface at /admin. The route
+     is public by design; the boundary is not. Every read and write goes
+     through SECURITY DEFINER RPCs that re-check this session's capabilities
+     in the database, so which sections appear here is presentation, and
+     what they can do is decided server-side, per action. -->
+<div class="admin-page" id="adminApp" hidden>
+  <div class="admin-inner">
+    <header class="admin-head">
+      <div class="admin-brand">
+        <span class="admin-mark"><i data-lucide="shield"></i></span>
+        <div class="admin-brand-copy">
+          <strong>Impose admin</strong>
+          <span id="adminWho">&nbsp;</span>
+        </div>
       </div>
+      <a class="btn" id="adminExit" href="./"><span>Back to Community</span></a>
+    </header>
+
+    <section class="admin-card" id="adminBooting">
+      <p class="pane-note">Checking this account&hellip;</p>
+    </section>
+
+    <section class="admin-card" id="adminSignedOut" hidden>
+      <h2>Sign in to continue</h2>
+      <p class="admin-help">The console runs on your normal Impose account. Nothing is trusted from the browser: every action re-checks what this account may do, every time.</p>
+      <a class="btn primary" id="adminSignIn" href="./sign-in?back=/admin"><span>Sign in</span></a>
+    </section>
+
+    <section class="admin-card" id="adminDenied" hidden>
+      <h2>Not available to this account</h2>
+      <p class="admin-help">This is the workspace administration console. If you think this account should hold it, ask whoever manages this installation.</p>
+      <a class="btn" href="./"><span>Back to Community</span></a>
+    </section>
+
+    <section class="admin-card admin-bootstrap" id="adminBootstrap" hidden>
+      <h2>One-time setup</h2>
+      <p class="admin-help">You are the seeded owner. Completing setup claims the owner role for this account and closes the bootstrap permanently: it cannot be replayed, from here or anywhere else. Afterwards, authority is only ever "which capabilities does this account hold".</p>
+      <ul class="admin-bootstrap-list">
+        <li><i data-lucide="key-round"></i><span>You hold every capability, including adding and reducing other admins.</span></li>
+        <li><i data-lucide="shield-check"></i><span>Your admin row cannot be removed or stripped. There is no lockout path by design.</span></li>
+        <li><i data-lucide="users"></i><span>Admins you add start with queue rights only, until you widen them.</span></li>
+      </ul>
+      <button class="btn primary" id="adminBootstrapGo" type="button">Claim ownership</button>
+    </section>
+
+    <div id="adminDash" hidden>
+      <div class="admin-nocaps" id="adminNoCaps" hidden>
+        <p class="pane-note">Your admin account holds no console permissions yet. The owner grants them from the Admins section.</p>
+      </div>
+      <section class="admin-card" id="adminSecWaitlist" hidden>
+        <h2>Waitlist</h2>
+        <p class="admin-help">Granting records workspace access at once and sends the promised approval email. Only addresses with a signed-up account can be granted.</p>
+        <div id="adminWaitlist"></div>
+      </section>
+      <section class="admin-card" id="adminSecApproved" hidden>
+        <h2>Approved</h2>
+        <p class="admin-help">Already granted. Resend from here if the approval email did not land the first time.</p>
+        <div id="adminApproved"></div>
+      </section>
+      <section class="admin-card" id="adminSecAdmins" hidden>
+        <h2>Admins</h2>
+        <p class="admin-help">Admins must already have an account. Each one acts only within their capabilities; the owner can widen or reduce them here. The owner cannot be removed or reduced.</p>
+        <div id="adminRoster"></div>
+        <div class="mem-add">
+          <input type="email" class="text-input" id="adminAddEmail" placeholder="Add an admin by email" autocomplete="off" maxlength="254">
+          <button class="btn" id="adminAddBtn" type="button"><i data-lucide="plus"></i><span>Add admin</span></button>
+        </div>
+        <div class="admin-cap-editor" id="adminCapEditor" hidden></div>
+      </section>
+      <section class="admin-card" id="adminSecReports" hidden>
+        <h2>Reports</h2>
+        <p class="admin-help">What readers flagged. Acting on a report is done by an operator; this view is read-only.</p>
+        <div id="adminReports"></div>
+      </section>
     </div>
   </div>
 </div>
