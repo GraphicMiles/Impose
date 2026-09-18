@@ -831,5 +831,84 @@ select test_denied('the twenty-first flag in the hour is refused', $$
 
 reset role;
 
+-- ============ per-account workspace state (0016) ============
+-- Workspace data belongs to the account: one row per user, owner-only
+-- access, size-capped and rate-limited writes. The blob is opaque to the
+-- server (provider keys arrive as client-side ciphertext), so the tests
+-- only assert who can touch it, never what is inside.
+
+-- Anonymous: no session, no workspace, not even a footprint.
+set role anon;
+select test_denied('anon cannot save workspace state', $$
+  select public.save_workspace('{"chats":[]}'::jsonb)$$);
+select test_denied('anon cannot read the workspace table', $$
+  select * from public.workspace_state$$);
+
+-- Owner writes: first save creates the row, the next one bumps rev.
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+-- \gset forces ordering: the save runs first, the assertions read its
+-- result. An AND across a function call and a subquery would not
+-- guarantee that order inside a single expression.
+select public.save_workspace('{"chats":[{"id":"c1"}]}'::jsonb) ->> 'rev' as rev_a \gset
+select test_ok('the first save creates the row at rev 1', :'rev_a' = '1');
+
+select public.save_workspace('{"chats":[{"id":"c1"},{"id":"c2"}]}'::jsonb) ->> 'rev' as rev_b \gset
+select test_ok('the next save bumps rev, not the row count',
+  :'rev_b' = '2' and (select count(*) from public.workspace_state) = 1);
+select test_ok('the owner reads back exactly what was saved',
+  (select data -> 'chats' -> 1 ->> 'id' from public.workspace_state) = 'c2');
+
+-- A second account cannot see, overwrite or delete it.
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+select test_ok('another account sees no foreign workspace rows',
+  (select count(*) from public.workspace_state) = 0);
+with u as (
+  update public.workspace_state set data = '{}'::jsonb
+   where user_id = '11111111-1111-1111-1111-111111111111'
+  returning 1
+) select count(*) as foreign_updates from u \gset
+
+select test_ok('a foreign update matches nothing', :foreign_updates = 0);
+
+with d as (
+  delete from public.workspace_state
+   where user_id = '11111111-1111-1111-1111-111111111111'
+  returning 1
+) select count(*) as foreign_deletes from d \gset
+
+select test_ok('a foreign delete matches nothing', :foreign_deletes = 0);
+select test_denied('inserting a row under a foreign id is refused', $$
+  insert into public.workspace_state (user_id, data)
+  values ('11111111-1111-1111-1111-111111111111', '{}'::jsonb)$$);
+
+-- Under RLS the second account still sees exactly one row: its own.
+select public.save_workspace('{"chats":[]}'::jsonb) ->> 'rev' as rev_c \gset
+select test_ok('the second account saves into its own row',
+  :'rev_c' = '1' and (select count(*) from public.workspace_state) = 1);
+
+-- Size cap: a 4 MB blob is refused, and the refusal leaves no trace.
+select test_denied('an oversized payload is refused', $$
+  select public.save_workspace(jsonb_build_object('x', repeat('a', 4000000)))$$);
+
+-- Rate limit: thirty saves a minute, thirty-first refused. Align to a
+-- fresh fixed window first; refused probes roll their own increment back,
+-- so the final probe spends no budget.
+do $$ begin
+  perform pg_sleep(60 - (extract(epoch from now())::bigint % 60) + 1);
+end $$;
+
+select count(*) from (
+  select public.save_workspace(jsonb_build_object('n', g))
+    from generate_series(1, 30) g
+) x \gset
+
+select test_denied('the thirty-first save in the minute is refused', $$
+  select public.save_workspace('{"chats":[]}'::jsonb)$$);
+
+reset role;
+
 \echo ''
 \echo 'All schema assertions passed.'
