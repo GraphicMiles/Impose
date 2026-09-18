@@ -37,7 +37,11 @@ cleanup() { pg_ctl -D "$PGDATA" stop -m immediate >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 rm -rf "$PGDATA"
-initdb -D "$PGDATA" -U postgres --auth=trust >/dev/null
+# UTF8 pinned: the suite stores zero-width marks and unicode escapes, which
+# need a multibyte encoding, and Supabase itself always runs UTF8. Without
+# the flag a C-locale host initializes SQL_ASCII and the suite fails with an
+# encoding error that has nothing to do with the schema under test.
+initdb -D "$PGDATA" -U postgres --auth=trust -E UTF8 >/dev/null
 pg_ctl -D "$PGDATA" -o "-p $PGPORT -k $PGHOST" -l "$PGDATA/server.log" start >/dev/null
 sleep 2
 

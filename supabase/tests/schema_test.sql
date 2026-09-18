@@ -746,6 +746,12 @@ select test_ok('the user budget still has room across other threads',
       from generate_series(1, 4) i
   ) x) = 9);
 
+-- The refusal above raised inside its own statement, so its counter
+-- increment went back with it: the user bucket sits at fourteen. One more
+-- comment lands, and the one after that is the refusal.
+select public.create_comment(gen_random_uuid(),
+  'b0000000-0000-0000-0000-000000000001', 'under the wire');
+
 select test_denied('the sixteenth comment in the minute is refused outright', $$
   select public.create_comment(gen_random_uuid(),
     'b0000000-0000-0000-0000-000000000001', 'over the user budget')$$);
