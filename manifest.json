@@ -1,7 +1,7 @@
 {
-  "name": "Botocracy",
-  "short_name": "Botocracy",
-  "description": "in bots we trust",
+  "name": "Impose",
+  "short_name": "Impose",
+  "description": "AI chat workspace with bring-your-own-key providers",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

@@ -216,6 +216,18 @@ select test_ok('waitlist addresses are case insensitive',
 select test_denied('the waitlist RPC validates the address server side', $$
   select public.join_waitlist('not-an-email')$$);
 
+-- 0019: the queue actually numbers people. Positions are assigned at
+-- join, sequential, and stable across the idempotent re-join.
+select test_ok('joining assigns a real queue position',
+  (select position from public.waitlist where email = 'someone@company.com') = 1);
+select public.join_waitlist('second@company.com');
+select test_ok('the next joiner stands behind the first',
+  (select position from public.waitlist where email = 'second@company.com') = 2);
+select test_ok('re-joining keeps the same place in line',
+  (select w.waitlist_position from public.join_waitlist('someone@company.com') w) = 1);
+select test_ok('the RPC reports the position it assigned',
+  (select w.waitlist_position from public.join_waitlist('third@company.com') w) = 3);
+
 
 -- ============ auth hardening (0003) ============
 -- The attempt cap used to be enforced by reading the count, adding one and
@@ -860,6 +872,18 @@ select test_ok('the next save bumps rev, not the row count',
 select test_ok('the owner reads back exactly what was saved',
   (select data -> 'chats' -> 1 ->> 'id' from public.workspace_state) = 'c2');
 
+-- 0019: compare-and-set. A save claiming an old rev is refused rather
+-- than silently destroying the other device's write; the matching claim
+-- and the legacy null claim both land.
+select test_denied('a save against a stale rev is refused (stale_workspace)', $$
+  select public.save_workspace('{"chats":[]}'::jsonb, 1)$$);
+select test_ok('the refused save changed nothing',
+  (select data -> 'chats' -> 1 ->> 'id' from public.workspace_state) = 'c2');
+select test_ok('a save claiming the current rev lands',
+  (public.save_workspace('{"chats":[{"id":"c3"}]}'::jsonb, 2)) ->> 'rev' = '3');
+select test_ok('a legacy save with no claim still lands (old clients degrade, not break)',
+  (public.save_workspace('{"chats":[{"id":"c4"}]}'::jsonb)) ->> 'rev' = '4');
+
 -- A second account cannot see, overwrite or delete it.
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
 
@@ -1000,6 +1024,34 @@ select test_ok('reports are readable in-product, newest first, reporter embedded
   and (public.admin_reports() -> 0) ? 'reporter');
 select test_denied('an unknown report status is refused', $$
   select public.admin_reports('odd')$$);
+
+-- 0019: reports reach a terminal state. The admin closes a pending
+-- report; a second close reads 'already'; an unknown id reads 'gone';
+-- a non-admin cannot touch it at all. The fixture id is read as the
+-- table owner because clients have no direct grant on reports, which is
+-- itself one of the assertions above.
+reset role;
+select r.id as report_id from public.reports r where r.status = 'pending' limit 1 \gset
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_ok('an admin closes a pending report',
+  public.admin_resolve_report(:'report_id', 'dismissed') ->> 'status' = 'dismissed');
+select test_ok('closing it again reports it already settled',
+  public.admin_resolve_report(:'report_id', 'actioned') ->> 'status' = 'already');
+reset role;
+select test_ok('the first decision stands',
+  (select status from public.reports where id = :'report_id') = 'dismissed');
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_ok('a vanished report reads gone',
+  public.admin_resolve_report('99999999-9999-9999-9999-999999999999', 'dismissed') ->> 'status' = 'gone');
+select test_denied('a made-up terminal status is refused', $$
+  select public.admin_resolve_report('99999999-9999-9999-9999-999999999999', 'vaporized')$$);
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_denied('a non-admin cannot resolve a report', $$
+  select public.admin_resolve_report('99999999-9999-9999-9999-999999999999', 'dismissed')$$);
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 
 reset role;
 
