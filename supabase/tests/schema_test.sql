@@ -787,5 +787,49 @@ select test_ok('and the thread RPC serves nothing for it either',
 
 reset role;
 
+-- ============ content reports (0015) ============
+-- A report is an action against someone, so it gets the same discipline as
+-- any other write: authenticated, rate limited, idempotent by schema, and
+-- unable to confirm the existence of content the reporter cannot see.
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+select test_ok('a visible post can be reported',
+  public.report_content('post', 'a0000000-0000-0000-0000-000000000001')
+    ->>'status' = 'reported');
+
+select test_ok('reporting it again is idempotent, not a second report',
+  public.report_content('post', 'a0000000-0000-0000-0000-000000000001')
+    ->>'status' = 'already');
+
+select test_denied('a private post cannot be reported by someone who cannot see it', $$
+  select public.report_content('post', 'a0000000-0000-0000-0000-000000000004')$$);
+
+select test_denied('nor can a target that never existed', $$
+  select public.report_content('post', 'ffffffff-0000-0000-0000-000000000099')$$);
+
+select test_denied('a deleted comment cannot be reported', $$
+  select public.report_content('comment', 'eeeeeeee-0000-0000-0000-000000000002')$$);
+
+set role anon;
+select test_denied('anon cannot read the reports table', $$select * from public.reports$$);
+
+set role authenticated;
+select test_denied('nor can a signed-in reader', $$select * from public.reports$$);
+
+-- The rate limit: twenty flags an hour, and the budget counts repeated
+-- reports too, because a retry loop against one target is itself the
+-- abuse the limit exists to stop. (A refused probe rolls its own counter
+-- back, so the probe below does not spend budget.)
+select count(*) from (
+  select public.report_content('post', 'a0000000-0000-0000-0000-000000000001')
+    from generate_series(1, 18)
+) x \gset
+
+select test_denied('the twenty-first flag in the hour is refused', $$
+  select public.report_content('post', 'a0000000-0000-0000-0000-000000000001')$$);
+
+reset role;
+
 \echo ''
 \echo 'All schema assertions passed.'
