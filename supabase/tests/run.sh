@@ -66,8 +66,14 @@ create or replace function auth.uid() returns uuid language sql stable as $$
 $$;
 create role anon;
 create role authenticated;
-grant usage on schema auth to anon, authenticated;
-grant execute on function auth.uid() to anon, authenticated;
+-- service_role was missing here, and that omission is why a missing
+-- EXECUTE grant shipped: the suite runs as the owner, an owner is not
+-- subject to its own grants, so every assertion passed while the deployed
+-- path was dead. Supabase grants this role bypassrls; the local stand-in
+-- needs the same shape or the privileged tests prove nothing.
+create role service_role bypassrls;
+grant usage on schema auth to anon, authenticated, service_role;
+grant execute on function auth.uid() to anon, authenticated, service_role;
 SQL
 
 # Every migration, in order. Testing only the first one would let a later

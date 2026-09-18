@@ -155,6 +155,28 @@ async def verify(email: str, purpose: str, code: str) -> dict:
     raise OtpError("That code has expired. Request a new one.", status=410)
 
 
+async def forget(email: str, purpose: str) -> None:
+    """Drop a pending code.
+
+    Used when the email could not be sent: the row would otherwise hold the
+    resend cooldown open and the next attempt would be told a live code
+    already exists, so no second email goes out. One transient delivery
+    failure would lock the address for the full ten minutes.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            await client.delete(
+                f"{_base()}/rest/v1/auth_codes",
+                headers={**_headers(), "Prefer": "return=minimal"},
+                params={"email": f"eq.{email.strip().lower()}",
+                        "purpose": f"eq.{normalize_purpose(purpose)}"},
+            )
+    except (httpx.HTTPError, OtpError) as exc:
+        # Best effort. The row expires on its own; failing here must not
+        # mask the delivery error the caller is already reporting.
+        print(f"[otp] could not clear the pending code for {email}: {exc}")
+
+
 async def issue_ticket(email: str, token: str, user_id: str | None, ttl: int = 600) -> None:
     """Record a reset ticket. Stored hashed, for the same reason codes are."""
     try:
@@ -187,3 +209,23 @@ async def redeem_ticket(token: str) -> dict | None:
 def _iso_in(seconds: int) -> str:
     from datetime import datetime, timedelta, timezone
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+
+
+async def peek_probe() -> None:
+    """Confirm the code store is callable. Raises with the real reason.
+
+    Deliberately exercises the same RPC the signup path uses, because a
+    reachable database and a callable function are different facts: the
+    grant for issue_auth_code was missing while Supabase was perfectly
+    reachable, and only calling it revealed that.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        r = await client.post(
+            f"{_base()}/rest/v1/rpc/issue_auth_code",
+            headers=_headers(),
+            json={"p_email": "probe@invalid.local", "p_purpose": "signup",
+                  "p_hash": "probe", "p_user_id": None, "p_ttl": 1, "p_cooldown": 0},
+        )
+    if r.status_code >= 400:
+        raise RuntimeError(f"{r.status_code} {r.text[:160]}")
+    await forget("probe@invalid.local", "signup")
