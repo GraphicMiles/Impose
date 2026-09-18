@@ -161,6 +161,36 @@ async def probe() -> str:
     except httpx.HTTPError as exc:
         return f"unreachable: {exc}"[:200]
     if r.status_code >= 400:
-        return (f"rejected {r.status_code} (sent as origin {_origin()}): "
-                f"{r.text[:160]}")
+        body = r.text[:200]
+        return (f"rejected {r.status_code} (sent as origin {_origin()}): {body}"
+                + _sendlib_hint(body))
     return "ok"
+
+
+def _sendlib_hint(body: str) -> str:
+    """Turn a provider rejection into the action that resolves it.
+
+    Four different causes have now produced a 4xx here and each needed a
+    different fix in a different dashboard. The message alone was not
+    enough to tell them apart at a glance, and every round trip cost a
+    deploy. The provider's own words are still reported above; this only
+    adds where to go.
+    """
+    low = body.lower()
+    if "insufficient authentication scopes" in low:
+        return ("  -> Google refused the token, not Sendlib. The Gmail account is"
+                " connected but was authorised before send permission was granted."
+                " Disconnect it in the Sendlib dashboard and reconnect, pressing"
+                " Allow on the Gmail send consent screen.")
+    if "not connected" in low:
+        return ("  -> SENDLIB_FROM names a Gmail that is not linked. Connect that"
+                " exact address in the Sendlib dashboard, or change SENDLIB_FROM"
+                " to one that is.")
+    if "origin not allowed" in low:
+        return ("  -> Add the origin above to this API key's allowed origins in"
+                " the Sendlib dashboard.")
+    if "invalid api key" in low or r"401" in low:
+        return "  -> SENDLIB_API_KEY is wrong or revoked."
+    if "quota" in low or "limit" in low:
+        return "  -> The account's daily send quota is spent."
+    return ""

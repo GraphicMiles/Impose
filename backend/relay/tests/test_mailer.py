@@ -54,3 +54,24 @@ def test_console_mode_when_unconfigured(monkeypatch, capsys):
     monkeypatch.delenv("SENDLIB_FROM", raising=False)
     asyncio.run(mailer.send_code("a@b.com", "12345678", "signup", 600))
     assert "12345678" in capsys.readouterr().out
+
+
+def test_each_provider_rejection_names_its_own_fix():
+    """Four causes have produced a 4xx here and each needed a different
+    dashboard. Reporting the provider's words alone meant re-diagnosing
+    every time, and every round trip cost a deploy."""
+    cases = [
+        ("Request had insufficient authentication scopes", "reconnect"),
+        ("Gmail account 'x@y.com' is not connected", "SENDLIB_FROM"),
+        ("Origin not allowed: 'unknown'", "allowed origins"),
+        ("Invalid API key format.", "SENDLIB_API_KEY"),
+        ("daily quota exceeded", "quota"),
+    ]
+    for body, expected in cases:
+        hint = mailer._sendlib_hint(body)
+        assert hint, "no guidance for: " + body
+        assert expected.lower() in hint.lower(), (body, hint)
+
+
+def test_an_unrecognised_rejection_adds_nothing_rather_than_guessing():
+    assert mailer._sendlib_hint("some new failure we have not seen") == ""
