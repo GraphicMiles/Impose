@@ -36,6 +36,7 @@
     try {
       var q = new URLSearchParams(location.search).get("back");
       if (q === "/admin") return "./admin";
+      if (q === "/admin/" || q === "admin") return "./admin";
     } catch (e) { /* no URLSearchParams, or nothing asked for */ }
     return "./index.html" + (/^#\//.test(back) ? back : "");
   }

@@ -198,6 +198,36 @@
     return !!(cached && cached.status === "granted");
   }
 
+  function checkAccess() {
+    return refresh().then(function (res) {
+      return {
+        canUseWorkspace: canUseWorkspace(),
+        status: state,
+        position: res && res.position,
+        approved: res && (res.approved || state === "granted"),
+        email: res && res.email
+      };
+    });
+  }
+
+  function checkWaitlistStatus(email) {
+    return joinWaitlist(email).then(function (res) {
+      return {
+        status: res.status,
+        approved: !!res.approved,
+        position: res.position,
+        email: res.email
+      };
+    });
+  }
+
+  function resetForSignOut() {
+    try { localStorage.removeItem(GRANT_KEY); } catch (e) {}
+    state = "anonymous";
+    grantCache = null;
+    notify();
+  }
+
   function onChange(fn) { listeners.push(fn); }
   function notify() { listeners.forEach(function (fn) { try { fn(state, grantCache); } catch (e) {} }); }
 
@@ -206,8 +236,11 @@
   window.BotoAccess = {
     init: refresh,
     refresh: refresh,
+    checkAccess: checkAccess,
+    checkWaitlistStatus: checkWaitlistStatus,
     joinWaitlist: joinWaitlist,
     canUseWorkspace: canUseWorkspace,
+    resetForSignOut: resetForSignOut,
     getStatus: getStatus,
     onChange: onChange
   };

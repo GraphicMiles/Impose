@@ -72,14 +72,15 @@
 
   /* ---------- @bot addressing ----------
      A post is a generation only when it is addressed to the agent with a
-     leading @bot. Anything else is a plain post: it is shared to the feed,
+     leading @bot or mid-sentence mention. Anything else is a plain post: it is shared to the feed,
      it can be discussed and saved, and no agent is called for it. The
      composer, the send path, and the card renderer all read this one
      function so they can never disagree about what counts. */
   var BOT_MENTION = /^\s*@bot\b[ \t]*/i;
+  var BOT_ANYWHERE = /(?:^|\s)@bot\b/i;
 
   function addressesBot(raw) {
-    return BOT_MENTION.test(String(raw == null ? "" : raw));
+    return BOT_ANYWHERE.test(String(raw == null ? "" : raw));
   }
 
   /* Whether a stored generation asked the agent for something. Anything
@@ -1018,6 +1019,7 @@
     if (n.kind === "reply") return "replied to your comment";
     if (n.kind === "comment") return "commented on your post";
     if (n.kind === "challenge") return "challenged your post";
+    if (n.kind === "waitlist_approved") return "approved your waitlist request! Workspace is now unlocked.";
     return "remixed your post";
   }
 
@@ -1054,7 +1056,7 @@
       }
       list.innerHTML = out.data.map(function (n) {
         return '<button class="notif-row' + (n.read ? "" : " unread") +
-                 '" data-gen="' + esc(n.genId || "") + '">' +
+                 '" data-gen="' + esc(n.genId || "") + '" data-kind="' + esc(n.kind || "") + '">' +
                  '<span class="notif-who">' + esc(n.actor.name) + "</span> " +
                  '<span class="notif-what">' + notifLabel(n) + "</span>" +
                  (n.excerpt ? '<span class="notif-excerpt">' + esc(n.excerpt) + "</span>" : "") +
@@ -1080,10 +1082,16 @@
     });
     $("cmNotifSheet").addEventListener("click", function (e) {
       if (e.target === $("cmNotifSheet")) { $("cmNotifSheet").hidden = true; return; }
-      var row = e.target.closest("[data-gen]");
+      var row = e.target.closest("[data-gen], [data-kind]");
       if (!row) return;
       var id = row.getAttribute("data-gen");
+      var kind = row.getAttribute("data-kind");
       $("cmNotifSheet").hidden = true;
+      if (kind === "waitlist_approved") {
+        if (window.BotoAccess && BotoAccess.checkAccess) BotoAccess.checkAccess();
+        location.hash = "#/workspace";
+        return;
+      }
       /* Every notification opens the thing it is about. A list of events
          with nowhere to go is a dead end. */
       if (id) location.hash = "#/g/" + id;
@@ -1630,8 +1638,12 @@
         "</div>" +
       "</div>" +
       '<div class="composer" id="commentComposer">' +
-        '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add to the discussion" aria-label="Add to the discussion"></textarea>' +
+        '<div class="composer-field">' +
+          '<div class="composer-hl" id="cmCommentInputHl" aria-hidden="true" style="position: absolute; inset: 0; color: transparent; pointer-events: none;"></div>' +
+          '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add to the discussion or mention @bot..." aria-label="Add to the discussion"></textarea>' +
+        '</div>' +
         '<div class="composer-row">' +
+          '<button class="composer-chip" id="cmCommentBotChip" type="button" aria-pressed="false" title="Mention @bot"><span class="mention-at">@</span>bot</button>' +
           '<div class="composer-spacer"></div>' +
           '<button class="send-btn" id="cmCommentSend" aria-label="Post comment" disabled><i data-lucide="arrow-up"></i></button>' +
         "</div>" +
@@ -1967,14 +1979,54 @@
 
   function wireCommentBox(gen, listEl) {
     var input = $("cmCommentInput");
+    var hl = $("cmCommentInputHl");
+    var botChip = $("cmCommentBotChip");
     var send = $("cmCommentSend");
     var ctxBar = $("cmCommentCtx");
     var ctxLabel = $("cmCommentCtxLabel");
+    var composerEl = $("commentComposer");
     replyingTo = null;
     if (ctxBar) { ctxBar.hidden = true; }
 
-    function sync() { send.disabled = input.value.trim().length === 0; autogrow(input); }
+    function paintCommentHl() {
+      if (!input || !hl) return;
+      releaseHighlightFailsafe(input, hl);
+      var raw = input.value;
+      if (BOT_ANYWHERE.test(raw)) {
+        hl.innerHTML = highlightMentions(raw);
+      } else {
+        hl.textContent = raw;
+      }
+      hl.scrollTop = input.scrollTop;
+    }
+
+    function sync() {
+      var val = input.value;
+      var trimmed = val.trim();
+      var toBot = BOT_ANYWHERE.test(val);
+      send.disabled = trimmed.length === 0;
+      if (botChip) botChip.setAttribute("aria-pressed", String(toBot));
+      send.setAttribute("aria-label", toBot ? "Ask @bot" : "Post comment");
+      if (composerEl) composerEl.classList.toggle("to-bot", toBot && signedIn());
+      autogrow(input);
+      paintCommentHl();
+    }
     input.addEventListener("input", sync);
+    input.addEventListener("scroll", function () {
+      if (hl) hl.scrollTop = input.scrollTop;
+    });
+    if (botChip) {
+      botChip.addEventListener("click", function () {
+        var raw = input.value;
+        if (BOT_ANYWHERE.test(raw)) {
+          input.value = raw.replace(BOT_ANYWHERE, " ").replace(/\s{2,}/g, " ").trim();
+        } else {
+          input.value = (raw ? raw.trim() + " @bot" : "@bot ").trimStart();
+        }
+        input.focus();
+        sync();
+      });
+    }
     input.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); post(); }
       if (e.key === "Escape" && replyingTo) { clearReply(); }
@@ -2084,6 +2136,8 @@
     function post() {
       if (!requireSignIn("comment")) return;
       var text = input.value.trim();
+      var toBot = BOT_ANYWHERE.test(text);
+      var targetForBot = replyingTo;
       /* State 8: empty or whitespace-only submission is not an error, it is
          a no-op. The send button is already disabled; this is the guard for
          Enter and for any programmatic path. */
@@ -2194,6 +2248,33 @@
       renderThread(gen, listEl);
       replaceCard(gen);
       updateDiscussionTitle(gen);
+
+      if (toBot) {
+        var cleanPrompt = text.replace(BOT_ANYWHERE, " ").replace(/\s{2,}/g, " ").trim() || gen.prompt;
+        var botReplyText = replyFor({ prompt: cleanPrompt, kind: "comment" });
+        var botTargetParentId = (targetForBot && pathToRoot(commentsFor(gen.id), ckey).size - 1 >= MAX_REPLY_DEPTH) ? parentId : ckey;
+        var botCommentId = "bot-" + BotoData.newKey();
+        var botComment = {
+          id: botCommentId,
+          pending: false,
+          genId: gen.id,
+          own: false,
+          creator: { name: "Botocracy", handle: "@bot", avatar: "char-1" },
+          text: botReplyText,
+          parentId: botTargetParentId,
+          replyingToName: optimistic.creator ? optimistic.creator.name : "You",
+          createdAt: Date.now() + 50
+        };
+        setTimeout(function () {
+          state.comments.push(botComment);
+          expandedThreads.add(ckey);
+          syncCommentCount(gen.id);
+          persist();
+          refreshThreadOnly(gen.id);
+          replaceCard(gen);
+          updateDiscussionTitle(gen);
+        }, reducedMotion ? 0 : 350);
+      }
     }
   }
 
@@ -2518,7 +2599,7 @@
   /* Strip the @bot mention off an addressed prompt. The card re-adds it as
      its own coloured span, so the stored prompt never carries it twice. */
   function parsePrompt(raw) {
-    return String(raw == null ? "" : raw).replace(BOT_MENTION, "").trim();
+    return String(raw == null ? "" : raw).replace(BOT_ANYWHERE, " ").replace(BOT_MENTION, "").replace(/\s{2,}/g, " ").trim();
   }
 
   function sendGeneration() {
@@ -2968,6 +3049,20 @@
      is verifiably applied the inline colour has to be handed back, otherwise
      the mention would stay invisible. The probe is the textarea's own
      transparent fill, which only that stylesheet sets. */
+  function highlightMentions(raw) {
+    if (!raw) return "";
+    var parts = raw.split(/(@bot\b)/i);
+    var html = "";
+    for (var i = 0; i < parts.length; i++) {
+      if (/^@bot$/i.test(parts[i])) {
+        html += '<span class="hl-at">' + esc(parts[i]) + "</span>";
+      } else {
+        html += esc(parts[i]);
+      }
+    }
+    return html;
+  }
+
   function releaseHighlightFailsafe(input, layer) {
     /* Re-evaluated on every paint rather than latched once: the stylesheet
        can arrive late, and it can also go away. Both directions have to be
@@ -2984,10 +3079,8 @@
     releaseHighlightFailsafe(input, layer);
     var raw = input.value;
     var m = raw.match(BOT_MENTION);
-    if (m) {
-      /* Split on the real match so whitespace is preserved exactly. */
-      var mention = raw.slice(0, m[0].length);
-      layer.innerHTML = '<span class="hl-at">' + esc(mention) + "</span>" + esc(raw.slice(m[0].length));
+    if (BOT_ANYWHERE.test(raw)) {
+      layer.innerHTML = highlightMentions(raw);
     } else {
       layer.textContent = raw;
     }

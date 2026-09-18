@@ -6132,21 +6132,23 @@
   function syncAvatars() {
     var name = displayName();
     var initial = (name.charAt(0) || "Y").toUpperCase();
-    /* Identity avatar, seeded by display name so the workspace shows the
-       same face the Community feed draws for you. Falls back to the plain
+    /* Identity avatar, seeded by display name or custom avatar character so the workspace
+       shows the same face the Community feed draws for you. Falls back to the plain
        initial if avatars.js is absent from a half-deployed tree. */
     function paint(id) {
       var el = $(id);
       if (!el) return;
       if (window.BotoAvatar) {
         el.classList.add("avatar-img");
-        el.innerHTML = BotoAvatar.svg(name);
+        var avatarSeed = (state.settings && state.settings.avatar) || name;
+        el.innerHTML = BotoAvatar.svg(avatarSeed);
       } else {
         el.classList.remove("avatar-img");
         el.textContent = initial;
       }
     }
     paint("avatarBtn");
+    paint("cmAvatarBtn");
     paint("profileAvatar");
     paint("acctAvatar");
     $("profileName").textContent = name;
@@ -6173,6 +6175,7 @@
     syncAccountMenu();
     showPop($("accountMenu"), trigger, { side: side, align: align });
   }
+  window.openAccount = openAccount;
 
   /* The community bell hides with the mode bar, so the workspace carries
      its own copy of the same signal on the communicate icon: activity
@@ -6219,8 +6222,12 @@
     state.settings.theme = "dark";
     document.documentElement.setAttribute("data-theme", "dark");
     activeId = null;
-    rememberActiveChat(null, "push");
+    rememberActiveChat(null, "replace");
     messagesEl.innerHTML = "";
+    try {
+      localStorage.removeItem(STORE_KEY);
+      localStorage.removeItem(LEGACY_STORE_KEY);
+    } catch (e) {}
     renderList();
     renderModelMenu();
     syncModelLabel();
@@ -6237,6 +6244,8 @@
   $("profileBtn").addEventListener("click", function () { openAccount($("profileBtn"), "top", "start"); });
 
   $("avatarBtn").addEventListener("click", function () { openAccount($("avatarBtn"), "bottom", "end"); });
+  var cmAv = $("cmAvatarBtn");
+  if (cmAv) cmAv.addEventListener("click", function () { openAccount(cmAv, "bottom", "end"); });
 
   $("acctName").addEventListener("change", function () {
     var v = $("acctName").value.trim().slice(0, 24);
@@ -6253,32 +6262,28 @@
     var session = authSession();
     if (session) {
       /* The localStorage copy is a display cache for the avatar and the
-         name. Removing it used to be the whole of "sign out", which meant
-         the Supabase session survived: the menu said signed out and the
-         user could still post, comment and delete. Ending the real session
-         is the part that matters, and it has to come first. */
+         name. Ending the real session is the part that matters, and it has
+         to come first. */
       var uidBefore = window.WSync ? WSync.userId() : null;
-      var account = !!uidBefore;
       var done = function () {
         localStorage.removeItem("impose.auth.v1");
+        try {
+          localStorage.removeItem(STORE_KEY);
+          localStorage.removeItem(LEGACY_STORE_KEY);
+        } catch (e) {}
         if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
         if (window.WSync) WSync.signOutReset(uidBefore);
-        if (account) resetWorkspaceForSignOut();
+        resetWorkspaceForSignOut();
+        if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
         if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
         syncWorkspaceBadge();
         refreshAdminTab();
         syncAccountMenu();
-        toast(account
-          ? "Signed out. Your workspace is saved to your account."
-          : "Signed out. Your local chats are still here.");
+        toast("Signed out. All workspace chats and session data cleared.");
       };
       var doSignOut = function () {
         if (window.BotoAuth && BotoAuth.signOut) {
           BotoAuth.signOut().then(done, function () {
-            /* The server refused or the network is down. Clear the local
-               session anyway: leaving someone signed in because logout
-               failed is the wrong direction to fail in, and the token
-               expires on its own. */
             done();
             toast("Signed out here. The session may still be active elsewhere.");
           });
@@ -6289,7 +6294,7 @@
       /* Flush pending workspace writes before the session dies: after
          sign-out there is no token to push with, and the local cache is
          about to be removed. */
-      if (account && window.WSync) WSync.flushNow().then(doSignOut, doSignOut);
+      if (window.WSync && WSync.flushNow) WSync.flushNow().then(doSignOut, doSignOut);
       else doSignOut();
       return;
     }
@@ -6302,6 +6307,169 @@
     $("avatarBtn").focus();
     openSettings("general");
   });
+
+  /* ---------- profile customization modal ---------- */
+  var selectedAvatarId = "char-1";
+  var profileCustomModal = $("profileCustomModal");
+
+  function renderAvatarPicker() {
+    var grid = $("avatarPickerGrid");
+    if (!grid || !window.BotoAvatar || !BotoAvatar.CHARACTERS) return;
+    grid.innerHTML = "";
+    BotoAvatar.CHARACTERS.forEach(function (ch) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "avatar-pick-btn" + (ch.id === selectedAvatarId ? " selected" : "");
+      btn.setAttribute("role", "radio");
+      btn.setAttribute("aria-checked", String(ch.id === selectedAvatarId));
+      btn.setAttribute("aria-label", ch.name || ch.id);
+      btn.innerHTML = BotoAvatar.svg(ch.id, 48);
+      btn.addEventListener("click", function () {
+        selectedAvatarId = ch.id;
+        grid.querySelectorAll(".avatar-pick-btn").forEach(function (b) {
+          b.classList.remove("selected");
+          b.setAttribute("aria-checked", "false");
+        });
+        btn.classList.add("selected");
+        btn.setAttribute("aria-checked", "true");
+      });
+      grid.appendChild(btn);
+    });
+  }
+
+  function openProfileCustom() {
+    hidePop(true);
+    var session = authSession();
+    if (!session || !session.email) {
+      toast("Sign in to customize your public profile.", "Sign in", function () {
+        window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
+      }, 4500, "info");
+      return;
+    }
+    if (!profileCustomModal) return;
+    openModal(profileCustomModal);
+    renderAvatarPicker();
+
+    var handleInput = $("customProfileHandle");
+    var nameInput = $("customProfileName");
+    var bioInput = $("customProfileBio");
+    var quotaNote = $("customProfileQuotaNote");
+    var counter = $("customProfileBioCounter");
+
+    if (nameInput) nameInput.value = (state.settings && state.settings.displayName) || session.name || "You";
+    if (handleInput) handleInput.value = "";
+    if (bioInput) bioInput.value = "";
+    if (counter) counter.textContent = "0 / 300";
+
+    if (window.BotoData && BotoData.myProfile) {
+      BotoData.myProfile().then(function (prof) {
+        if (!prof) return;
+        if (prof.display_name && nameInput) nameInput.value = prof.display_name;
+        if (prof.handle && handleInput) handleInput.value = String(prof.handle).replace(/^@/, "");
+        if (prof.bio && bioInput) {
+          bioInput.value = prof.bio;
+          if (counter) counter.textContent = prof.bio.length + " / 300";
+        }
+        if (prof.avatar) {
+          selectedAvatarId = prof.avatar;
+          renderAvatarPicker();
+        }
+        if (quotaNote) {
+          var count = prof.username_changes_count || 0;
+          var rem = Math.max(0, 3 - count);
+          if (count >= 3 && prof.username_quota_exhausted_at) {
+            quotaNote.className = "profile-quota-note exhausted";
+            var exDate = new Date(Date.parse(prof.username_quota_exhausted_at) + 21 * 86400000);
+            quotaNote.textContent = "Quota exhausted (3/3 used). Locked until " + exDate.toLocaleDateString() + ".";
+            if (handleInput) handleInput.disabled = true;
+          } else {
+            quotaNote.className = "profile-quota-note" + (rem <= 1 ? " warn" : "");
+            quotaNote.textContent = rem + " of 3 username changes remaining (21-day window from exhaustion).";
+            if (handleInput) handleInput.disabled = false;
+          }
+        }
+      });
+    }
+  }
+
+  var acctCust = $("acctCustomizeProfile");
+  if (acctCust) acctCust.addEventListener("click", openProfileCustom);
+
+  var customBio = $("customProfileBio");
+  if (customBio) {
+    customBio.addEventListener("input", function () {
+      var counter = $("customProfileBioCounter");
+      if (counter) counter.textContent = customBio.value.length + " / 300";
+    });
+  }
+
+  var customClose = $("profileCustomClose");
+  if (customClose) customClose.addEventListener("click", function () { closeModal(profileCustomModal); });
+  var customCancel = $("profileCustomCancel");
+  if (customCancel) customCancel.addEventListener("click", function () { closeModal(profileCustomModal); });
+
+  var customSave = $("profileCustomSave");
+  if (customSave) {
+    customSave.addEventListener("click", function () {
+      var nameInput = $("customProfileName");
+      var handleInput = $("customProfileHandle");
+      var bioInput = $("customProfileBio");
+      var dName = nameInput ? nameInput.value.trim() : "";
+      var handle = handleInput ? handleInput.value.trim() : "";
+      var bio = bioInput ? bioInput.value.trim() : "";
+
+      customSave.disabled = true;
+      if (window.BotoData && BotoData.customizeProfile) {
+        BotoData.customizeProfile(dName, bio, handle, selectedAvatarId).then(function (out) {
+          customSave.disabled = false;
+          if (!out.ok) {
+            toast(out.error || "Could not update profile.", null, null, 4500, "warn");
+            return;
+          }
+          if (dName) state.settings.displayName = dName;
+          state.settings.avatar = selectedAvatarId;
+          save();
+          syncAvatars();
+          closeModal(profileCustomModal);
+          toast("Profile updated.", null, null, 3500, "success");
+        }).catch(function (err) {
+          customSave.disabled = false;
+          toast((err && err.message) || "Could not update profile.", null, null, 4500, "warn");
+        });
+      } else {
+        customSave.disabled = false;
+        if (dName) state.settings.displayName = dName;
+        state.settings.avatar = selectedAvatarId;
+        save();
+        syncAvatars();
+        closeModal(profileCustomModal);
+        toast("Profile updated.", null, null, 3500, "success");
+      }
+    });
+  }
+
+  var acctChk = $("acctCheckWaitlist");
+  if (acctChk) {
+    acctChk.addEventListener("click", function () {
+      hidePop(true);
+      if (window.BotoAccess && BotoAccess.checkAccess) {
+        BotoAccess.checkAccess().then(function (acc) {
+          if (acc && acc.canUseWorkspace) {
+            toast("Workspace access is active for this account.", "Open Workspace", function () {
+              location.hash = "#/workspace";
+            }, 5000, "success");
+          } else if (acc && acc.status === "waitlisted") {
+            var posText = acc.position ? "You are #" + acc.position + " on the waitlist." : "You are on the waitlist.";
+            toast(posText + " We'll email you when your seat opens.", null, null, 6000, "info");
+          } else {
+            toast("Workspace is currently waitlist-granted.", "Join waitlist", function () {
+              if (window.openAccessSheet) openAccessSheet();
+            }, 6000, "info");
+          }
+        });
+      }
+    });
+  }
   $("acctExport").addEventListener("click", function () {
     hidePop(true);
     doExportJSON();
@@ -8164,8 +8332,14 @@
      one relay call - the approval email - authenticates with this
      session's own token; CONTROL_KEY never enters the browser. */
 
+  function isAdminRoute() {
+    var p = window.location.pathname || "";
+    var h = window.location.hash || "";
+    return /^\/admin\/?$/.test(p) || p.indexOf("/admin") !== -1 || /^#\/?admin\b/i.test(h);
+  }
+
   var ADMIN = {
-    route: /^\/admin\/?$/.test(window.location.pathname || ""),
+    route: /^\/admin\/?$/.test(window.location.pathname || "") || /^\/admin\b/.test(window.location.pathname || "") || /^#\/?admin\b/i.test(window.location.hash || ""),
     caps: [],
     view: null
   };
@@ -8192,13 +8366,20 @@
   }
 
   function bootAdminRoute() {
+    ADMIN.route = isAdminRoute();
     if (!ADMIN.route) return;
     document.body.classList.add("admin-route");
     var app = $("adminApp");
     if (!app) return;
     app.hidden = false;
     showAdminView("adminBooting");
-    if (!adminAccountReady()) { showAdminView("adminSignedOut"); return; }
+    var signOutBtn = $("adminSignOutBtn");
+    if (!adminAccountReady()) {
+      if (signOutBtn) signOutBtn.hidden = true;
+      showAdminView("adminSignedOut");
+      return;
+    }
+    if (signOutBtn) signOutBtn.hidden = false;
     try {
       var acct = JSON.parse(localStorage.getItem("impose.auth.v1") || "null");
       var who = $("adminWho");
@@ -8214,6 +8395,44 @@
       renderAdminSections();
     });
   }
+
+  function adminSignOutAction() {
+    var uidBefore = window.WSync ? WSync.userId() : null;
+    var done = function () {
+      localStorage.removeItem("impose.auth.v1");
+      try {
+        localStorage.removeItem(STORE_KEY);
+        localStorage.removeItem(LEGACY_STORE_KEY);
+      } catch (e) {}
+      if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+      if (window.WSync) WSync.signOutReset(uidBefore);
+      resetWorkspaceForSignOut();
+      if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+      if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+      window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in?back=/admin";
+    };
+    if (window.BotoAuth && BotoAuth.signOut) {
+      BotoAuth.signOut().then(done, done);
+    } else {
+      done();
+    }
+  }
+  var admSo = $("adminSignOutBtn");
+  if (admSo) admSo.addEventListener("click", adminSignOutAction);
+  var admDenSo = $("adminDeniedSignOut");
+  if (admDenSo) admDenSo.addEventListener("click", adminSignOutAction);
+
+  window.addEventListener("hashchange", function () {
+    var was = ADMIN.route;
+    ADMIN.route = isAdminRoute();
+    if (ADMIN.route) {
+      bootAdminRoute();
+    } else if (was) {
+      document.body.classList.remove("admin-route");
+      var app = $("adminApp");
+      if (app) app.hidden = true;
+    }
+  });
 
   /* The settings pointer row: shown only when the database still says
      this account is an admin. Losing the role while signed in hides it;
@@ -8297,15 +8516,20 @@
     btn.disabled = true;
     BotoData.adminGrant(email).then(function (out) {
       if (!out.ok) {
-        toast(out.error, null, null, 4200, "warn");
+        toast(out.error || "Could not grant.", null, null, 4200, "warn");
         btn.disabled = false;
         return;
       }
+      var isPendingSignup = out.data && out.data.status === "approved_pending_signup";
       notifyGrantEmail(email).then(function (mail) {
         if (mail.ok) {
-          toast("Workspace opened for " + email + ". Approval email sent.", null, null, 4200, "success");
+          toast(isPendingSignup
+            ? "Waitlist request approved for " + email + ". Notification and access ready."
+            : "Workspace opened for " + email + ". Approval email sent.", null, null, 4200, "success");
         } else {
-          toast("Workspace opened for " + email + ", but the email failed: " + mail.error +
+          toast(isPendingSignup
+            ? "Waitlist request approved for " + email + " (account pending)."
+            : "Workspace opened for " + email + ", but the email failed: " + mail.error +
                 " Resend from the Approved list once mail is reachable.", null, null, 7000, "warn");
         }
         renderAdminWaitlist();
@@ -8335,13 +8559,8 @@
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "btn small";
-    btn.innerHTML = '<i data-lucide="key-round"></i><span>Grant</span>';
-    if (!w.has_account) {
-      btn.disabled = true;
-      btn.title = "This address has not signed up yet, so there is no account to open.";
-    } else {
-      btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
-    }
+    btn.innerHTML = '<i data-lucide="key-round"></i><span>' + (w.has_account ? "Grant" : "Approve") + "</span>";
+    btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
     row.appendChild(btn);
     box.appendChild(row);
   }

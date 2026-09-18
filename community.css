@@ -70,6 +70,46 @@ body.cm-detail-mode .cm-scope .cm-view,
    worse than no bell. */
 .modebar .notif-btn { pointer-events: auto; }
 
+.modebar-right {
+  position: absolute;
+  right: 16px;
+  top: max(10px, env(safe-area-inset-top));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.modebar .cm-avatar-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  transition: transform 120ms ease, border-color 120ms ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.modebar .cm-avatar-btn:active {
+  transform: scale(0.96);
+}
+
+.modebar .cm-avatar-btn:focus-visible {
+  outline: none;
+  border-color: var(--link);
+}
+
 /* Mode gates. The two surfaces are different entities with different UI:
    Community's header is ONLY the mode switch row - no topbar, no profile,
    no grey bar above it. Workspace's header is its own topbar (model label,

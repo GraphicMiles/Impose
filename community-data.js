@@ -182,6 +182,26 @@
       return { message: "That permission is not one this product knows.",
                retryable: false, code: "unknown_capability" };
     }
+    if (/username_quota_exhausted/i.test(text + code)) {
+      return { message: "Username can only be changed 3 times every 21 days from last quota exhaustion.",
+               retryable: false, code: "quota_exhausted" };
+    }
+    if (/handle_already_taken/i.test(text + code)) {
+      return { message: "That username is already taken. Try another.",
+               retryable: false, code: "handle_taken" };
+    }
+    if (/handle_too_short/i.test(text + code)) {
+      return { message: "Username must be at least 2 characters.",
+               retryable: false, code: "bad_handle" };
+    }
+    if (/handle_too_long/i.test(text + code)) {
+      return { message: "Username must be 30 characters at most.",
+               retryable: false, code: "bad_handle" };
+    }
+    if (/handle_invalid_characters/i.test(text + code)) {
+      return { message: "Username can only use letters, numbers, and underscores.",
+               retryable: false, code: "bad_handle" };
+    }
     /* Anything unrecognised is assumed transient: telling someone to retry
        a permanent failure wastes a tap, but telling them a transient one
        is permanent loses their work. */
@@ -864,6 +884,20 @@
     });
   }
 
+  function customizeProfile(name, bio, handle, avatar) {
+    return run(function () {
+      return db().rpc("customize_profile", {
+        p_display_name: name,
+        p_bio: bio,
+        p_handle: handle || null,
+        p_avatar: avatar || null
+      });
+    }).then(function (out) {
+      if (out.ok) cachedProfile = null;
+      return out;
+    });
+  }
+
   /* ---------- realtime ----------
 
      Replaces waiting up to 25 seconds to learn that someone replied. The
@@ -979,6 +1013,7 @@
     profile: profile,
     profileFeed: profileFeed,
     updateProfile: updateProfile,
+    customizeProfile: customizeProfile,
     watchFeed: watchFeed,
     watchNotifications: watchNotifications,
     unwatchNotifications: unwatchNotifications,

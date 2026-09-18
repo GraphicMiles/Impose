@@ -2212,6 +2212,148 @@ html.reduce-motion .wl-done { animation: none; }
 .filebox{position:fixed;inset:0;z-index:10050;background:rgba(5,7,10,.76);display:grid;place-items:center;padding:18px;backdrop-filter:blur(8px)}.filebox-panel{width:min(980px,100%);height:min(760px,90vh);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden}.filebox-head{height:54px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px;border-bottom:1px solid var(--line)}.filebox-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.filebox-body{flex:1;min-height:0;display:grid;place-items:center;overflow:auto;background:var(--bg)}.filebox-loading{display:flex;align-items:center;gap:10px;color:var(--muted)}.file-media-preview{max-width:100%;max-height:100%;object-fit:contain}.file-av-preview{width:min(800px,94%);max-height:90%}.file-pdf-preview{width:100%;height:100%;border:0;background:#fff}.file-text-preview{align-self:stretch;justify-self:stretch;min-height:100%;box-sizing:border-box;margin:0;padding:22px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--text)}.file-fallback{max-width:480px;padding:32px;text-align:center;color:var(--muted)}.file-fallback>svg{width:42px;height:42px}.file-fallback h3{color:var(--text);margin:12px 0 6px}.file-fallback p{margin:0 0 18px;line-height:1.55}
 @media(max-width:640px){.file-card{grid-template-columns:42px minmax(0,1fr)}.file-glyph{width:42px;height:48px}.file-actions{grid-column:1/-1}.file-actions .btn{flex:1;justify-content:center}.filebox{padding:0}.filebox-panel{height:100%;border-radius:0;border:0}.file-text-preview{padding:16px}}
 
+/* ---------- Profile Customization & Admin Head (taste-skill compliant) ---------- */
+.profile-custom-sheet {
+  width: min(460px, 92vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.profile-custom-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.profile-help {
+  font-size: 13px;
+  color: var(--text-3);
+  margin: 0;
+}
+.avatar-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 4px;
+}
+.avatar-pick-btn {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--surface);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1), border-color 120ms ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.avatar-pick-btn:active {
+  transform: scale(0.94);
+}
+.avatar-pick-btn:focus-visible {
+  outline: none;
+  border-color: var(--link);
+}
+.avatar-pick-btn.selected {
+  border-color: var(--link);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--link);
+}
+.avatar-pick-btn svg {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: block;
+  pointer-events: none;
+}
+.handle-input-wrap {
+  display: flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0 10px;
+  transition: border-color 140ms ease;
+}
+.handle-input-wrap:focus-within {
+  border-color: var(--link);
+}
+.handle-at {
+  font-size: 14px;
+  color: var(--text-3);
+  font-weight: 500;
+  user-select: none;
+}
+.handle-input-wrap .text-input {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding-left: 4px;
+  flex: 1;
+}
+.handle-input-wrap .text-input:focus {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
+.profile-quota-note {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0 0;
+}
+.profile-quota-note.warn {
+  color: #e5a440;
+}
+.profile-quota-note.exhausted {
+  color: #e06c75;
+}
+.bio-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.bio-counter {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.bio-textarea {
+  resize: vertical;
+  min-height: 72px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.profile-custom-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+.admin-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-denied-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 </style>
 <style>
 /* Community mode: the Slopify prototype ported 1:1 into the Impose shell.
@@ -2285,6 +2427,46 @@ body.cm-detail-mode .cm-scope .cm-view,
    visible and unclickable: the bell was, and a bell you cannot press is
    worse than no bell. */
 .modebar .notif-btn { pointer-events: auto; }
+
+.modebar-right {
+  position: absolute;
+  right: 16px;
+  top: max(10px, env(safe-area-inset-top));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.modebar .cm-avatar-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  transition: transform 120ms ease, border-color 120ms ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.modebar .cm-avatar-btn:active {
+  transform: scale(0.96);
+}
+
+.modebar .cm-avatar-btn:focus-visible {
+  outline: none;
+  border-color: var(--link);
+}
 
 /* Mode gates. The two surfaces are different entities with different UI:
    Community's header is ONLY the mode switch row - no topbar, no profile,
@@ -4256,13 +4438,16 @@ try {
           Workspace
         </button><span class="modeseg-glide" id="cmModeGlide" aria-hidden="true"></span>
       </div>
-      <!-- The inbox. In the mode bar because it belongs to Community and
-           must be reachable from the feed and a thread alike. -->
-      <button class="notif-btn" id="cmNotifBtn" type="button" hidden
-              aria-label="Notifications" title="Notifications">
-        <i data-lucide="bell"></i>
-        <span class="notif-dot" id="cmNotifDot" hidden></span>
-      </button>
+      <div class="modebar-right">
+        <!-- The inbox. In the mode bar because it belongs to Community and
+             must be reachable from the feed and a thread alike. -->
+        <button class="notif-btn" id="cmNotifBtn" type="button" hidden
+                aria-label="Notifications" title="Notifications">
+          <i data-lucide="bell"></i>
+          <span class="notif-dot" id="cmNotifDot" hidden></span>
+        </button>
+        <button class="avatar avatar-btn cm-avatar-btn" id="cmAvatarBtn" title="Account" aria-label="Account" aria-haspopup="menu">Y</button>
+      </div>
     </nav>
 
     <div id="wsContent" hidden>
@@ -4489,7 +4674,9 @@ try {
       <span class="acct-sub" id="acctSub">Local profile</span>
     </div>
   </div>
-    <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
+  <button class="pop-item" id="acctCustomizeProfile" role="menuitem"><i data-lucide="user-pen"></i><span>Customize profile</span></button>
+  <button class="pop-item" id="acctCheckWaitlist" role="menuitem"><i data-lucide="shield-check"></i><span id="acctWaitlistStatusLabel">Beta status</span></button>
+  <button class="pop-item" id="acctAuth" role="menuitem"><i data-lucide="log-in"></i><span>Sign in</span></button>
     <button class="pop-item" id="acctShare" role="menuitem" disabled><i data-lucide="share"></i><span>Share chat</span></button>
   <button class="pop-item" id="acctSettings" role="menuitem"><i data-lucide="settings"></i><span>Settings</span></button>
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
@@ -4683,7 +4870,10 @@ try {
           <span id="adminWho">&nbsp;</span>
         </div>
       </div>
-      <a class="btn" id="adminExit" href="./"><span>Back to Community</span></a>
+      <div class="admin-head-actions">
+        <button class="btn" id="adminSignOutBtn" type="button" hidden><span>Sign out</span></button>
+        <a class="btn" id="adminExit" href="./"><span>Back to Community</span></a>
+      </div>
     </header>
 
     <section class="admin-card" id="adminBooting">
@@ -4699,7 +4889,10 @@ try {
     <section class="admin-card" id="adminDenied" hidden>
       <h2>Not available to this account</h2>
       <p class="admin-help">This is the workspace administration console. If you think this account should hold it, ask whoever manages this installation.</p>
-      <a class="btn" href="./"><span>Back to Community</span></a>
+      <div class="admin-denied-actions">
+        <button class="btn primary" id="adminDeniedSignOut" type="button"><span>Sign in with another account</span></button>
+        <a class="btn" href="./"><span>Back to Community</span></a>
+      </div>
     </section>
 
     <section class="admin-card admin-bootstrap" id="adminBootstrap" hidden>
@@ -5010,6 +5203,51 @@ try {
       </button>
     </div>
     <div class="notif-list" id="cmNotifList"></div>
+  </div>
+</div>
+
+<div class="overlay center" id="profileCustomModal" hidden>
+  <div class="sheet profile-custom-sheet" role="dialog" aria-modal="true" aria-labelledby="profileCustomTitle">
+    <div class="settings-head">
+      <h2 id="profileCustomTitle">Customize profile</h2>
+      <button class="icon-btn" id="profileCustomClose" type="button" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="profile-custom-body">
+      <div class="profile-section">
+        <label class="field-label">Avatar</label>
+        <p class="profile-help">Select a character for your public profile.</p>
+        <div class="avatar-picker-grid" id="avatarPickerGrid" role="radiogroup" aria-label="Character avatar picker"></div>
+      </div>
+
+      <div class="profile-section">
+        <label class="field-label" for="customProfileHandle">Username</label>
+        <div class="handle-input-wrap">
+          <span class="handle-at">@</span>
+          <input type="text" class="text-input" id="customProfileHandle" maxlength="30" autocomplete="off" spellcheck="false" placeholder="username">
+        </div>
+        <p class="profile-quota-note" id="customProfileQuotaNote">3 changes every 21 days from last exhaustion.</p>
+      </div>
+
+      <div class="profile-section">
+        <label class="field-label" for="customProfileName">Display name</label>
+        <input type="text" class="text-input" id="customProfileName" maxlength="40" autocomplete="off" placeholder="Your name">
+      </div>
+
+      <div class="profile-section">
+        <div class="bio-label-row">
+          <label class="field-label" for="customProfileBio">Bio</label>
+          <span class="bio-counter" id="customProfileBioCounter">0 / 300</span>
+        </div>
+        <textarea class="text-input bio-textarea" id="customProfileBio" rows="3" maxlength="300" placeholder="A short bio..."></textarea>
+      </div>
+
+      <div class="profile-custom-actions">
+        <button class="btn" id="profileCustomCancel" type="button">Cancel</button>
+        <button class="btn primary" id="profileCustomSave" type="button">Save profile</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -8222,26 +8460,23 @@ window.BotoConfig = {
 /* BotoAvatar: deterministic identity avatars, generated locally.
 
    This is a port of the Boring Avatars "beam" style (MIT, Hayk An /
-   boringdesigners) rather than a call to their hosted service or to
-   DiceBear. The repo is offline-first on purpose: Lucide is vendored, the
-   standalone build runs from file:// with no server, the service worker
-   precaches the shell, and the CSP sets font-src 'self'. A CDN avatar would
-   break all four, so the generator lives here and emits inline SVG.
+   boringdesigners) alongside eight curated DiceBear-inspired offline
+   character avatars for custom profile selection. The repo is offline-first
+   on purpose: Lucide is vendored, the standalone build runs from file://
+   with no server, the service worker precaches the shell, and the CSP sets
+   font-src 'self'. A CDN avatar would break all four, so the generator
+   lives here and emits inline SVG.
 
-   Same input always gives the same face: the hash below is a plain
-   character-code sum, so "@ada" renders identically in the feed, in a
-   comment, in the new-posts pill, and on another device. No storage, no
-   network, no per-user asset to keep in sync.
-
-   The palette is drawn from the app's own surfaces rather than the stock
-   Boring Avatars colours, which are bright pastels that would fight the
-   dark, flat house design. These are desaturated to sit with the UI
-   (taste-skill 9.A: keep saturation down, no neon).
+   Same input always gives the same face. When a user selects one of the 8
+   curated characters (char-1 through char-8), it renders the crisp character
+   vector in Impose's restrained dark palette.
 
    Public API:
      BotoAvatar.svg(seed, size)   -> SVG markup string
      BotoAvatar.dataUri(seed, sz) -> data: URI of the same
      BotoAvatar.initial(seed)     -> the letter used as the text fallback
+     BotoAvatar.CHARACTERS        -> array of 8 DiceBear-style characters
+     BotoAvatar.character(id)     -> character object or null
 */
 (function () {
   "use strict";
@@ -8280,6 +8515,154 @@ window.BotoConfig = {
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
+  /* ---------- 8 DiceBear character avatars ----------
+     Hand-crafted, self-contained SVG vectors in the Impose house palette.
+     No network requests, zero layout shift, crisp at any display density. */
+  var CHARACTERS = [
+    {
+      id: "char-1",
+      name: "Astro",
+      role: "Cosmonaut",
+      bg: "#202a36",
+      fg: "#5b7c99",
+      accent: "#7dd3fc",
+      draw: function (maskId, s) {
+        return '<rect width="36" height="36" fill="#1e293b"/>' +
+          '<circle cx="18" cy="18" r="14" fill="#334155"/>' +
+          '<circle cx="18" cy="18" r="11" fill="#0f172a"/>' +
+          '<path d="M11 17c0-4 3-7 7-7s7 3 7 7v1c0 4-3 7-7 7s-7-3-7-7v-1z" fill="#38bdf8" fill-opacity="0.85"/>' +
+          '<path d="M14 13c3-2 6-1 8 1" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.7"/>' +
+          '<rect x="13" y="27" width="10" height="4" rx="2" fill="#64748b"/>';
+      }
+    },
+    {
+      id: "char-2",
+      name: "Nova",
+      role: "Cyberpunk",
+      bg: "#2b1f2e",
+      fg: "#8c6b8e",
+      accent: "#f472b6",
+      draw: function (maskId, s) {
+        return '<rect width="36" height="36" fill="#2d1a33"/>' +
+          '<circle cx="18" cy="19" r="13" fill="#4a2556"/>' +
+          '<path d="M9 16h18v6H9z" rx="2" fill="#f43f5e"/>' +
+          '<line x1="11" y1="19" x2="25" y2="19" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>' +
+          '<rect x="7" y="14" width="2" height="7" rx="1" fill="#fb7185"/>' +
+          '<rect x="27" y="14" width="2" height="7" rx="1" fill="#fb7185"/>' +
+          '<path d="M15 26c1.5 1 4.5 1 6 0" stroke="#fbcfe8" stroke-width="1.2" stroke-linecap="round"/>';
+      }
+    },
+    {
+      id: "char-3",
+      name: "Pixel",
+      role: "Bot",
+      bg: "#1b2a24",
+      fg: "#5f8a8b",
+      accent: "#4ade80",
+      draw: function (maskId, s) {
+        return '<rect width="36" height="36" fill="#142823"/>' +
+          '<line x1="18" y1="5" x2="18" y2="9" stroke="#34d399" stroke-width="2" stroke-linecap="round"/>' +
+          '<circle cx="18" cy="4" r="2" fill="#34d399"/>' +
+          '<rect x="9" y="9" width="18" height="18" rx="4" fill="#1f4239"/>' +
+          '<rect x="12" y="13" width="4" height="4" rx="1" fill="#4ade80"/>' +
+          '<rect x="20" y="13" width="4" height="4" rx="1" fill="#4ade80"/>' +
+          '<path d="M14 21h8" stroke="#a7f3d0" stroke-width="1.5" stroke-linecap="round"/>';
+      }
+    },
+    {
+      id: "char-4",
+      name: "Sage",
+      role: "Wanderer",
+      bg: "#2b261c",
+      fg: "#a88055",
+      accent: "#fbbf24",
+      draw: function (maskId, s) {
+        return '<rect width="36" height="36" fill="#2d2217"/>' +
+          '<circle cx="18" cy="18" r="13" fill="#453424"/>' +
+          '<path d="M8 15h20" stroke="#f59e0b" stroke-width="3" stroke-linecap="round"/>' +
+          '<circle cx="18" cy="15" r="2" fill="#fef3c7"/>' +
+          '<path d="M12 21c1-1 3-1 4 0" stroke="#fef3c7" stroke-width="1.5" stroke-linecap="round" fill="none"/>' +
+          '<path d="M20 21c1-1 3-1 4 0" stroke="#fef3c7" stroke-width="1.5" stroke-linecap="round" fill="none"/>' +
+          '<path d="M15 25c1.5 1 4.5 1 6 0" stroke="#fef3c7" stroke-width="1.2" stroke-linecap="round" fill="none"/>';
+      }
+    },
+    {
+      id: "char-5",
+      name: "Echo",
+      role: "Audio",
+      bg: "#1c2833",
+      fg: "#5b7c99",
+      accent: "#818cf8",
+      draw: function (maskId, s) {
+        return '<rect width="36" height="36" fill="#182230"/>' +
+          '<circle cx="18" cy="19" r="12" fill="#2c3e55"/>' +
+          '<rect x="6" y="14" width="4" height="10" rx="2" fill="#6366f1"/>' +
+          '<rect x="26" y="14" width="4" height="10" rx="2" fill="#6366f1"/>' +
+          '<path d="M8 15c2-6 18-6 20 0" stroke="#6366f1" stroke-width="2" stroke-linecap="round" fill="none"/>' +
+          '<circle cx="14" cy="19" r="1.5" fill="#e0e7ff"/>' +
+          '<circle cx="22" cy="19" r="1.5" fill="#e0e7ff"/>' +
+          '<path d="M15 24h6" stroke="#c7d2fe" stroke-width="1.5" stroke-linecap="round"/>';
+      }
+    },
+    {
+      id: "char-6",
+      name: "Luna",
+      role: "Nocturne",
+      bg: "#231f32",
+      fg: "#8c6b8e",
+      accent: "#c084fc",
+      draw: function (maskId, s) {
+        return '<rect width="36" height="36" fill="#1f182f"/>' +
+          '<path d="M10 11l4 4v11l-4-4V11zm16 0l-4 4v11l4-4V11z" fill="#6b21a8"/>' +
+          '<circle cx="18" cy="19" r="11" fill="#4c1d95"/>' +
+          '<circle cx="14" cy="19" r="2" fill="#c084fc"/>' +
+          '<circle cx="22" cy="19" r="2" fill="#c084fc"/>' +
+          '<path d="M18 11a4 4 0 0 1 0 6 4 4 0 0 0 0-6z" fill="#fde047"/>' +
+          '<path d="M16 24c1 0.7 3 0.7 4 0" stroke="#e9d5ff" stroke-width="1.2" stroke-linecap="round" fill="none"/>';
+      }
+    },
+    {
+      id: "char-7",
+      name: "Blaze",
+      role: "Flame",
+      bg: "#321d1b",
+      fg: "#9c6f62",
+      accent: "#fb923c",
+      draw: function (maskId, s) {
+        return '<rect width="36" height="36" fill="#301815"/>' +
+          '<path d="M18 6c2 4 6 6 6 10s-3 8-6 8-6-4-6-8c0-3 3-6 6-10z" fill="#ea580c"/>' +
+          '<path d="M18 12c1.5 2 4 4 4 6s-2 5-4 5-4-3-4-5c0-2 2-4 4-6z" fill="#fdba74"/>' +
+          '<circle cx="15" cy="17" r="1.5" fill="#431407"/>' +
+          '<circle cx="21" cy="17" r="1.5" fill="#431407"/>' +
+          '<path d="M16 21c1 1 3 1 4 0" stroke="#431407" stroke-width="1.2" stroke-linecap="round" fill="none"/>';
+      }
+    },
+    {
+      id: "char-8",
+      name: "Zen",
+      role: "Minimalist",
+      bg: "#1e2825",
+      fg: "#7a9b76",
+      accent: "#a7f3d0",
+      draw: function (maskId, s) {
+        return '<rect width="36" height="36" fill="#192621"/>' +
+          '<circle cx="18" cy="18" r="13" fill="#2d3f38"/>' +
+          '<circle cx="18" cy="18" r="8" fill="#141f1a"/>' +
+          '<circle cx="18" cy="18" r="3.5" fill="#a7f3d0"/>' +
+          '<path d="M10 18h4m8 0h4" stroke="#a7f3d0" stroke-width="1.5" stroke-linecap="round"/>';
+      }
+    }
+  ];
+
+  function getCharacter(id) {
+    if (!id) return null;
+    var norm = String(id).toLowerCase().trim();
+    for (var i = 0; i < CHARACTERS.length; i++) {
+      if (CHARACTERS[i].id === norm) return CHARACTERS[i];
+    }
+    return null;
+  }
+
   /* The geometry of the "beam" face: a coloured tile, an offset backing
      square, two eyes and a mouth. Every value is derived from the hash, so
      the face is a pure function of the seed. */
@@ -8310,15 +8693,8 @@ window.BotoConfig = {
      page's own colours. role="img" with a label, because these stand in
      for a person and a screen reader should say whose face it is. */
   function svg(seed, size) {
-    var p = parts(seed);
     var s = size || SIZE;
     var label = "Avatar for " + String(seed == null ? "someone" : seed);
-    var eyeY = 14 + p.eyeSpread;
-    var mouthY = 20 + p.mouthSpread;
-
-    var mouth = p.isMouthOpen
-      ? '<path d="M15 ' + (19 + p.mouthSpread) + 'c2 1 4 1 6 0" stroke="#000" fill="none" stroke-opacity="0.5" stroke-linecap="round"/>'
-      : '<path d="M13 ' + mouthY + 'a5 3 0 0 0 10 0" fill="#000" fill-opacity="0.5"/>';
 
     /* SVG ids are document-global. Several avatars render on one page, so a
        fixed id="m" would make every face reuse the first one's mask. The id
@@ -8326,12 +8702,35 @@ window.BotoConfig = {
        the same person appears twice on screen. */
     var maskId = "ba" + hash(seed).toString(36) + "-" + (uidCounter++).toString(36);
 
+    /* Check if this is one of the 8 curated characters */
+    var ch = getCharacter(seed);
+    if (ch) {
+      return '<svg viewBox="0 0 ' + SIZE + " " + SIZE + '" width="' + s + '" height="' + s + '"' +
+        ' fill="none" role="img" aria-label="' + esc(label) + '"' +
+        ' xmlns="http://www.w3.org/2000/svg">' +
+        '<mask id="' + maskId + '" maskUnits="userSpaceOnUse" x="0" y="0" width="' + SIZE + '" height="' + SIZE + '">' +
+          '<rect width="' + SIZE + '" height="' + SIZE + '" rx="' + (SIZE * 2) + '" fill="#FFF"/>' +
+        '</mask>' +
+        '<g mask="url(#' + maskId + ')">' +
+          ch.draw(maskId, SIZE) +
+        '</g>' +
+        '</svg>';
+    }
+
+    var p = parts(seed);
+    var eyeY = 14 + p.eyeSpread;
+    var mouthY = 20 + p.mouthSpread;
+
+    var mouth = p.isMouthOpen
+      ? '<path d="M15 ' + (19 + p.mouthSpread) + 'c2 1 4 1 6 0" stroke="#000" fill="none" stroke-opacity="0.5" stroke-linecap="round"/>'
+      : '<path d="M13 ' + mouthY + 'a5 3 0 0 0 10 0" fill="#000" fill-opacity="0.5"/>';
+
     return '<svg viewBox="0 0 ' + SIZE + " " + SIZE + '" width="' + s + '" height="' + s + '"' +
       ' fill="none" role="img" aria-label="' + esc(label) + '"' +
       ' xmlns="http://www.w3.org/2000/svg">' +
       '<mask id="' + maskId + '" maskUnits="userSpaceOnUse" x="0" y="0" width="' + SIZE + '" height="' + SIZE + '">' +
         '<rect width="' + SIZE + '" height="' + SIZE + '" rx="' + (SIZE * 2) + '" fill="#FFF"/>' +
-      "</mask>" +
+      '</mask>' +
       '<g mask="url(#' + maskId + ')">' +
         '<rect width="' + SIZE + '" height="' + SIZE + '" fill="' + p.bg + '"/>' +
         '<rect x="0" y="0" width="' + SIZE + '" height="' + SIZE + '" fill="' + p.fg + '"' +
@@ -8343,9 +8742,9 @@ window.BotoConfig = {
           mouth +
           '<rect x="' + (14 - p.eyeSpread) + '" y="' + eyeY + '" width="1.5" height="2" rx="1" fill="#000" fill-opacity="0.5"/>' +
           '<rect x="' + (20 + p.eyeSpread) + '" y="' + eyeY + '" width="1.5" height="2" rx="1" fill="#000" fill-opacity="0.5"/>' +
-        "</g>" +
-      "</g>" +
-      "</svg>";
+        '</g>' +
+      '</g>' +
+      '</svg>';
   }
 
   function dataUri(seed, size) {
@@ -8357,7 +8756,19 @@ window.BotoConfig = {
     return s ? s.charAt(0).toUpperCase() : "?";
   }
 
-  window.BotoAvatar = { svg: svg, dataUri: dataUri, initial: initial, palette: PALETTE };
+  /* Pre-compute data URIs on character objects */
+  CHARACTERS.forEach(function (c) {
+    c.dataUri = dataUri(c.id, 48);
+  });
+
+  window.BotoAvatar = {
+    svg: svg,
+    dataUri: dataUri,
+    initial: initial,
+    palette: PALETTE,
+    CHARACTERS: CHARACTERS,
+    character: getCharacter
+  };
 })();
 
 </script>
@@ -8629,6 +9040,36 @@ window.BotoConfig = {
     return !!(cached && cached.status === "granted");
   }
 
+  function checkAccess() {
+    return refresh().then(function (res) {
+      return {
+        canUseWorkspace: canUseWorkspace(),
+        status: state,
+        position: res && res.position,
+        approved: res && (res.approved || state === "granted"),
+        email: res && res.email
+      };
+    });
+  }
+
+  function checkWaitlistStatus(email) {
+    return joinWaitlist(email).then(function (res) {
+      return {
+        status: res.status,
+        approved: !!res.approved,
+        position: res.position,
+        email: res.email
+      };
+    });
+  }
+
+  function resetForSignOut() {
+    try { localStorage.removeItem(GRANT_KEY); } catch (e) {}
+    state = "anonymous";
+    grantCache = null;
+    notify();
+  }
+
   function onChange(fn) { listeners.push(fn); }
   function notify() { listeners.forEach(function (fn) { try { fn(state, grantCache); } catch (e) {} }); }
 
@@ -8637,8 +9078,11 @@ window.BotoConfig = {
   window.BotoAccess = {
     init: refresh,
     refresh: refresh,
+    checkAccess: checkAccess,
+    checkWaitlistStatus: checkWaitlistStatus,
     joinWaitlist: joinWaitlist,
     canUseWorkspace: canUseWorkspace,
+    resetForSignOut: resetForSignOut,
     getStatus: getStatus,
     onChange: onChange
   };
@@ -15378,21 +15822,23 @@ window.BotoConfig = {
   function syncAvatars() {
     var name = displayName();
     var initial = (name.charAt(0) || "Y").toUpperCase();
-    /* Identity avatar, seeded by display name so the workspace shows the
-       same face the Community feed draws for you. Falls back to the plain
+    /* Identity avatar, seeded by display name or custom avatar character so the workspace
+       shows the same face the Community feed draws for you. Falls back to the plain
        initial if avatars.js is absent from a half-deployed tree. */
     function paint(id) {
       var el = $(id);
       if (!el) return;
       if (window.BotoAvatar) {
         el.classList.add("avatar-img");
-        el.innerHTML = BotoAvatar.svg(name);
+        var avatarSeed = (state.settings && state.settings.avatar) || name;
+        el.innerHTML = BotoAvatar.svg(avatarSeed);
       } else {
         el.classList.remove("avatar-img");
         el.textContent = initial;
       }
     }
     paint("avatarBtn");
+    paint("cmAvatarBtn");
     paint("profileAvatar");
     paint("acctAvatar");
     $("profileName").textContent = name;
@@ -15419,6 +15865,7 @@ window.BotoConfig = {
     syncAccountMenu();
     showPop($("accountMenu"), trigger, { side: side, align: align });
   }
+  window.openAccount = openAccount;
 
   /* The community bell hides with the mode bar, so the workspace carries
      its own copy of the same signal on the communicate icon: activity
@@ -15465,8 +15912,12 @@ window.BotoConfig = {
     state.settings.theme = "dark";
     document.documentElement.setAttribute("data-theme", "dark");
     activeId = null;
-    rememberActiveChat(null, "push");
+    rememberActiveChat(null, "replace");
     messagesEl.innerHTML = "";
+    try {
+      localStorage.removeItem(STORE_KEY);
+      localStorage.removeItem(LEGACY_STORE_KEY);
+    } catch (e) {}
     renderList();
     renderModelMenu();
     syncModelLabel();
@@ -15483,6 +15934,8 @@ window.BotoConfig = {
   $("profileBtn").addEventListener("click", function () { openAccount($("profileBtn"), "top", "start"); });
 
   $("avatarBtn").addEventListener("click", function () { openAccount($("avatarBtn"), "bottom", "end"); });
+  var cmAv = $("cmAvatarBtn");
+  if (cmAv) cmAv.addEventListener("click", function () { openAccount(cmAv, "bottom", "end"); });
 
   $("acctName").addEventListener("change", function () {
     var v = $("acctName").value.trim().slice(0, 24);
@@ -15499,32 +15952,28 @@ window.BotoConfig = {
     var session = authSession();
     if (session) {
       /* The localStorage copy is a display cache for the avatar and the
-         name. Removing it used to be the whole of "sign out", which meant
-         the Supabase session survived: the menu said signed out and the
-         user could still post, comment and delete. Ending the real session
-         is the part that matters, and it has to come first. */
+         name. Ending the real session is the part that matters, and it has
+         to come first. */
       var uidBefore = window.WSync ? WSync.userId() : null;
-      var account = !!uidBefore;
       var done = function () {
         localStorage.removeItem("impose.auth.v1");
+        try {
+          localStorage.removeItem(STORE_KEY);
+          localStorage.removeItem(LEGACY_STORE_KEY);
+        } catch (e) {}
         if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
         if (window.WSync) WSync.signOutReset(uidBefore);
-        if (account) resetWorkspaceForSignOut();
+        resetWorkspaceForSignOut();
+        if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
         if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
         syncWorkspaceBadge();
         refreshAdminTab();
         syncAccountMenu();
-        toast(account
-          ? "Signed out. Your workspace is saved to your account."
-          : "Signed out. Your local chats are still here.");
+        toast("Signed out. All workspace chats and session data cleared.");
       };
       var doSignOut = function () {
         if (window.BotoAuth && BotoAuth.signOut) {
           BotoAuth.signOut().then(done, function () {
-            /* The server refused or the network is down. Clear the local
-               session anyway: leaving someone signed in because logout
-               failed is the wrong direction to fail in, and the token
-               expires on its own. */
             done();
             toast("Signed out here. The session may still be active elsewhere.");
           });
@@ -15535,7 +15984,7 @@ window.BotoConfig = {
       /* Flush pending workspace writes before the session dies: after
          sign-out there is no token to push with, and the local cache is
          about to be removed. */
-      if (account && window.WSync) WSync.flushNow().then(doSignOut, doSignOut);
+      if (window.WSync && WSync.flushNow) WSync.flushNow().then(doSignOut, doSignOut);
       else doSignOut();
       return;
     }
@@ -15548,6 +15997,169 @@ window.BotoConfig = {
     $("avatarBtn").focus();
     openSettings("general");
   });
+
+  /* ---------- profile customization modal ---------- */
+  var selectedAvatarId = "char-1";
+  var profileCustomModal = $("profileCustomModal");
+
+  function renderAvatarPicker() {
+    var grid = $("avatarPickerGrid");
+    if (!grid || !window.BotoAvatar || !BotoAvatar.CHARACTERS) return;
+    grid.innerHTML = "";
+    BotoAvatar.CHARACTERS.forEach(function (ch) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "avatar-pick-btn" + (ch.id === selectedAvatarId ? " selected" : "");
+      btn.setAttribute("role", "radio");
+      btn.setAttribute("aria-checked", String(ch.id === selectedAvatarId));
+      btn.setAttribute("aria-label", ch.name || ch.id);
+      btn.innerHTML = BotoAvatar.svg(ch.id, 48);
+      btn.addEventListener("click", function () {
+        selectedAvatarId = ch.id;
+        grid.querySelectorAll(".avatar-pick-btn").forEach(function (b) {
+          b.classList.remove("selected");
+          b.setAttribute("aria-checked", "false");
+        });
+        btn.classList.add("selected");
+        btn.setAttribute("aria-checked", "true");
+      });
+      grid.appendChild(btn);
+    });
+  }
+
+  function openProfileCustom() {
+    hidePop(true);
+    var session = authSession();
+    if (!session || !session.email) {
+      toast("Sign in to customize your public profile.", "Sign in", function () {
+        window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
+      }, 4500, "info");
+      return;
+    }
+    if (!profileCustomModal) return;
+    openModal(profileCustomModal);
+    renderAvatarPicker();
+
+    var handleInput = $("customProfileHandle");
+    var nameInput = $("customProfileName");
+    var bioInput = $("customProfileBio");
+    var quotaNote = $("customProfileQuotaNote");
+    var counter = $("customProfileBioCounter");
+
+    if (nameInput) nameInput.value = (state.settings && state.settings.displayName) || session.name || "You";
+    if (handleInput) handleInput.value = "";
+    if (bioInput) bioInput.value = "";
+    if (counter) counter.textContent = "0 / 300";
+
+    if (window.BotoData && BotoData.myProfile) {
+      BotoData.myProfile().then(function (prof) {
+        if (!prof) return;
+        if (prof.display_name && nameInput) nameInput.value = prof.display_name;
+        if (prof.handle && handleInput) handleInput.value = String(prof.handle).replace(/^@/, "");
+        if (prof.bio && bioInput) {
+          bioInput.value = prof.bio;
+          if (counter) counter.textContent = prof.bio.length + " / 300";
+        }
+        if (prof.avatar) {
+          selectedAvatarId = prof.avatar;
+          renderAvatarPicker();
+        }
+        if (quotaNote) {
+          var count = prof.username_changes_count || 0;
+          var rem = Math.max(0, 3 - count);
+          if (count >= 3 && prof.username_quota_exhausted_at) {
+            quotaNote.className = "profile-quota-note exhausted";
+            var exDate = new Date(Date.parse(prof.username_quota_exhausted_at) + 21 * 86400000);
+            quotaNote.textContent = "Quota exhausted (3/3 used). Locked until " + exDate.toLocaleDateString() + ".";
+            if (handleInput) handleInput.disabled = true;
+          } else {
+            quotaNote.className = "profile-quota-note" + (rem <= 1 ? " warn" : "");
+            quotaNote.textContent = rem + " of 3 username changes remaining (21-day window from exhaustion).";
+            if (handleInput) handleInput.disabled = false;
+          }
+        }
+      });
+    }
+  }
+
+  var acctCust = $("acctCustomizeProfile");
+  if (acctCust) acctCust.addEventListener("click", openProfileCustom);
+
+  var customBio = $("customProfileBio");
+  if (customBio) {
+    customBio.addEventListener("input", function () {
+      var counter = $("customProfileBioCounter");
+      if (counter) counter.textContent = customBio.value.length + " / 300";
+    });
+  }
+
+  var customClose = $("profileCustomClose");
+  if (customClose) customClose.addEventListener("click", function () { closeModal(profileCustomModal); });
+  var customCancel = $("profileCustomCancel");
+  if (customCancel) customCancel.addEventListener("click", function () { closeModal(profileCustomModal); });
+
+  var customSave = $("profileCustomSave");
+  if (customSave) {
+    customSave.addEventListener("click", function () {
+      var nameInput = $("customProfileName");
+      var handleInput = $("customProfileHandle");
+      var bioInput = $("customProfileBio");
+      var dName = nameInput ? nameInput.value.trim() : "";
+      var handle = handleInput ? handleInput.value.trim() : "";
+      var bio = bioInput ? bioInput.value.trim() : "";
+
+      customSave.disabled = true;
+      if (window.BotoData && BotoData.customizeProfile) {
+        BotoData.customizeProfile(dName, bio, handle, selectedAvatarId).then(function (out) {
+          customSave.disabled = false;
+          if (!out.ok) {
+            toast(out.error || "Could not update profile.", null, null, 4500, "warn");
+            return;
+          }
+          if (dName) state.settings.displayName = dName;
+          state.settings.avatar = selectedAvatarId;
+          save();
+          syncAvatars();
+          closeModal(profileCustomModal);
+          toast("Profile updated.", null, null, 3500, "success");
+        }).catch(function (err) {
+          customSave.disabled = false;
+          toast((err && err.message) || "Could not update profile.", null, null, 4500, "warn");
+        });
+      } else {
+        customSave.disabled = false;
+        if (dName) state.settings.displayName = dName;
+        state.settings.avatar = selectedAvatarId;
+        save();
+        syncAvatars();
+        closeModal(profileCustomModal);
+        toast("Profile updated.", null, null, 3500, "success");
+      }
+    });
+  }
+
+  var acctChk = $("acctCheckWaitlist");
+  if (acctChk) {
+    acctChk.addEventListener("click", function () {
+      hidePop(true);
+      if (window.BotoAccess && BotoAccess.checkAccess) {
+        BotoAccess.checkAccess().then(function (acc) {
+          if (acc && acc.canUseWorkspace) {
+            toast("Workspace access is active for this account.", "Open Workspace", function () {
+              location.hash = "#/workspace";
+            }, 5000, "success");
+          } else if (acc && acc.status === "waitlisted") {
+            var posText = acc.position ? "You are #" + acc.position + " on the waitlist." : "You are on the waitlist.";
+            toast(posText + " We'll email you when your seat opens.", null, null, 6000, "info");
+          } else {
+            toast("Workspace is currently waitlist-granted.", "Join waitlist", function () {
+              if (window.openAccessSheet) openAccessSheet();
+            }, 6000, "info");
+          }
+        });
+      }
+    });
+  }
   $("acctExport").addEventListener("click", function () {
     hidePop(true);
     doExportJSON();
@@ -17410,8 +18022,14 @@ window.BotoConfig = {
      one relay call - the approval email - authenticates with this
      session's own token; CONTROL_KEY never enters the browser. */
 
+  function isAdminRoute() {
+    var p = window.location.pathname || "";
+    var h = window.location.hash || "";
+    return /^\/admin\/?$/.test(p) || p.indexOf("/admin") !== -1 || /^#\/?admin\b/i.test(h);
+  }
+
   var ADMIN = {
-    route: /^\/admin\/?$/.test(window.location.pathname || ""),
+    route: /^\/admin\/?$/.test(window.location.pathname || "") || /^\/admin\b/.test(window.location.pathname || "") || /^#\/?admin\b/i.test(window.location.hash || ""),
     caps: [],
     view: null
   };
@@ -17438,13 +18056,20 @@ window.BotoConfig = {
   }
 
   function bootAdminRoute() {
+    ADMIN.route = isAdminRoute();
     if (!ADMIN.route) return;
     document.body.classList.add("admin-route");
     var app = $("adminApp");
     if (!app) return;
     app.hidden = false;
     showAdminView("adminBooting");
-    if (!adminAccountReady()) { showAdminView("adminSignedOut"); return; }
+    var signOutBtn = $("adminSignOutBtn");
+    if (!adminAccountReady()) {
+      if (signOutBtn) signOutBtn.hidden = true;
+      showAdminView("adminSignedOut");
+      return;
+    }
+    if (signOutBtn) signOutBtn.hidden = false;
     try {
       var acct = JSON.parse(localStorage.getItem("impose.auth.v1") || "null");
       var who = $("adminWho");
@@ -17460,6 +18085,44 @@ window.BotoConfig = {
       renderAdminSections();
     });
   }
+
+  function adminSignOutAction() {
+    var uidBefore = window.WSync ? WSync.userId() : null;
+    var done = function () {
+      localStorage.removeItem("impose.auth.v1");
+      try {
+        localStorage.removeItem(STORE_KEY);
+        localStorage.removeItem(LEGACY_STORE_KEY);
+      } catch (e) {}
+      if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+      if (window.WSync) WSync.signOutReset(uidBefore);
+      resetWorkspaceForSignOut();
+      if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+      if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+      window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in?back=/admin";
+    };
+    if (window.BotoAuth && BotoAuth.signOut) {
+      BotoAuth.signOut().then(done, done);
+    } else {
+      done();
+    }
+  }
+  var admSo = $("adminSignOutBtn");
+  if (admSo) admSo.addEventListener("click", adminSignOutAction);
+  var admDenSo = $("adminDeniedSignOut");
+  if (admDenSo) admDenSo.addEventListener("click", adminSignOutAction);
+
+  window.addEventListener("hashchange", function () {
+    var was = ADMIN.route;
+    ADMIN.route = isAdminRoute();
+    if (ADMIN.route) {
+      bootAdminRoute();
+    } else if (was) {
+      document.body.classList.remove("admin-route");
+      var app = $("adminApp");
+      if (app) app.hidden = true;
+    }
+  });
 
   /* The settings pointer row: shown only when the database still says
      this account is an admin. Losing the role while signed in hides it;
@@ -17543,15 +18206,20 @@ window.BotoConfig = {
     btn.disabled = true;
     BotoData.adminGrant(email).then(function (out) {
       if (!out.ok) {
-        toast(out.error, null, null, 4200, "warn");
+        toast(out.error || "Could not grant.", null, null, 4200, "warn");
         btn.disabled = false;
         return;
       }
+      var isPendingSignup = out.data && out.data.status === "approved_pending_signup";
       notifyGrantEmail(email).then(function (mail) {
         if (mail.ok) {
-          toast("Workspace opened for " + email + ". Approval email sent.", null, null, 4200, "success");
+          toast(isPendingSignup
+            ? "Waitlist request approved for " + email + ". Notification and access ready."
+            : "Workspace opened for " + email + ". Approval email sent.", null, null, 4200, "success");
         } else {
-          toast("Workspace opened for " + email + ", but the email failed: " + mail.error +
+          toast(isPendingSignup
+            ? "Waitlist request approved for " + email + " (account pending)."
+            : "Workspace opened for " + email + ", but the email failed: " + mail.error +
                 " Resend from the Approved list once mail is reachable.", null, null, 7000, "warn");
         }
         renderAdminWaitlist();
@@ -17581,13 +18249,8 @@ window.BotoConfig = {
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "btn small";
-    btn.innerHTML = '<i data-lucide="key-round"></i><span>Grant</span>';
-    if (!w.has_account) {
-      btn.disabled = true;
-      btn.title = "This address has not signed up yet, so there is no account to open.";
-    } else {
-      btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
-    }
+    btn.innerHTML = '<i data-lucide="key-round"></i><span>' + (w.has_account ? "Grant" : "Approve") + "</span>";
+    btn.addEventListener("click", function () { grantFromPanel(w.email, btn); });
     row.appendChild(btn);
     box.appendChild(row);
   }
@@ -18809,6 +19472,26 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       return { message: "That permission is not one this product knows.",
                retryable: false, code: "unknown_capability" };
     }
+    if (/username_quota_exhausted/i.test(text + code)) {
+      return { message: "Username can only be changed 3 times every 21 days from last quota exhaustion.",
+               retryable: false, code: "quota_exhausted" };
+    }
+    if (/handle_already_taken/i.test(text + code)) {
+      return { message: "That username is already taken. Try another.",
+               retryable: false, code: "handle_taken" };
+    }
+    if (/handle_too_short/i.test(text + code)) {
+      return { message: "Username must be at least 2 characters.",
+               retryable: false, code: "bad_handle" };
+    }
+    if (/handle_too_long/i.test(text + code)) {
+      return { message: "Username must be 30 characters at most.",
+               retryable: false, code: "bad_handle" };
+    }
+    if (/handle_invalid_characters/i.test(text + code)) {
+      return { message: "Username can only use letters, numbers, and underscores.",
+               retryable: false, code: "bad_handle" };
+    }
     /* Anything unrecognised is assumed transient: telling someone to retry
        a permanent failure wastes a tap, but telling them a transient one
        is permanent loses their work. */
@@ -19491,6 +20174,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     });
   }
 
+  function customizeProfile(name, bio, handle, avatar) {
+    return run(function () {
+      return db().rpc("customize_profile", {
+        p_display_name: name,
+        p_bio: bio,
+        p_handle: handle || null,
+        p_avatar: avatar || null
+      });
+    }).then(function (out) {
+      if (out.ok) cachedProfile = null;
+      return out;
+    });
+  }
+
   /* ---------- realtime ----------
 
      Replaces waiting up to 25 seconds to learn that someone replied. The
@@ -19606,6 +20303,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     profile: profile,
     profileFeed: profileFeed,
     updateProfile: updateProfile,
+    customizeProfile: customizeProfile,
     watchFeed: watchFeed,
     watchNotifications: watchNotifications,
     unwatchNotifications: unwatchNotifications,
@@ -19733,14 +20431,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   /* ---------- @bot addressing ----------
      A post is a generation only when it is addressed to the agent with a
-     leading @bot. Anything else is a plain post: it is shared to the feed,
+     leading @bot or mid-sentence mention. Anything else is a plain post: it is shared to the feed,
      it can be discussed and saved, and no agent is called for it. The
      composer, the send path, and the card renderer all read this one
      function so they can never disagree about what counts. */
   var BOT_MENTION = /^\s*@bot\b[ \t]*/i;
+  var BOT_ANYWHERE = /(?:^|\s)@bot\b/i;
 
   function addressesBot(raw) {
-    return BOT_MENTION.test(String(raw == null ? "" : raw));
+    return BOT_ANYWHERE.test(String(raw == null ? "" : raw));
   }
 
   /* Whether a stored generation asked the agent for something. Anything
@@ -20679,6 +21378,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (n.kind === "reply") return "replied to your comment";
     if (n.kind === "comment") return "commented on your post";
     if (n.kind === "challenge") return "challenged your post";
+    if (n.kind === "waitlist_approved") return "approved your waitlist request! Workspace is now unlocked.";
     return "remixed your post";
   }
 
@@ -20715,7 +21415,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       }
       list.innerHTML = out.data.map(function (n) {
         return '<button class="notif-row' + (n.read ? "" : " unread") +
-                 '" data-gen="' + esc(n.genId || "") + '">' +
+                 '" data-gen="' + esc(n.genId || "") + '" data-kind="' + esc(n.kind || "") + '">' +
                  '<span class="notif-who">' + esc(n.actor.name) + "</span> " +
                  '<span class="notif-what">' + notifLabel(n) + "</span>" +
                  (n.excerpt ? '<span class="notif-excerpt">' + esc(n.excerpt) + "</span>" : "") +
@@ -20741,10 +21441,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     });
     $("cmNotifSheet").addEventListener("click", function (e) {
       if (e.target === $("cmNotifSheet")) { $("cmNotifSheet").hidden = true; return; }
-      var row = e.target.closest("[data-gen]");
+      var row = e.target.closest("[data-gen], [data-kind]");
       if (!row) return;
       var id = row.getAttribute("data-gen");
+      var kind = row.getAttribute("data-kind");
       $("cmNotifSheet").hidden = true;
+      if (kind === "waitlist_approved") {
+        if (window.BotoAccess && BotoAccess.checkAccess) BotoAccess.checkAccess();
+        location.hash = "#/workspace";
+        return;
+      }
       /* Every notification opens the thing it is about. A list of events
          with nowhere to go is a dead end. */
       if (id) location.hash = "#/g/" + id;
@@ -21291,8 +21997,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         "</div>" +
       "</div>" +
       '<div class="composer" id="commentComposer">' +
-        '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add to the discussion" aria-label="Add to the discussion"></textarea>' +
+        '<div class="composer-field">' +
+          '<div class="composer-hl" id="cmCommentInputHl" aria-hidden="true" style="position: absolute; inset: 0; color: transparent; pointer-events: none;"></div>' +
+          '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add to the discussion or mention @bot..." aria-label="Add to the discussion"></textarea>' +
+        '</div>' +
         '<div class="composer-row">' +
+          '<button class="composer-chip" id="cmCommentBotChip" type="button" aria-pressed="false" title="Mention @bot"><span class="mention-at">@</span>bot</button>' +
           '<div class="composer-spacer"></div>' +
           '<button class="send-btn" id="cmCommentSend" aria-label="Post comment" disabled><i data-lucide="arrow-up"></i></button>' +
         "</div>" +
@@ -21628,14 +22338,54 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function wireCommentBox(gen, listEl) {
     var input = $("cmCommentInput");
+    var hl = $("cmCommentInputHl");
+    var botChip = $("cmCommentBotChip");
     var send = $("cmCommentSend");
     var ctxBar = $("cmCommentCtx");
     var ctxLabel = $("cmCommentCtxLabel");
+    var composerEl = $("commentComposer");
     replyingTo = null;
     if (ctxBar) { ctxBar.hidden = true; }
 
-    function sync() { send.disabled = input.value.trim().length === 0; autogrow(input); }
+    function paintCommentHl() {
+      if (!input || !hl) return;
+      releaseHighlightFailsafe(input, hl);
+      var raw = input.value;
+      if (BOT_ANYWHERE.test(raw)) {
+        hl.innerHTML = highlightMentions(raw);
+      } else {
+        hl.textContent = raw;
+      }
+      hl.scrollTop = input.scrollTop;
+    }
+
+    function sync() {
+      var val = input.value;
+      var trimmed = val.trim();
+      var toBot = BOT_ANYWHERE.test(val);
+      send.disabled = trimmed.length === 0;
+      if (botChip) botChip.setAttribute("aria-pressed", String(toBot));
+      send.setAttribute("aria-label", toBot ? "Ask @bot" : "Post comment");
+      if (composerEl) composerEl.classList.toggle("to-bot", toBot && signedIn());
+      autogrow(input);
+      paintCommentHl();
+    }
     input.addEventListener("input", sync);
+    input.addEventListener("scroll", function () {
+      if (hl) hl.scrollTop = input.scrollTop;
+    });
+    if (botChip) {
+      botChip.addEventListener("click", function () {
+        var raw = input.value;
+        if (BOT_ANYWHERE.test(raw)) {
+          input.value = raw.replace(BOT_ANYWHERE, " ").replace(/\s{2,}/g, " ").trim();
+        } else {
+          input.value = (raw ? raw.trim() + " @bot" : "@bot ").trimStart();
+        }
+        input.focus();
+        sync();
+      });
+    }
     input.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); post(); }
       if (e.key === "Escape" && replyingTo) { clearReply(); }
@@ -21745,6 +22495,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     function post() {
       if (!requireSignIn("comment")) return;
       var text = input.value.trim();
+      var toBot = BOT_ANYWHERE.test(text);
+      var targetForBot = replyingTo;
       /* State 8: empty or whitespace-only submission is not an error, it is
          a no-op. The send button is already disabled; this is the guard for
          Enter and for any programmatic path. */
@@ -21855,6 +22607,33 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       renderThread(gen, listEl);
       replaceCard(gen);
       updateDiscussionTitle(gen);
+
+      if (toBot) {
+        var cleanPrompt = text.replace(BOT_ANYWHERE, " ").replace(/\s{2,}/g, " ").trim() || gen.prompt;
+        var botReplyText = replyFor({ prompt: cleanPrompt, kind: "comment" });
+        var botTargetParentId = (targetForBot && pathToRoot(commentsFor(gen.id), ckey).size - 1 >= MAX_REPLY_DEPTH) ? parentId : ckey;
+        var botCommentId = "bot-" + BotoData.newKey();
+        var botComment = {
+          id: botCommentId,
+          pending: false,
+          genId: gen.id,
+          own: false,
+          creator: { name: "Botocracy", handle: "@bot", avatar: "char-1" },
+          text: botReplyText,
+          parentId: botTargetParentId,
+          replyingToName: optimistic.creator ? optimistic.creator.name : "You",
+          createdAt: Date.now() + 50
+        };
+        setTimeout(function () {
+          state.comments.push(botComment);
+          expandedThreads.add(ckey);
+          syncCommentCount(gen.id);
+          persist();
+          refreshThreadOnly(gen.id);
+          replaceCard(gen);
+          updateDiscussionTitle(gen);
+        }, reducedMotion ? 0 : 350);
+      }
     }
   }
 
@@ -22179,7 +22958,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* Strip the @bot mention off an addressed prompt. The card re-adds it as
      its own coloured span, so the stored prompt never carries it twice. */
   function parsePrompt(raw) {
-    return String(raw == null ? "" : raw).replace(BOT_MENTION, "").trim();
+    return String(raw == null ? "" : raw).replace(BOT_ANYWHERE, " ").replace(BOT_MENTION, "").replace(/\s{2,}/g, " ").trim();
   }
 
   function sendGeneration() {
@@ -22629,6 +23408,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
      is verifiably applied the inline colour has to be handed back, otherwise
      the mention would stay invisible. The probe is the textarea's own
      transparent fill, which only that stylesheet sets. */
+  function highlightMentions(raw) {
+    if (!raw) return "";
+    var parts = raw.split(/(@bot\b)/i);
+    var html = "";
+    for (var i = 0; i < parts.length; i++) {
+      if (/^@bot$/i.test(parts[i])) {
+        html += '<span class="hl-at">' + esc(parts[i]) + "</span>";
+      } else {
+        html += esc(parts[i]);
+      }
+    }
+    return html;
+  }
+
   function releaseHighlightFailsafe(input, layer) {
     /* Re-evaluated on every paint rather than latched once: the stylesheet
        can arrive late, and it can also go away. Both directions have to be
@@ -22645,10 +23438,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     releaseHighlightFailsafe(input, layer);
     var raw = input.value;
     var m = raw.match(BOT_MENTION);
-    if (m) {
-      /* Split on the real match so whitespace is preserved exactly. */
-      var mention = raw.slice(0, m[0].length);
-      layer.innerHTML = '<span class="hl-at">' + esc(mention) + "</span>" + esc(raw.slice(m[0].length));
+    if (BOT_ANYWHERE.test(raw)) {
+      layer.innerHTML = highlightMentions(raw);
     } else {
       layer.textContent = raw;
     }
