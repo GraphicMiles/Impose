@@ -138,12 +138,36 @@
     var v = String(value || "").trim().toLowerCase();
     if (!validEmail(v)) return "Enter a valid email address.";
     var local = v.slice(0, v.lastIndexOf("@"));
+    if (local.length > 64) return "Enter a valid email address.";
     if (local.charAt(0) === "." || local.charAt(local.length - 1) === "." ||
         local.indexOf("..") !== -1) {
       return "Enter a valid email address.";
     }
     if (THROWAWAY.test(v.slice(v.lastIndexOf("@") + 1))) {
       return "That email provider is not accepted. Use an address you can receive mail at.";
+    }
+    return "";
+  }
+
+  /* Keyboard mash and generated junk: the same mechanical shapes the
+     server refuses. Checked here so the answer is instant; the server
+     check is the one that counts, and it applies to signup only, so a
+     legacy address can still reset. */
+  function spammyName(text) {
+    var v = String(text || "");
+    if (/(.)\1{4}/.test(v)) return true;
+    if (/(..)\1\1/.test(v) || /(...)\1\1/.test(v)) return true;
+    var letters = v.replace(/[^A-Za-z]/g, "");
+    if (letters.length >= 6 && !/[aeiouAEIOU]/.test(letters)) return true;
+    return false;
+  }
+
+  function signupEmailProblem(value) {
+    var base = emailProblem(value);
+    if (base) return base;
+    var v = String(value || "").trim().toLowerCase();
+    if (spammyName(v.slice(0, v.lastIndexOf("@")))) {
+      return "That address looks made up. Use an email you can receive mail at.";
     }
     return "";
   }
@@ -242,7 +266,7 @@
     var email = $("signUpEmail").value.trim();
     var password = $("signUpPassword").value;
     var okay = true;
-    var emailErr = emailProblem(email);
+    var emailErr = signupEmailProblem(email);
     if (emailErr) { setError("signUpEmail", emailErr); okay = false; }
     var pwErr = passwordProblem(password);
     if (pwErr) { setError("signUpPassword", pwErr); okay = false; }

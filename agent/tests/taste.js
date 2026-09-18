@@ -645,7 +645,10 @@ test("a rejected value is not reported as a permission problem", function () {
      they already have. */
   var data = read("community-data.js");
   var i = data.indexOf("function shape");
-  var body = data.slice(i, i + 4000);
+  /* The whole function, not a sample: the named-code branches for profile
+     and write-size refusals grew it past the original window, and a slice
+     that ends mid-function asserts against half the translator. */
+  var body = data.slice(i, i + 5200);
   ok(body.indexOf("check constraint") < body.indexOf("row-level security"),
     "constraints are matched before RLS, not swallowed by it");
   ok(/That post is too long/.test(body), "and a length problem says so");

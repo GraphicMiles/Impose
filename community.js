@@ -1056,13 +1056,50 @@
 
   /* Editing is a prompt rather than a form: two fields did not justify a
      modal, and a prompt cannot leave the page in a half-saved state. */
+
+  /* The server enforces these inside update_my_profile; checking here too
+     is only the instant answer. Anything this misses, the database
+     refuses, so the rules live where requests cannot go around them. */
+  function spammyName(text) {
+    var v = String(text || "");
+    if (/(.)\1{4}/.test(v)) return true;
+    if (/(..)\1\1/.test(v) || /(...)\1\1/.test(v)) return true;
+    var letters = v.replace(/[^A-Za-z]/g, "");
+    if (letters.length >= 6 && !/[aeiouAEIOU]/.test(letters)) return true;
+    return false;
+  }
+
+  function nameProblem(name) {
+    var v = String(name == null ? "" : name).trim();
+    if (!v) return ""; /* blank keeps the current name */
+    if (v.length < 2) return "Names need at least 2 characters.";
+    if (v.length > 40) return "Names are 40 characters at most.";
+    /* eslint-disable-next-line no-control-regex */
+    if (/[\u0001-\u001f\u007f]/.test(v)) return "Names cannot contain control characters.";
+    if (!/[A-Za-z0-9]/.test(v)) return "Include at least one letter or number.";
+    if (spammyName(v)) return "That name looks made up. Use a name people can read.";
+    return "";
+  }
+
+  function bioProblem(bio) {
+    var v = String(bio == null ? "" : bio);
+    if (v.length > 300) return "Bios are 300 characters at most.";
+    /* eslint-disable-next-line no-control-regex */
+    if (/[\u0001-\u001f\u007f]/.test(v)) return "Bios cannot contain control characters.";
+    return "";
+  }
+
   function editProfile() {
     BotoData.profile(profileHandle).then(function (out) {
       if (!out.ok || !out.data) return;
       var name = window.prompt("Display name", out.data.name);
       if (name === null) return;
+      var problem = nameProblem(name);
+      if (problem) { notify(problem); return; }
       var bio = window.prompt("Bio, up to 300 characters", out.data.bio || "");
       if (bio === null) return;
+      problem = bioProblem(bio);
+      if (problem) { notify(problem); return; }
       BotoData.updateProfile(name, bio).then(function (res) {
         if (!res.ok) { notify(res.error); return; }
         renderProfile(profileHandle);

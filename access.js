@@ -115,21 +115,57 @@
 
   /* Idempotent join: the waitlist table has a unique email, so a retry or
      double-tap returns the same row (position included) instead of
-     creating a duplicate. Rate limiting lives at the gateway (see the
-     operations plan); the unique constraint is the last line of defense. */
+     creating a duplicate. The server decides whether an address may join:
+     it runs the same disposable-domain and spam-shape rules as signup
+     inside join_waitlist. The checks below are only the instant answer. */
+  function waitlistEmailProblem(email) {
+    var clean = String(email || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) return "Enter a valid email address.";
+    if (clean.length > 254) return "Enter a valid email address.";
+    var local = clean.slice(0, clean.lastIndexOf("@"));
+    if (local.length > 64 || local.charAt(0) === "." ||
+        local.charAt(local.length - 1) === "." || local.indexOf("..") !== -1) {
+      return "Enter a valid email address.";
+    }
+    if (/(^|\.)(example\.(com|org|net|edu)|test\.com|invalid|localhost|mailinator\.com|tempmail\.com|temp-mail\.org|guerrillamail\.com|10minutemail\.com|throwawaymail\.com|yopmail\.com|trashmail\.com|sharklasers\.com|getnada\.com|dispostable\.com|maildrop\.cc|fakeinbox\.com|mailnesia\.com|mohmal\.com|moakt\.com)$/.test(clean.slice(clean.lastIndexOf("@") + 1))) {
+      return "That email provider is not accepted. Use an address you can receive mail at.";
+    }
+    if (/(.)\1{4}/.test(local) || /(..)\1\1/.test(local) || /(...)\1\1/.test(local)) {
+      return "That address looks made up. Use an email you can receive mail at.";
+    }
+    var letters = local.replace(/[^A-Za-z]/g, "");
+    if (letters.length >= 6 && !/[aeiouAEIOU]/.test(letters)) {
+      return "That address looks made up. Use an email you can receive mail at.";
+    }
+    return "";
+  }
+
   function joinWaitlist(email) {
     if (!enforce()) return Promise.resolve({ status: "granted", mode: "open" });
     var clean = String(email || "").trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
-      return Promise.reject(new Error("Enter a valid email address."));
-    }
+    var problem = waitlistEmailProblem(clean);
+    if (problem) return Promise.reject(new Error(problem));
     return fetch(window.BotoConfig.SUPABASE_URL + "/rest/v1/rpc/join_waitlist", {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ p_email: clean })
     }).then(function (r) {
       if (r.status === 429) throw new Error("Too many attempts. Try again in a minute.");
-      if (!r.ok) throw new Error("Could not join the waitlist. Try again.");
+      if (!r.ok) {
+        return r.json().catch(function () { return {}; }).then(function (body) {
+          var msg = String((body && body.message) || "");
+          if (msg === "email_provider_not_accepted") {
+            throw new Error("That email provider is not accepted. Use an address you can receive mail at.");
+          }
+          if (msg === "invalid_email") {
+            throw new Error("Enter a valid email address.");
+          }
+          if (msg === "waitlist_full") {
+            throw new Error("The waitlist is full right now. Try again later.");
+          }
+          throw new Error("Could not join the waitlist. Try again.");
+        });
+      }
       return r.json();
     }).then(function (res) {
       grantCache = { status: "waitlisted", email: clean, position: res && res.position || null, at: Date.now() };

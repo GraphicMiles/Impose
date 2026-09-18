@@ -98,6 +98,28 @@
     if (/row-level security|violates row-level/i.test(text)) {
       return { message: "You do not have permission to do that.", retryable: false, code: "denied" };
     }
+    /* Named refusals from the write RPCs: the database enforces profile
+       names and bios and write sizes, and each raised code gets words
+       here. They cannot collide with the messages above because raised
+       codes are bare identifiers, never prose. */
+    if (/name_too_short|name_too_long|name_needs_letter_or_digit|name_not_acceptable|name_has_control/i.test(text)) {
+      return { message: "That name does not look right. Use 2-40 characters with at least one letter or number.",
+               retryable: false, code: "bad_name" };
+    }
+    if (/bio_too_long|bio_has_control/i.test(text)) {
+      return { message: "Bios are 300 characters at most.", retryable: false, code: "bad_bio" };
+    }
+    if (/prompt_length/i.test(text)) {
+      return { message: "That post is too long or empty. Posts are 4000 characters at most.",
+               retryable: false, code: "too_long" };
+    }
+    if (/response_length/i.test(text)) {
+      return { message: "That response is too long to save.", retryable: false, code: "too_long" };
+    }
+    if (/body_length/i.test(text)) {
+      return { message: "Comments are 1000 characters at most, and cannot be empty.",
+               retryable: false, code: "too_long" };
+    }
     /* A null byte cannot be stored in a text column. Postgres calls this
        an "unsupported Unicode escape sequence", which means nothing to
        anyone typing into a box. */

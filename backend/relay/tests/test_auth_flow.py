@@ -249,6 +249,36 @@ def test_reset_does_not_reveal_whether_an_address_exists(env):
     assert known.status_code == 200
 
 
+def test_reset_for_an_unknown_address_sends_nothing(env):
+    """But identical wording is not enough: no code may be minted either.
+
+    Issuing and mailing a code for an address with no account turned the
+    endpoint into a mail relay for arbitrary inboxes, rate limited but
+    real. The answer keeps the known-address shape exactly, so the two
+    cases cannot be told apart from outside."""
+    c = env["client"]
+    issued_before = len(env["store"].issued)
+    r = c.post("/v1/auth/otp/request", json={"email": "ghost@b.com", "purpose": "reset"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert "resend_in" in body and "expires_in" in body and "delivery" in body
+    assert len(env["store"].issued) == issued_before, \
+        "no code is minted for an address that has no account"
+
+
+def test_spammy_signups_are_refused_before_anything_is_staged(env):
+    """A keyboard-mash address must not reach Supabase, the code store, or
+    the mail provider: nothing is created, nothing is sent."""
+    c = env["client"]
+    r = c.post("/v1/auth/otp/request",
+               json={"email": "skskdjdjdjdh@b.com", "password": "Str0ng!pass",
+                     "purpose": "signup"})
+    assert r.status_code == 400
+    assert env["created"] == []
+    assert env["store"].issued == []
+
+
 def test_an_abandoned_signup_does_not_squat_the_address(env):
     """A staged, unconfirmed row must not block a later real attempt."""
     c = env["client"]

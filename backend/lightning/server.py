@@ -114,13 +114,46 @@ atexit.register(_reap_llm)
 # auth
 # --------------------------------------------------------------------------- #
 
+# Per-IP failure budget, same shape as the relay's. Constant-time compare
+# alone is not enough: without a budget the key can be probed one guess at
+# a time, forever. This gateway sits on a public GPU box, so it gets the
+# same treatment.
+_AUTHFAIL = {}
+_authfail_lock = threading.Lock()
+
+
+def _client_ip(request: Request) -> str:
+    try:
+        return request.client.host if request.client else "?"
+    except Exception:
+        return "?"
+
+
+def _authfail_over(ip: str, limit: int = 15, window: float = 60.0) -> bool:
+    now = time.time()
+    with _authfail_lock:
+        events = _AUTHFAIL.setdefault(ip, [])
+        cutoff = now - window
+        while events and events[0] < cutoff:
+            events.pop(0)
+        return len(events) >= limit
+
+
+def _authfail_hit(ip: str) -> None:
+    with _authfail_lock:
+        _AUTHFAIL.setdefault(ip, []).append(time.time())
+
 
 def _authed(request: Request) -> None:
     if not CONTROL_KEY:
         return
+    ip = _client_ip(request)
+    if _authfail_over(ip):
+        raise HTTPException(status_code=429, detail="too many attempts; wait a minute")
     supplied = request.headers.get("Authorization", "")
     expected = "Bearer " + CONTROL_KEY
     if not hmac.compare_digest(supplied, expected):
+        _authfail_hit(ip)
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
