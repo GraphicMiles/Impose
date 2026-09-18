@@ -144,6 +144,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _correlate(request: Request, call_next):
+    """Carry the browser's request id through the log and back in the reply.
+
+    A browser log line and a relay log line describing the same request
+    previously had nothing in common, so matching them meant comparing
+    timestamps by eye across two systems. Three of the recent signup
+    outages were diagnosed that way and it was slow every time.
+
+    Only the account endpoints are logged. Logging every request would
+    bury the ones that matter under feed traffic, and these are the ones
+    that fail in ways the browser cannot see.
+    """
+    rid = request.headers.get("X-Request-Id", "")[:64]
+    started = time.time()
+    response = await call_next(request)
+    if rid and request.url.path.startswith("/v1/auth/"):
+        ms = int((time.time() - started) * 1000)
+        print(f"[req] {rid} {request.method} {request.url.path} "
+              f"-> {response.status_code} ({ms}ms)", flush=True)
+    if rid:
+        response.headers["X-Request-Id"] = rid
+    return response
+
+
 STARTED_AT = time.time()
 _last_activity = STARTED_AT
 _wake_lock = threading.Lock()
