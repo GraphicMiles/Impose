@@ -120,6 +120,12 @@
       return { message: "Comments are 1000 characters at most, and cannot be empty.",
                retryable: false, code: "too_long" };
     }
+    /* A write budget, not a failure: the window is one minute, so the
+       outbox keeps the job and the next drain lands it. */
+    if (/rate_limited|53100/i.test(text + code)) {
+      return { message: "You are going a little fast. Your post is kept and will send in a moment.",
+               retryable: true, code: "rate_limited" };
+    }
     /* A null byte cannot be stored in a text column. Postgres calls this
        an "unsupported Unicode escape sequence", which means nothing to
        anyone typing into a box. */

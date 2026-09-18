@@ -1498,7 +1498,7 @@
         "</div>" +
       "</div>" +
       '<div class="composer" id="commentComposer">' +
-        '<textarea id="cmCommentInput" rows="1" maxlength="2000" placeholder="Add to the discussion" aria-label="Add to the discussion"></textarea>' +
+        '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add to the discussion" aria-label="Add to the discussion"></textarea>' +
         '<div class="composer-row">' +
           '<div class="composer-spacer"></div>' +
           '<button class="send-btn" id="cmCommentSend" aria-label="Post comment" disabled><i data-lucide="arrow-up"></i></button>' +
