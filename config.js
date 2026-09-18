@@ -14,6 +14,12 @@ window.BotoConfig = {
 
   /* "open": Community and Workspace both available (development/demo).
      "enforce": Community open to everyone, Workspace behind the
-     waitlist grant (production). */
-  ACCESS_MODE: "open"
+     waitlist grant (production).
+
+     Flipped to enforce on 2026-09-18 (PLAN_V2_AUDIT TASK-00): the live
+     project is wired (auth, grants RPC, waitlist), and the owner's
+     intent from the v1.0 plan is "Community open now, Workspace
+     waitlist-only." The owner account is granted directly in
+     workspace_grants, so this lock-out is intentional. */
+  ACCESS_MODE: "enforce"
 };

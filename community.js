@@ -429,6 +429,37 @@
     if (gen) gen.counts.comment = liveCommentCount(genId);
   }
 
+  /* Reporting is deliberately one tap past the kebab, with the outcome
+     stated plainly: the report is stored for the operator, the reporter
+     hears that it landed, and nothing visible changes for the reported
+     user (revealing a review state would hand abusers a probe). A second
+     report of the same target by the same person is idempotent by
+     schema, so the wording is the same either way. */
+  function sendReport(kind, targetId) {
+    if (!myUserId) {
+      notify("Sign in to report this.", "Sign in", goSignIn);
+      return;
+    }
+    BotoData.reportContent(kind, targetId).then(function (out) {
+      if (out.ok) {
+        notify("Reported. We'll take a look.");
+        return;
+      }
+      if (out.code === "auth") notify(out.error, "Sign in", goSignIn);
+      else notify(out.error);
+    });
+  }
+
+  function reportPost(gen) {
+    if (!gen || gen.pending) return;
+    sendReport("post", gen.id);
+  }
+
+  function reportComment(c) {
+    if (!c || c.pending) return;
+    sendReport("comment", c.id);
+  }
+
   function deleteGeneration(id) {
     var gen = genById(id);
     if (!canDelete(gen)) return;
@@ -596,6 +627,27 @@
   function notify(msg, actionLabel, onAction) {
     if (window.BotoToast) return window.BotoToast(msg, actionLabel, onAction, UNDO_MS);
     return null;
+  }
+
+  /* Hosted @bot runs on a local demo engine until the relay path is
+     wired (TASK-02 in PLAN_V2_AUDIT). One flag drives every disclosure
+     so the day real replies land, flipping it removes all of them. */
+  var BOT_DEMO = true;
+
+  /* The tag on every @bot answer. "Demo" is the whole point: a reader must
+     never believe a canned reply came from a live model (flow.txt 3). */
+  function botDemoTag() {
+    return BOT_DEMO
+      ? ' <span class="gen-resp-demo" title="Hosted @bot runs on demo replies until launch">demo</span>'
+      : "";
+  }
+
+  /* The failure cards say "Sign in to do that"; this is the doing. The
+     return hash is stashed so auth.js can land the reader back where
+     the attempt happened instead of dropping them at the feed root. */
+  function goSignIn() {
+    try { localStorage.setItem("impose.auth.returnTo", location.hash || "#/"); } catch (e) { /* private mode */ }
+    window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
   }
 
   /* Thread read path. Returns what should be rendered, which is not the same
@@ -923,7 +975,7 @@
     var sheet = $("cmNotifSheet");
     var list = $("cmNotifList");
     sheet.hidden = false;
-    list.innerHTML = '<div class="detail-loading"><span class="spinner"></span></div>';
+    list.innerHTML = '<div class="detail-loading"><span class="spinner"></span><p>Loading notifications…</p></div>';
     refreshIcons();
 
     BotoData.notifications(30).then(function (out) {
@@ -983,12 +1035,14 @@
   var profileDone = false;
   var profileLoading = false;
   var profileHandle = null;
+  var profileIsMe = false;
 
   function renderProfile(handle) {
     profileHandle = String(handle || "").replace(/^@/, "");
     profileCursor = null;
     profileDone = false;
     profileLoading = false;
+    profileIsMe = false;
     $("cmProfileList").innerHTML = "";
     $("cmProfileEmpty").hidden = true;
     $("cmProfile").innerHTML = '<div class="detail-loading"><span class="spinner"></span></div>';
@@ -1015,6 +1069,7 @@
         return;
       }
       var p = out.data;
+      profileIsMe = !!p.isMe;
       $("cmProfile").innerHTML =
         '<div class="profile-card">' +
           avatar(p, "profile-ava") +
@@ -1049,7 +1104,15 @@
       out.data.items.forEach(function (gen) { list.appendChild(buildCard(gen, false)); });
       profileCursor = out.data.cursor;
       profileDone = out.data.done;
-      $("cmProfileEmpty").hidden = !(profileDone && list.children.length === 0);
+      var none = profileDone && list.children.length === 0;
+      $("cmProfileEmpty").hidden = !none;
+      if (none) {
+        /* flow.txt 9: an empty state says what to do next. Your own empty
+           profile points at the composer; someone else's just states fact. */
+        $("cmProfileEmpty").innerHTML = profileIsMe
+          ? '<p class="feed-empty-sub">Nothing here yet. Start a generation and it shows up on your profile.</p>'
+          : '<p class="feed-empty-sub">No posts yet.</p>';
+      }
       refreshIcons();
     });
   }
@@ -1175,14 +1238,15 @@
         (gen.locked ? "Unlock this generation" : "Lock this generation") + '" aria-pressed="' + gen.locked + '" title="' +
         (gen.locked ? "Unlock" : "Lock") + '">' +
         '<i data-lucide="' + (gen.locked ? "lock" : "lock-open") + '"></i></button>';
-      /* Own content only, and never mid-stream: a streaming post has a
-         writer still appending to it. Delete sits behind the kebab for the
-         same reason it does on a comment: it is destructive and does not
-         belong in the row of counts the reader taps to browse. */
-      if (gen.status !== "streaming") {
-        html += '<button class="gen-act gen-act--icon gen-kebab" data-act="menu" aria-label="More actions" ' +
-          'aria-haspopup="menu" aria-expanded="false"><i data-lucide="ellipsis"></i></button>';
-      }
+    }
+    /* Never mid-stream: a streaming post has a writer still appending to
+       it. Delete sits behind the kebab for the same reason it does on a
+       comment: it is destructive and does not belong in the row of counts
+       the reader taps to browse. Report rides the same kebab on someone
+       else's post so there is exactly one quiet place for both. */
+    if (gen.status !== "streaming" && !gen.pending) {
+      html += '<button class="gen-act gen-act--icon gen-kebab" data-act="menu" aria-label="More actions" ' +
+        'aria-haspopup="menu" aria-expanded="false"><i data-lucide="ellipsis"></i></button>';
     }
     html += "</div>";
     return html;
@@ -1190,7 +1254,7 @@
 
   function responseBlock(gen, detail) {
     if (gen.status === "failed") {
-      return '<div class="gen-resp"><div class="gen-resp-label"><i data-lucide="sparkles"></i>BOTOCRACY</div>' +
+      return '<div class="gen-resp"><div class="gen-resp-label"><i data-lucide="sparkles"></i>BOTOCRACY' + botDemoTag() + '</div>' +
         '<p class="gen-error">' + esc(gen.errorText || "The generation was interrupted before it finished.") + "</p>" +
         '<button class="gen-retry" data-act="retry"><i data-lucide="refresh-cw"></i>Retry generation</button></div>';
     }
@@ -1198,7 +1262,7 @@
     var isLong = !detail && gen.status === "complete" && gen.response.length > 320;
     var streaming = gen.status === "streaming";
     return '<div class="gen-resp">' +
-      '<div class="gen-resp-label"><i data-lucide="sparkles"></i>BOTOCRACY</div>' +
+      '<div class="gen-resp-label"><i data-lucide="sparkles"></i>BOTOCRACY' + botDemoTag() + '</div>' +
       '<div class="gen-resp-body' + (isLong ? " clamped" : "") + '" data-resp="' + gen.id + '">' +
       (streaming && gen.response === "" ? '<span class="gen-thinking">@bot is thinking</span>' : "") +
       body +
@@ -1241,7 +1305,11 @@
            to be queued offline. The badge was invisible for them. */
         (gen.pending ? '<span class="gen-pending"><i data-lucide="clock"></i>Sending</span>' : "") +
         (gen.errorText && gen.status === "failed" && !isAddressed(gen)
-          ? '<span class="gen-failed">' + esc(gen.errorText) + "</span>" : "") +
+          ? '<span class="gen-failed">' + esc(gen.errorText) +
+            (gen.errorCode === "auth"
+              ? ' <button class="gen-failed-auth" data-act="signin">Sign in</button>'
+              : "") +
+            "</span>" : "") +
         actionRow(gen, detail) +
       "</div>";
     return article;
@@ -1729,14 +1797,12 @@
                     "</span>" +
                   "</button>"
                 : "") +
-              (c.own
-                ? '<span class="comment-ops-end">' +
-                    '<button class="comment-kebab" data-cmenu="' + c.id +
-                      '" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">' +
-                      '<i data-lucide="ellipsis"></i>' +
-                    "</button>" +
-                  "</span>"
-                : "") +
+              '<span class="comment-ops-end">' +
+                '<button class="comment-kebab" data-cmenu="' + c.id +
+                  '" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">' +
+                  '<i data-lucide="ellipsis"></i>' +
+                "</button>" +
+              "</span>" +
             "</div>" +
           "</div>" +
         "</div>" +
@@ -1874,17 +1940,21 @@
         renderThread(gen, listEl);
         return;
       }
-      /* Kebab: opens the one-item menu that owns Delete. */
+      /* Kebab: Delete on your own comment, Report on someone else's. */
       var kebab = e.target.closest("[data-cmenu]");
       if (kebab) {
         var cid = kebab.getAttribute("data-cmenu");
-        openKebabMenu(kebab, "c:" + cid,
-          [{ act: "delete", label: "Delete", icon: "trash-2", danger: true }],
-          function (act) {
-            if (act !== "delete") return;
+        var rec = commentById(cid);
+        var cItems = rec && rec.own
+          ? [{ act: "delete", label: "Delete", icon: "trash-2", danger: true }]
+          : [{ act: "report", label: "Report", icon: "flag" }];
+        openKebabMenu(kebab, "c:" + cid, cItems, function (act) {
+          if (act === "delete") {
             if (replyingTo && replyingTo.id === cid) clearReplyTarget(true);
             deleteComment(cid);
-          });
+          }
+          if (act === "report" && rec) reportComment(rec);
+        });
         return;
       }
       var delBtn = e.target.closest("[data-del]");
@@ -2025,10 +2095,11 @@
         onDone: function (row) { adoptServerComment(ckey, row); },
         onFail: function (out) {
           var local = commentById(ckey);
-          if (local) { local.pending = false; local.failed = true; local.errorText = out.error; }
+          if (local) { local.pending = false; local.failed = true; local.errorText = out.error; local.errorCode = out.code || null; }
           persist();
           refreshThreadOnly(gen.id);
-          notify(out.error);
+          if (out.code === "auth") notify(out.error, "Sign in", goSignIn);
+          else notify(out.error);
         }
       });
       BotoData.drain();
@@ -2489,7 +2560,7 @@
         /* The parent's derived counts moved when this child landed. */
         if (row.parentId) refreshOne(row.parentId);
       },
-      onFail: function (out) { markFailed(key, out.error); }
+      onFail: function (out) { markFailed(key, out.error, out.code); }
     });
     BotoData.drain();
     syncOutboxChrome();
@@ -2610,12 +2681,13 @@
   /* A write the server refused for good. The post stays on screen carrying
      the reason: silently deleting someone's words because a policy said no
      is worse than showing them why. */
-  function markFailed(localId, reason) {
+  function markFailed(localId, reason, code) {
     var gen = genById(localId);
     if (!gen) return;
     gen.pending = false;
     gen.status = "failed";
     gen.errorText = reason;
+    gen.errorCode = code || null;
     persist();
     renderFeed();
     syncOutboxChrome();
@@ -2746,11 +2818,17 @@
       return;
     }
     if (act === "menu") {
-      openKebabMenu(btn, "g:" + gen.id,
-        [{ act: "delete", label: "Delete post", icon: "trash-2", danger: true }],
-        function (picked) {
-          if (picked === "delete") deleteGeneration(gen.id);
-        });
+      var items = gen.own
+        ? [{ act: "delete", label: "Delete post", icon: "trash-2", danger: true }]
+        : [{ act: "report", label: "Report post", icon: "flag" }];
+      openKebabMenu(btn, "g:" + gen.id, items, function (picked) {
+        if (picked === "delete") deleteGeneration(gen.id);
+        if (picked === "report") reportPost(gen);
+      });
+      return;
+    }
+    if (act === "signin") {
+      goSignIn();
       return;
     }
     if (act === "lock" && gen.own) {
@@ -3040,12 +3118,12 @@
           adoptServerRow(job.localId || job.key, row);
           if (row.parentId) refreshOne(row.parentId);
         },
-        function (out, job) { markFailed(job.localId || job.key, out.error); });
+        function (out, job) { markFailed(job.localId || job.key, out.error, out.code); });
       BotoData.setJobHandler("comment",
         function (row, job) { adoptServerComment(job.localId || job.key, row); },
         function (out, job) {
           var local = commentById(job.localId || job.key);
-          if (local) { local.pending = false; local.failed = true; local.errorText = out.error; }
+          if (local) { local.pending = false; local.failed = true; local.errorText = out.error; local.errorCode = out.code || null; }
           persist();
           refreshThreadOnly(job.genId);
         });

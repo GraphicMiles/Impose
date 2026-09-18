@@ -60,6 +60,7 @@ from relay.images import ImagesFailed, engine_images
 from relay.videos import VideosFailed, engine_videos
 from relay.files import discover_files
 from relay import otp_store
+from relay import reports_store
 from relay import supabase_admin
 from relay.mailer import MailFailed, send_code, configured as mailer_configured, probe as mailer_probe
 from relay.source_intelligence import CATALOG
@@ -1882,6 +1883,26 @@ async def admin_accounts(request: Request):
     out["ready"] = all([out["supabase_url"], out["supabase_service_key"],
                         out["otp_pepper"], out["auth_codes_rpc"] == "ok"])
     return out
+
+
+@app.get("/admin/reports")
+async def admin_reports(request: Request, status: str = "pending", limit: int = 50):
+    """The moderation queue, readable only with the CONTROL_KEY.
+
+    Reports are how a reader flags abuse, but the reports table has no
+    client policies, so nothing short of the service key can read it.
+    The relay holds that key, so this endpoint is the operator's single
+    URL for "what was flagged." Newest first; the reporter's handle is
+    embedded so the operator sees who flagged what without a second
+    lookup. Reading never mutates: acting on a report (reviewed/
+    actioned/dismissed) is done in the database by the operator.
+    """
+    _authed(request)
+    try:
+        rows = await reports_store.fetch(status=status, limit=limit)
+    except reports_store.ReportsError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))
+    return {"count": len(rows), "reports": rows}
 
 
 @app.get("/admin/status")

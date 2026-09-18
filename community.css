@@ -1312,6 +1312,37 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .gen-pending .lucide { width: 12px; height: 12px; }
 .cm-scope .gen-failed { background: var(--danger-soft); color: var(--danger); }
 
+/* The "demo" tag on @bot answers: quiet, but a reader must never mistake
+   a canned reply for a live model. Sits beside the BOTOCRACY label. */
+.cm-scope .gen-resp-demo {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  vertical-align: middle;
+}
+
+/* Inline sign-in affordance on a failed card whose only problem is that
+   the reader is signed out. The message says what to do; this is the
+   button that does it. */
+.cm-scope .gen-failed-auth {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 2px;
+}
+
 /* Detail page while its post is being fetched. A deep link often arrives
    on a browser with an empty cache, and a blank panel reads as broken
    rather than pending. */

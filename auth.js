@@ -19,6 +19,19 @@
   function refreshIcons() { if (window.lucide) window.lucide.createIcons(); }
   function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim()); }
 
+  /* Where a finished auth lands. The community surfaces stash the hash the
+     reader came from before pointing them here ("Sign in to do that" with
+     a button), so completing auth returns them to the post or thread they
+     were trying to act on instead of dropping everyone at the feed root. */
+  function finishHref() {
+    var back = "";
+    try {
+      back = localStorage.getItem("impose.auth.returnTo") || "";
+      localStorage.removeItem("impose.auth.returnTo");
+    } catch (e) { /* private mode */ }
+    return "./index.html" + (/^#\//.test(back) ? back : "");
+  }
+
   function routeName() {
     var known = ["sign-in", "sign-up", "forgot-password", "otp", "reset-password", "success"];
     var hashRoute = location.hash.replace(/^#\/?/, "").split("?")[0];
@@ -207,11 +220,6 @@
     });
   });
 
-  all("[data-provider]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      showToast(button.dataset.provider + " sign in is ready for backend integration.");
-    });
-  });
 
   document.querySelector(".language-btn").addEventListener("click", function () {
     showToast("English is the only language available right now.");
@@ -230,13 +238,13 @@
     if (!live()) {
       briefWork(form, function () {
         saveSession(email.split("@")[0], email);
-        location.href = "./index.html";
+        location.href = finishHref();
       });
       return;
     }
     busy(form, true);
     window.BotoAuth.signIn(email, password).then(function () {
-      location.href = "./index.html";
+      location.href = finishHref();
     }, function (err) {
       /* Against the password field, not the email: saying "no such
          account" would confirm which addresses are registered. */
@@ -359,7 +367,9 @@
 
     function showVerified() {
       $("successTitle").textContent = "Email verified";
-      $("successCopy").textContent = "Your Impose account is ready to use.";
+      $("successCopy").textContent = "Your Botocracy account is ready to use.";
+      var go = $("successAction");
+      if (go) go.href = finishHref();
       route("success");
     }
 

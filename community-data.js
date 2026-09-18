@@ -428,6 +428,26 @@
     return run(function () { return db().rpc("soft_delete_comment", { p_id: id }); });
   }
 
+  /* Report a post or comment to the operator. Idempotent by schema:
+     the same person flagging the same target twice resolves to the one
+     report, and the RPC says which case happened. */
+  function reportContent(kind, targetId, reason) {
+    return run(function () {
+      return db().rpc("report_content", {
+        p_kind: kind,
+        p_target: targetId,
+        p_reason: reason || null
+      });
+    }).then(function (out) {
+      if (out.ok) return out;
+      if (/target_gone/i.test(out.error)) {
+        return { ok: false, retryable: false, code: "target_gone",
+                 error: "That is already gone. Nothing left to report." };
+      }
+      return out;
+    });
+  }
+
   /* The body is cleared on delete so it is genuinely gone from the server,
      which means undo has to send it back. The caller holds it for the
      length of the undo window. */
@@ -842,6 +862,7 @@
     restoreGeneration: restoreGeneration,
     deleteComment: deleteComment,
     restoreComment: restoreComment,
+    reportContent: reportContent,
     setLocked: setLocked,
     setSaved: setSaved,
     toGeneration: toGeneration,
