@@ -798,6 +798,10 @@ try {
 <script src="./access.js"></script>
 <script src="./app.js"></script>
 <script src="./supabase.min.js"></script>
+<!-- BotoAuth owns ending the Supabase session. Without it here, Sign out
+     in the account menu could only clear the local display cache and the
+     real session survived. -->
+<script src="./auth-client.js"></script>
 <script src="./community-data.js"></script>
 <script src="./community.js"></script>
 </body>
