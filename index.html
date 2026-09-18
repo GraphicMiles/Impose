@@ -471,6 +471,18 @@ try {
         <div id="usageTable"></div>
       </div>
       <div data-pane="data" hidden>
+        <section class="settings-section" id="keySecuritySection">
+          <h3>Security</h3>
+          <div class="setting-row">
+            <div class="setting-text"><strong>API keys encrypted at rest</strong><span id="keyStorageDesc">Keys are sealed on this device before they are stored or synced</span></div>
+            <button class="toggle" id="tglKeyPassphrase" role="switch" aria-checked="false" aria-label="Passphrase lock for API keys"><span class="knob"></span></button>
+          </div>
+          <p class="fhelp" id="keySecurityHelp">On: provider keys lock behind a passphrase only you know. Off: a key unique to this device protects them.</p>
+          <div class="setting-row" id="keyLockedRow" hidden>
+            <div class="setting-text"><strong>Provider keys are locked</strong><span>Enter your passphrase to use providers that need a key</span></div>
+            <button class="btn" id="keyLockedBtn" type="button"><i data-lucide="lock"></i><span>Unlock</span></button>
+          </div>
+        </section>
         <section class="settings-section">
           <h3>Data</h3>
           <div class="setting-row">
@@ -655,6 +667,30 @@ try {
   </div>
 </div>
 
+<div class="overlay center" id="keyModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="API key lock">
+    <div class="settings-head">
+      <h2 id="keyModalTitle">Passphrase lock</h2>
+      <button class="icon-btn" id="keyModalCancel" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div class="field">
+        <label class="flabel" for="keyPass">Passphrase</label>
+        <input type="password" class="text-input mono" id="keyPass" autocomplete="new-password" spellcheck="false">
+      </div>
+      <div class="field" id="keyPass2Row">
+        <label class="flabel" for="keyPass2">Repeat the passphrase</label>
+        <input type="password" class="text-input mono" id="keyPass2" autocomplete="new-password" spellcheck="false">
+      </div>
+      <p class="status-line" id="keyModalStatus" aria-live="polite"></p>
+      <div class="editor-foot">
+        <button class="btn primary grow" id="keyModalGo" type="button"><span>Set lock</span></button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="overlay center" id="encModal" hidden>
   <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Encrypted backup">
     <div class="settings-head">
@@ -825,6 +861,7 @@ try {
 <script src="./avatars.js"></script>
 <script src="./ui-core.js"></script>
 <script src="./access.js"></script>
+<script src="./workspace-sync.js"></script>
 <script src="./app.js"></script>
 <script src="./supabase.min.js"></script>
 <!-- BotoAuth owns ending the Supabase session. Without it here, Sign out

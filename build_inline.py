@@ -32,11 +32,12 @@ debug_bus_js = (ROOT / "debug-bus.js").read_text(encoding="utf-8")
 avatars_js = (ROOT / "avatars.js").read_text(encoding="utf-8")
 ui_core_js = (ROOT / "ui-core.js").read_text(encoding="utf-8")
 access_js = (ROOT / "access.js").read_text(encoding="utf-8")
+workspace_sync_js = (ROOT / "workspace-sync.js").read_text(encoding="utf-8")
 
 for name, blob in (("styles.css", css), ("community.css", community_css), ("agent/trace.css", trace_css),
                    ("lucide.min.js", lucide), ("anime.min.js", anime), ("agent/trace.js", trace_js),
                    ("agent/orchestrator.js", orchestrator), ("agent/harness.js", harness), ("agent/features.js", features),
-                   ("app.js", app), ("community.js", community_js)):
+                   ("workspace-sync.js", workspace_sync_js), ("app.js", app), ("community.js", community_js)):
     if "</script" in blob.lower():
         raise SystemExit("Refusing to inline %s: it contains a closing script tag." % name)
 
@@ -108,6 +109,11 @@ html = html.replace(
 html = html.replace(
     '<script src="./access.js"></script>',
     "<script>\n" + access_js + "\n</script>",
+    1,
+)
+html = html.replace(
+    '<script src="./workspace-sync.js"></script>',
+    "<script>\n" + workspace_sync_js + "\n</script>",
     1,
 )
 html = html.replace(

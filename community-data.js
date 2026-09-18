@@ -829,6 +829,10 @@
 
   window.BotoData = {
     configured: configured,
+    /* The shared Supabase client: workspace-sync reuses it for the
+       per-account workspace reads/writes so token refresh happens in
+       exactly one place. */
+    db: db,
     notifications: notifications,
     unreadCount: unreadCount,
     markAllRead: markAllRead,

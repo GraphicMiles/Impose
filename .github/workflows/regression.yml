@@ -36,6 +36,11 @@ jobs:
           node agent/tests/orchestrator.js
           node agent/tests/audit-regressions.js
           node agent/tests/taste.js
+      - name: Workspace sync round trip
+        # The per-account persistence layer seals provider keys before they
+        # touch storage; this stubs localStorage and a session and asserts
+        # no plaintext key ever reaches the cache, across both key tiers.
+        run: node tests/workspace_sync_roundtrip.js
       - name: Relay contract suites
         run: PYTHONPATH=backend python3 -m pytest backend -q
       - name: Database schema assertions

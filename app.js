@@ -221,7 +221,18 @@
 
   var store = {
     read: function () {
-      try { return window.localStorage.getItem(STORE_KEY) || window.localStorage.getItem(LEGACY_STORE_KEY); }
+      try {
+        /* Signed-in: the workspace belongs to the account. Boot from the
+           per-account cache (instant, offline-safe); WSync.pullIfNewer
+           upgrades it from the backend right after, and signing out
+           removes it. The shared legacy key is never read in this mode:
+           it may hold a previous person's chats on this device. */
+        if (window.WSync && WSync.accountMode()) {
+          var payload = WSync.bootPayload();
+          return payload ? JSON.stringify(payload) : null;
+        }
+        return window.localStorage.getItem(STORE_KEY) || window.localStorage.getItem(LEGACY_STORE_KEY);
+      }
       catch (e) { return null; }
     },
     write: function (v) {
@@ -790,11 +801,21 @@
         }
       } catch (e) { /* fall through to seed */ }
     }
-    return { chats: seedChats(), providers: [], folders: [], outbox: [], library: [], memories: [], settings: defaultSettings() };
+    /* Signed-in accounts start clean: their data arrives from the
+       backend, never from demo seed content that would then be uploaded
+       and follow them across devices forever. Seed chats stay the
+       device-local demo's first-run experience. */
+    var seedFor = (window.WSync && WSync.accountMode()) ? [] : seedChats();
+    return { chats: seedFor, providers: [], folders: [], outbox: [], library: [], memories: [], settings: defaultSettings() };
   }
 
   var state = loadState();
   var activeId = state.settings.activeChatId || null;
+  /* True when this page booted with a signed-in account. After sign-out
+     the local branch of save() must stay quiet: the in-memory state is
+     now an empty clean session, and writing it over the device-global
+     key would wipe a previous local demo's chats. */
+  var bootedAsAccount = !!(window.WSync && WSync.accountMode());
   var lastSendAt = 0;
   var relayDown = false;
   var relayRecoveryCheck = null;
@@ -806,8 +827,12 @@
 
   var quotaTrimming = false;
 
+  function payloadObj() {
+    return { chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, library: state.library || [], memories: state.memories || [], settings: state.settings };
+  }
+
   function payloadJson() {
-    return JSON.stringify({ chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, library: state.library || [], memories: state.memories || [], settings: state.settings });
+    return JSON.stringify(payloadObj());
   }
 
   /* Quota rescue: photos are the only heavy part of the store, so drop them
@@ -832,6 +857,42 @@
   }
 
   function save() {
+    /* Signed-in: WSync persists the account payload. It seals provider
+       API keys (AES-GCM) before they touch the cache or the backend, so
+       plaintext keys are never written anywhere. Quota rescue is the
+       same as the local path: trim old images, retry, then tell the
+       user rather than silently losing data. */
+    if (window.WSync && WSync.accountMode()) {
+      WSync.persist(payloadObj()).catch(function (e) {
+        var quota = e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014);
+        if (!quota) return;
+        if (quotaTrimming) return;
+        quotaTrimming = true;
+        try {
+          var removed = trimOldestImages();
+          WSync.persist(payloadObj()).catch(function () {
+            toast("Browser storage is full. Export your chats, then delete a few old ones.");
+          });
+          toast(removed
+            ? "Browser storage was full. " + removed + " older image" + (removed === 1 ? " was" : "s were") + " removed to make space."
+            : "Browser storage is full. Export your chats, then delete a few old ones.");
+        }
+        catch (e2) {
+          toast("Browser storage is full. Export your chats, then delete a few old ones.");
+        }
+        quotaTrimming = false;
+      });
+      return;
+    }
+    if (bootedAsAccount && !(window.WSync && WSync.accountMode())
+        && !state.chats.length && !state.providers.length) {
+      /* Signed out of an account session this run: the in-memory state is
+         a clean empty session. Writing it over the device-global key would
+         erase whatever a local demo stored there, so stay quiet. A
+         non-empty state (for example a token that expired mid-session)
+         still lands locally: some persistence beats none. */
+      return;
+    }
     try {
       store.write(payloadJson());
       return;
@@ -6125,6 +6186,38 @@
     toast("All chats deleted");
   }
 
+  /* Signing out leaves a clean session: no previous account's chats,
+     providers, keys or settings stay in memory or on the device. The
+     account's durable copy lives in the backend and returns on the next
+     sign-in. This mutates the same state object the engine was built
+     around, so every closure keeps working. */
+  function resetWorkspaceForSignOut() {
+    stopStream();
+    state.chats = [];
+    state.providers = [];
+    state.folders = [];
+    state.outbox = [];
+    state.library = [];
+    state.memories = [];
+    state.settings = defaultSettings();
+    state.settings.theme = "dark";
+    document.documentElement.setAttribute("data-theme", "dark");
+    activeId = null;
+    rememberActiveChat(null, "push");
+    messagesEl.innerHTML = "";
+    renderList();
+    renderModelMenu();
+    syncModelLabel();
+    renderMemory();
+    renderLibrary();
+    renderProviders();
+    syncAvatars();
+    syncToolMenu();
+    syncKeySecurityUI();
+    refreshIcons();
+    showEmpty();
+  }
+
   $("profileBtn").addEventListener("click", function () { openAccount($("profileBtn"), "top", "start"); });
 
   $("avatarBtn").addEventListener("click", function () { openAccount($("avatarBtn"), "bottom", "end"); });
@@ -6148,24 +6241,38 @@
          the Supabase session survived: the menu said signed out and the
          user could still post, comment and delete. Ending the real session
          is the part that matters, and it has to come first. */
+      var uidBefore = window.WSync ? WSync.userId() : null;
+      var account = !!uidBefore;
       var done = function () {
         localStorage.removeItem("impose.auth.v1");
         if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+        if (window.WSync) WSync.signOutReset(uidBefore);
+        if (account) resetWorkspaceForSignOut();
+        if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
         syncAccountMenu();
-        toast("Signed out. Your local chats are still here.");
+        toast(account
+          ? "Signed out. Your workspace is saved to your account."
+          : "Signed out. Your local chats are still here.");
       };
-      if (window.BotoAuth && BotoAuth.signOut) {
-        BotoAuth.signOut().then(done, function () {
-          /* The server refused or the network is down. Clear the local
-             session anyway: leaving someone signed in because logout
-             failed is the wrong direction to fail in, and the token
-             expires on its own. */
+      var doSignOut = function () {
+        if (window.BotoAuth && BotoAuth.signOut) {
+          BotoAuth.signOut().then(done, function () {
+            /* The server refused or the network is down. Clear the local
+               session anyway: leaving someone signed in because logout
+               failed is the wrong direction to fail in, and the token
+               expires on its own. */
+            done();
+            toast("Signed out here. The session may still be active elsewhere.");
+          });
+        } else {
           done();
-          toast("Signed out here. The session may still be active elsewhere.");
-        });
-      } else {
-        done();
-      }
+        }
+      };
+      /* Flush pending workspace writes before the session dies: after
+         sign-out there is no token to push with, and the local cache is
+         about to be removed. */
+      if (account && window.WSync) WSync.flushNow().then(doSignOut, doSignOut);
+      else doSignOut();
       return;
     }
     window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
@@ -6645,6 +6752,7 @@
     $("tglFollow").setAttribute("aria-checked", state.settings.followupsSmart ? "true" : "false");
     $("tglAutoName").setAttribute("aria-checked", state.settings.autoName ? "true" : "false");
     $("retentionSel").value = String(state.settings.retentionDays || 0);
+    syncKeySecurityUI();
   }
 
   function switchTab(name) {
@@ -7047,6 +7155,114 @@
   }
 
   $("encExportBtn").addEventListener("click", function () { openEncModal("encrypt"); });
+
+  /* ---------- provider key lock ----------
+     Provider API keys never persist in plaintext. Signed-in, they are
+     sealed with AES-GCM before every write (WSync.persist). Two tiers:
+     the default device key (random, this-browser-only) and an optional
+     passphrase lock, where nothing at all is stored and the keys stay
+     locked until the passphrase is entered. */
+
+  function keysLocked() {
+    return !!(window.WSync && state.settings.keyMode === "passphrase" && WSync.anySealedProvider(state.providers));
+  }
+
+  function syncKeySecurityUI() {
+    var section = $("keySecuritySection");
+    if (!section) return;
+    var account = !!(window.WSync && WSync.accountMode());
+    section.hidden = !account;
+    if (!account) return;
+    var passphraseMode = state.settings.keyMode === "passphrase";
+    $("tglKeyPassphrase").setAttribute("aria-checked", passphraseMode ? "true" : "false");
+    $("keyLockedRow").hidden = !keysLocked();
+    $("keyStorageDesc").textContent = passphraseMode
+      ? "Sealed with your passphrase. Nothing is stored unencrypted, here or in your account"
+      : "Sealed with a key unique to this device before they are stored or synced";
+  }
+
+  var keyModalMode = null;
+  function openKeyModal(mode) {
+    keyModalMode = mode;
+    $("keyPass").value = "";
+    $("keyPass2").value = "";
+    $("keyModalStatus").textContent = "";
+    $("keyModalTitle").textContent = mode === "unlock" ? "Unlock provider keys"
+      : mode === "disable" ? "Remove passphrase lock" : "Set passphrase lock";
+    $("keyPass2Row").hidden = mode !== "enable";
+    $("keyModalGo").firstElementChild.textContent = mode === "unlock" ? "Unlock"
+      : mode === "disable" ? "Remove lock" : "Set lock";
+    openModal($("keyModal"));
+    setTimeout(function () { $("keyPass").focus(); }, 200);
+  }
+
+  $("tglKeyPassphrase").addEventListener("click", function () {
+    if (!(window.WSync && WSync.accountMode())) {
+      toast.warn("Sign in to change how your keys are stored.");
+      return;
+    }
+    openKeyModal(state.settings.keyMode === "passphrase" ? "disable" : "enable");
+  });
+  $("keyLockedBtn").addEventListener("click", function () { openKeyModal("unlock"); });
+  $("keyModalCancel").addEventListener("click", function () { closeModal($("keyModal")); });
+  $("keyModal").addEventListener("pointerdown", function (e) { if (e.target === this) closeModal(this); });
+  ["keyPass", "keyPass2"].forEach(function (id) {
+    $(id).addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); $("keyModalGo").click(); }
+      if (e.key === "Escape") closeModal($("keyModal"));
+    });
+  });
+
+  $("keyModalGo").addEventListener("click", function () {
+    if (!window.WSync) return;
+    var pw = $("keyPass").value;
+    var status = $("keyModalStatus");
+    if (keyModalMode === "enable") {
+      if (String(pw).length < 8) { status.textContent = "Use a passphrase of at least 8 characters."; return; }
+      if (pw !== $("keyPass2").value) { status.textContent = "The passphrases do not match."; return; }
+      state.settings.keySalt = WSync.newSalt();
+      WSync.armPassphraseLock(pw, state.settings.keySalt).then(function () {
+        state.settings.keyMode = "passphrase";
+        save(); /* re-seals every provider key with the passphrase key */
+        closeModal($("keyModal"));
+        syncKeySecurityUI();
+        toast.success("Passphrase lock is on. Keys unlock only with it.");
+      }, function (err) {
+        delete state.settings.keySalt;
+        status.textContent = (err && err.message) || "Could not set the lock.";
+      });
+      return;
+    }
+    /* disable and unlock both prove the passphrase by opening the keys */
+    WSync.unlockWithPassphrase(state.providers, state.settings, pw).then(function (gained) {
+      if (keyModalMode === "disable") {
+        state.settings.keyMode = "device";
+        delete state.settings.keySalt;
+        save(); /* re-seals with the device key */
+        WSync.setUnlockedKey(null);
+        closeModal($("keyModal"));
+        syncKeySecurityUI();
+        renderModelMenu();
+        syncModelLabel();
+        renderProviders();
+        refreshIcons();
+        toast.success("Passphrase lock removed. Keys are protected by this device's key.");
+        return;
+      }
+      closeModal($("keyModal"));
+      syncKeySecurityUI();
+      renderModelMenu();
+      syncModelLabel();
+      renderProviders();
+      syncToolMenu();
+      refreshIcons();
+      toast.success(gained
+        ? "Unlocked " + gained + " provider key" + (gained === 1 ? "" : "s") + "."
+        : "Unlocked.");
+    }, function (err) {
+      status.textContent = (err && err.message) || "Could not unlock.";
+    });
+  });
   $("encCancel").addEventListener("click", function () {
     if (encBusy) { toast("The encryption step is finishing. It cannot be safely interrupted."); return; }
     closeModal($("encModal"));
@@ -8175,6 +8391,69 @@
       save();
     }
     maybeOnboard();
+
+    /* Signed-in boot: the cache copy rendered above is the fast path.
+       Now make it correct: unlock provider keys, adopt newer backend
+       data, and offer the one-time import of pre-account local chats. */
+    if (window.WSync && WSync.accountMode()) {
+      (function bootAccount() {
+        var uid = WSync.userId();
+        WSync.sweepCaches(uid);
+        WSync.unlockProviders(state.providers, state.settings, uid).then(function (gained) {
+          if (gained > 0) {
+            renderModelMenu();
+            syncModelLabel();
+            renderProviders();
+            syncToolMenu();
+            refreshIcons();
+          }
+        }).catch(function () { /* keys stay locked until unlocked */ });
+
+        /* Another device may have written since this cache was saved.
+           The backend is the record of truth: adopt it and restart so
+           the whole engine boots against the fresh payload, instead of
+           patching live state mid-flight. */
+        WSync.pullIfNewer(function () {
+          try {
+            if (sessionStorage.getItem("impose.hydration") !== "1") {
+              sessionStorage.setItem("impose.hydration", "1");
+              window.location.reload();
+            }
+          } catch (e) { /* the adoption is an optimization, not a requirement */ }
+        }).catch(function () { /* offline: the cache stands */ });
+
+        /* Pre-account chats live in the shared legacy key. They are
+           never adopted silently - that would hand one person's local
+          data to the next account that signs in here - only imported
+           by an explicit choice, once. */
+        if (!WSync.bootPayload() && WSync.hasLegacyBlob()) {
+          toast("Local chats from before account sync were found on this device.", "Import them", function () {
+            var legacy = WSync.readLegacy();
+            if (!legacy || !Array.isArray(legacy.chats)) return;
+            state.chats = legacy.chats;
+            state.providers = Array.isArray(legacy.providers) ? legacy.providers : [];
+            state.folders = Array.isArray(legacy.folders) ? legacy.folders : [];
+            state.outbox = Array.isArray(legacy.outbox) ? legacy.outbox : [];
+            state.library = Array.isArray(legacy.library) ? legacy.library : [];
+            state.memories = Array.isArray(legacy.memories) ? legacy.memories : [];
+            state.settings = Object.assign(defaultSettings(), legacy.settings || {});
+            activeId = state.settings.activeChatId || null;
+            renderList();
+            renderModelMenu();
+            syncModelLabel();
+            renderMemory();
+            renderLibrary();
+            renderProviders();
+            syncAvatars();
+            refreshIcons();
+            save();
+            WSync.removeLegacy();
+            dnote("app", "Legacy local chats imported into the account");
+          }, 12000);
+        }
+      })();
+    }
+
     function restoreFromHistory() {
       /* Mode switches (#/, #/workspace, or a stripped hash) must not disturb
          the open chat; only a chat deep link (#chat=...) opens one and only

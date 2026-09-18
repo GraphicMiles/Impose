@@ -8,7 +8,38 @@
 (function () {
   "use strict";
 
-  var LS_KEY = "slopify:v6"; /* v6: ported into the Botocracy shell as Community mode */
+  /* v6: ported into the Botocracy shell as Community mode. The cache is
+     scoped per identity: every signed-in account gets its own key plus
+     one shared anonymous key. A cache is only ever read by the identity
+     that wrote it, so another person's private posts or "own" flags can
+     no longer resurface for whoever opens the app next. */
+  var LS_KEY_BASE = "slopify:v6";
+  var myUserId = (window.WSync && WSync.userId) ? WSync.userId() : null;
+  function cacheKeyFor(uid) { return uid ? LS_KEY_BASE + "::" + uid : LS_KEY_BASE + ":anon"; }
+  var LS_KEY = cacheKeyFor(myUserId);
+
+  /* One-time migration of the pre-scoping key. Its `own` flags were set
+     by whoever used this device before, so they cannot be trusted: keep
+     only what any viewer may see, drop the rest, then retire the key. */
+  (function migrateLegacyCommunityCache() {
+    try {
+      var raw = localStorage.getItem(LS_KEY_BASE);
+      if (!raw) return;
+      var parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.generations) && !localStorage.getItem(LS_KEY)) {
+        parsed.generations = parsed.generations.filter(function (g) {
+          return g && typeof g === "object" && !g.own && (g.visibility || "public") === "public";
+        });
+        parsed.comments = (Array.isArray(parsed.comments) ? parsed.comments : []).filter(function (c) {
+          return c && typeof c === "object" && !c.own;
+        });
+        localStorage.setItem(LS_KEY, JSON.stringify(parsed));
+      }
+      localStorage.removeItem(LS_KEY_BASE);
+    } catch (e) {
+      try { localStorage.removeItem(LS_KEY_BASE); } catch (e2) { /* leave it unreadable */ }
+    }
+  })();
 
   /* Deepest level a comment may nest. Root(0) + replies(1) + sub-replies(2)
      = 3 visible rows, the YouTube rule. Replying to a comment already at the
@@ -92,6 +123,18 @@
       if (!raw) return null;
       var parsed = JSON.parse(raw);
       if (!parsed || !Array.isArray(parsed.generations)) return null;
+      if (!myUserId) {
+        /* Signed out: public content only. The server enforces this via
+           RLS on every fetch; the cache enforces it again here so a
+           stale or hand-edited blob cannot leak private posts or
+           someone else's "own" records into an anonymous session. */
+        parsed.generations = parsed.generations.filter(function (g) {
+          return !g || typeof g !== "object" || (!g.own && (g.visibility || "public") === "public");
+        });
+        parsed.comments = (Array.isArray(parsed.comments) ? parsed.comments : []).filter(function (c) {
+          return !c || typeof c !== "object" || !c.own;
+        });
+      }
       /* Migration: freshPinned was persisted by an earlier build, so stored
          posts can carry a pin that would otherwise sit at the top of the
          feed forever. Pins are session state now, so strip any that were
@@ -648,6 +691,19 @@
   function goSignIn() {
     try { localStorage.setItem("impose.auth.returnTo", location.hash || "#/"); } catch (e) { /* private mode */ }
     window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
+  }
+
+  /* Community is read-only for signed-out visitors. Every write path
+     checks this first and stops BEFORE any optimistic row exists: no
+     fake "Sending" card, no popup after the fact - the server would
+     refuse the write anyway, so the honest UX is to ask for sign-in
+     first and create nothing until the write can actually happen. */
+  function signedIn() { return !!myUserId; }
+
+  function requireSignIn(verb) {
+    if (myUserId) return true;
+    notify("Sign in to " + verb + ".", "Sign in", goSignIn);
+    return false;
   }
 
   /* Thread read path. Returns what should be rendered, which is not the same
@@ -1998,6 +2054,7 @@
     }
 
     function startReply(target) {
+      if (!requireSignIn("reply")) return;
       replyingTo = target;
       replyTargetLost = false;
       if (ctxBar) {
@@ -2017,6 +2074,7 @@
     }
 
     function post() {
+      if (!requireSignIn("comment")) return;
       var text = input.value.trim();
       /* State 8: empty or whitespace-only submission is not an error, it is
          a no-op. The send button is already disabled; this is the guard for
@@ -2243,7 +2301,10 @@
     });
   }
 
-  var myUserId = null;
+  /* myUserId is declared once at the top of the module, seeded
+     synchronously from the Supabase session so write gating is correct
+     from the very first render; the async refresh below only confirms
+     it. Do not re-initialise it here. */
 
   function pollOnce() {
     if (!liveOnline() || currentMode() !== "community") return Promise.resolve();
@@ -2454,6 +2515,8 @@
 
   function sendGeneration() {
     if (streamingNow) return;
+    var verb = composeCtx ? (composeCtx.mode === "challenge" ? "challenge" : "remix") : "post";
+    if (!requireSignIn(verb)) return;
     var input = $("cmInput");
     var raw = input.value;
     /* Addressed to the agent or not. Unaddressed text is a plain post: it
@@ -2797,6 +2860,7 @@
     e.stopPropagation();
 
     if (act === "save") {
+      if (!requireSignIn("save posts")) return;
       if (gen.pending) { notify("Wait for the post to send first."); return; }
       /* Optimistic, and reverted on refusal. The count is nudged locally
          only so the number under the thumb matches the icon; the server
@@ -2847,6 +2911,7 @@
       return;
     }
     if (act === "remix" || act === "challenge") {
+      if (!requireSignIn(act)) return;
       if (gen.locked) return;
       location.hash = "#/";
       setContext(act, gen);
@@ -2930,10 +2995,12 @@
     var dock = $("cmComposerDock");
     if (!btn) return;
     var toBot = addressesBot($("cmInput").value);
-    var label = toBot ? "Ask @bot" : "Post to the feed";
+    /* Signed-out visitors are read-only: the button states the truth up
+       front instead of starting a send that the server will refuse. */
+    var label = !signedIn() ? "Sign in to post" : (toBot ? "Ask @bot" : "Post to the feed");
     btn.title = label;
     btn.setAttribute("aria-label", label);
-    if (dock) dock.classList.toggle("to-bot", toBot);
+    if (dock) dock.classList.toggle("to-bot", toBot && signedIn());
   }
 
   function initComposer() {
@@ -3175,6 +3242,25 @@
     });
     refreshIcons();
   }
+
+  /* Signing out does not reload the page, and Community stays mounted,
+     so the workspace sign-out flow tells it to drop the previous
+     identity here: switch to the anonymous cache (public content only),
+     clear any compose context, and repaint. */
+  window.BotoCommunity = {
+    signOutReset: function () {
+      myUserId = null;
+      LS_KEY = cacheKeyFor(null);
+      state = load() || seed();
+      composeCtx = null;
+      var ctx = $("cmRemixCtx");
+      if (ctx) ctx.hidden = true;
+      route();
+      syncSend();
+      syncSendIntent();
+      refreshIcons();
+    }
+  };
 
   init();
 })();

@@ -4449,6 +4449,18 @@ try {
         <div id="usageTable"></div>
       </div>
       <div data-pane="data" hidden>
+        <section class="settings-section" id="keySecuritySection">
+          <h3>Security</h3>
+          <div class="setting-row">
+            <div class="setting-text"><strong>API keys encrypted at rest</strong><span id="keyStorageDesc">Keys are sealed on this device before they are stored or synced</span></div>
+            <button class="toggle" id="tglKeyPassphrase" role="switch" aria-checked="false" aria-label="Passphrase lock for API keys"><span class="knob"></span></button>
+          </div>
+          <p class="fhelp" id="keySecurityHelp">On: provider keys lock behind a passphrase only you know. Off: a key unique to this device protects them.</p>
+          <div class="setting-row" id="keyLockedRow" hidden>
+            <div class="setting-text"><strong>Provider keys are locked</strong><span>Enter your passphrase to use providers that need a key</span></div>
+            <button class="btn" id="keyLockedBtn" type="button"><i data-lucide="lock"></i><span>Unlock</span></button>
+          </div>
+        </section>
         <section class="settings-section">
           <h3>Data</h3>
           <div class="setting-row">
@@ -4633,6 +4645,30 @@ try {
   </div>
 </div>
 
+<div class="overlay center" id="keyModal" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="API key lock">
+    <div class="settings-head">
+      <h2 id="keyModalTitle">Passphrase lock</h2>
+      <button class="icon-btn" id="keyModalCancel" title="Close" aria-label="Close">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div class="field">
+        <label class="flabel" for="keyPass">Passphrase</label>
+        <input type="password" class="text-input mono" id="keyPass" autocomplete="new-password" spellcheck="false">
+      </div>
+      <div class="field" id="keyPass2Row">
+        <label class="flabel" for="keyPass2">Repeat the passphrase</label>
+        <input type="password" class="text-input mono" id="keyPass2" autocomplete="new-password" spellcheck="false">
+      </div>
+      <p class="status-line" id="keyModalStatus" aria-live="polite"></p>
+      <div class="editor-foot">
+        <button class="btn primary grow" id="keyModalGo" type="button"><span>Set lock</span></button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="overlay center" id="encModal" hidden>
   <div class="sheet settings-sheet" role="dialog" aria-modal="true" aria-label="Encrypted backup">
     <div class="settings-head">
@@ -8345,6 +8381,499 @@ window.BotoConfig = {
 
 </script>
 <script>
+/* Per-account workspace persistence.
+
+   The workspace used to live in one device-global localStorage key,
+   shared by every identity that ever opened this browser. This module
+   makes the workspace belong to the signed-in account:
+
+   - Backend is the durable store: one row per user in
+     public.workspace_state (migration 0016), written through the
+     save_workspace RPC. It syncs across devices.
+   - localStorage is a transient per-account cache. It exists so the
+     app boots instantly and survives flaky networks; it is never the
+     record of truth and it is removed on sign-out.
+   - Provider API keys are sealed with AES-GCM before they are written
+     anywhere (cache or backend). Default tier: a random per-account
+     wrapping key that never leaves this device. Optional tier: a
+     wrapping key derived from a passphrase (PBKDF2), where nothing at
+     all is stored and the keys stay locked until the passphrase is
+     entered. The server only ever sees ciphertext.
+
+   Identity comes from the Supabase session stored by the auth SDK,
+   read synchronously so the app can boot without waiting on a network
+   round trip. */
+(function () {
+  "use strict";
+
+  var CFG = window.BotoConfig || {};
+  var CACHE_PREFIX = "impose.cache.";
+  var WSK_PREFIX = "impose.wsk.";
+  var LEGACY_KEY = "impose.clone.v1";
+  var PUSH_DEBOUNCE_MS = 1200;
+
+  /* ---------- small utilities ---------- */
+
+  function b64(bytes) {
+    var s = "";
+    var u = new Uint8Array(bytes);
+    for (var i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
+    return btoa(s);
+  }
+  function unb64(s) {
+    var raw = atob(String(s || ""));
+    var u = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) u[i] = raw.charCodeAt(i);
+    return u;
+  }
+  function webCrypto() {
+    return ((typeof globalThis !== "undefined" && globalThis.crypto) || window.crypto) || null;
+  }
+  function subtleCrypto() {
+    var c = webCrypto();
+    return (c && c.subtle) ? c.subtle : null;
+  }
+  function randomBytes(n) {
+    var u = new Uint8Array(n);
+    var c = webCrypto();
+    if (c && c.getRandomValues) c.getRandomValues(u);
+    return u;
+  }
+
+  /* ---------- identity ---------- */
+
+  /* The auth SDK stores the live session under sb-<ref>-auth-token.
+     Reading it directly (instead of asking the SDK) keeps this module
+     usable before supabase.min.js has loaded, and gives a synchronous
+     identity at boot. */
+  function sessionInfo() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k.indexOf("sb-") === 0 && k.indexOf("-auth-token") > -1) {
+          var v = JSON.parse(localStorage.getItem(k));
+          if (v && v.access_token && v.user && v.user.id) return v;
+        }
+      }
+    } catch (e) { /* unreadable session: treat as signed out */ }
+    return null;
+  }
+  function userId() {
+    var s = sessionInfo();
+    return s ? s.user.id : null;
+  }
+
+  function configured() {
+    return !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY);
+  }
+
+  /* "account": signed in, so the workspace belongs to that account.
+     "local": no session. The app keeps its previous device-local demo
+     behaviour so ACCESS_MODE=open deployments still work offline. */
+  function accountMode() {
+    return !!userId();
+  }
+
+  /* ---------- per-account cache ---------- */
+
+  function cacheKey(uid) { return CACHE_PREFIX + (uid || "anon"); }
+
+  function readCache(uid) {
+    try {
+      var raw = localStorage.getItem(cacheKey(uid));
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (parsed && parsed.v === 2 && parsed.data) return parsed;
+      return null;
+    } catch (e) { return null; }
+  }
+
+  function writeCache(uid, wrapper) {
+    /* Throws on quota errors: the caller owns the rescue (image trim). */
+    localStorage.setItem(cacheKey(uid), JSON.stringify(wrapper));
+  }
+
+  function removeCache(uid) {
+    try { localStorage.removeItem(cacheKey(uid)); } catch (e) { /* gone anyway */ }
+  }
+
+  /* Clean up caches that belong to accounts no longer signed in here.
+     Called with the uid that is staying; everything else goes. */
+  function sweepCaches(keepUid) {
+    try {
+      var drop = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k.indexOf(CACHE_PREFIX) === 0 && k !== cacheKey(keepUid)) drop.push(k);
+      }
+      drop.forEach(function (k) { localStorage.removeItem(k); });
+    } catch (e) { /* best effort */ }
+  }
+
+  function hasLegacyBlob() {
+    try {
+      var raw = localStorage.getItem(LEGACY_KEY);
+      if (!raw) return false;
+      var parsed = JSON.parse(raw);
+      return !!(parsed && Array.isArray(parsed.chats));
+    } catch (e) { return false; }
+  }
+  function readLegacy() {
+    try { return JSON.parse(localStorage.getItem(LEGACY_KEY) || "null"); }
+    catch (e) { return null; }
+  }
+  function removeLegacy() {
+    try { localStorage.removeItem(LEGACY_KEY); localStorage.removeItem("nova.clone.v1"); }
+    catch (e) { /* already gone */ }
+  }
+
+  /* ---------- key wrapping (AES-GCM) ---------- */
+
+  function importAes(rawB64) {
+    return subtleCrypto().importKey("raw", unb64(rawB64), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  }
+
+  /* Default tier: a random 256-bit wrapping key per account, kept in
+     this browser only. The backend never receives it, so a database
+     breach yields ciphertext without the key. Honest caveat: anyone
+     with full access to this signed-in browser profile can decrypt,
+     because the key sits beside the lock; that is inherent to any
+     client-side decryption. The passphrase tier removes even that. */
+  function deviceKey(uid, createIfMissing) {
+    var storeKey = WSK_PREFIX + uid;
+    var raw = null;
+    try { raw = localStorage.getItem(storeKey); } catch (e) { /* private mode */ }
+    if (!raw) {
+      if (!createIfMissing) return Promise.resolve(null);
+      raw = b64(randomBytes(32));
+      try { localStorage.setItem(storeKey, raw); } catch (e) { return Promise.resolve(null); }
+    }
+    return importAes(raw);
+  }
+
+  function removeDeviceKey(uid) {
+    try { localStorage.removeItem(WSK_PREFIX + uid); } catch (e) { /* best effort */ }
+  }
+
+  /* Passphrase tier: PBKDF2 -> AES-GCM. Same parameters as the
+     encrypted backup format so both locks feel identical. */
+  function passphraseKey(passphrase, saltB64) {
+    var sub = subtleCrypto();
+    return sub.importKey("raw", new TextEncoder().encode(String(passphrase || "")), "PBKDF2", false, ["deriveKey"])
+      .then(function (material) {
+        return sub.deriveKey(
+          { name: "PBKDF2", salt: unb64(saltB64), iterations: 200000, hash: "SHA-256" },
+          material,
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt", "decrypt"]);
+      });
+  }
+
+  function newSalt() { return b64(randomBytes(16)); }
+
+  function sealText(plain, key) {
+    var iv = randomBytes(12);
+    return subtleCrypto().encrypt({ name: "AES-GCM", iv: iv }, key, new TextEncoder().encode(plain))
+      .then(function (enc) { return { v: 1, iv: b64(iv), ct: b64(enc) }; });
+  }
+  function openText(blob, key) {
+    return subtleCrypto().decrypt({ name: "AES-GCM", iv: unb64(blob.iv) }, key, unb64(blob.ct))
+      .then(function (dec) { return new TextDecoder().decode(dec); });
+  }
+
+  /* Sealed copy: apiKey replaced by keyEnc. The in-memory state keeps
+     the plaintext for live use; only the serialized form is sealed. */
+  function sealProviders(providers, key) {
+    var chain = Promise.resolve([]);
+    (providers || []).forEach(function (p) {
+      chain = chain.then(function (out) {
+        if (!p || (typeof p.apiKey !== "string") || !p.apiKey) {
+          /* No live key to seal. Keep keyEnc untouched: for a locked
+             provider it is the only surviving form of the key. */
+          out.push(Object.assign({}, p));
+          return out;
+        }
+        return sealText(p.apiKey, key).then(function (blob) {
+          var sealed = Object.assign({}, p, { keyEnc: blob });
+          delete sealed.apiKey;
+          out.push(sealed);
+          return out;
+        });
+      });
+    });
+    return chain;
+  }
+
+  function openProviders(providers, key) {
+    var chain = Promise.resolve([]);
+    (providers || []).forEach(function (p) {
+      chain = chain.then(function (out) {
+        if (!p || !p.keyEnc || typeof p.apiKey === "string") { out.push(p); return out; }
+        return openText(p.keyEnc, key).then(function (plain) {
+          var opened = Object.assign({}, p, { apiKey: plain });
+          delete opened.keyEnc;
+          out.push(opened);
+          return out;
+        }, function () {
+          out.push(p); /* wrong key or corrupt blob: stays locked */
+          return out;
+        });
+      });
+    });
+    return chain;
+  }
+
+  /* The key used for writing. Passphrase mode requires an unlocked key
+     in memory (set via setUnlockedKey); if the user has not unlocked
+     yet this session, providers are written without their keys rather
+     than re-encrypting with the wrong key - the next save after unlock
+     restores them. */
+  var unlockedPassphraseKey = null;
+  function setUnlockedKey(key) { unlockedPassphraseKey = key; }
+
+  function writeKey(uid, settings) {
+    if (!subtleCrypto()) return Promise.resolve(null);
+    var mode = settings && settings.keyMode === "passphrase" ? "passphrase" : "device";
+    if (mode === "passphrase") return Promise.resolve(unlockedPassphraseKey);
+    return deviceKey(uid, true);
+  }
+
+  function anySealedProvider(providers) {
+    for (var i = 0; i < (providers || []).length; i++) {
+      if (providers[i] && providers[i].keyEnc && typeof providers[i].apiKey !== "string") return true;
+    }
+    return false;
+  }
+
+  /* ---------- persistence ---------- */
+
+  var lastRev = 0;
+  var pushTimer = null;
+  var pushing = false;
+  var pendingPayload = null;
+
+  function client() {
+    /* The shared SDK client handles token refresh; reuse it whenever it
+       exists. Falls back to raw REST for contexts where the SDK never
+       loaded. */
+    if (window.BotoData && BotoData.db) {
+      try { return BotoData.db(); } catch (e) { /* fall through */ }
+    }
+    if (window.supabase && supabase.createClient) {
+      return supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+    }
+    return null;
+  }
+
+  function pull(uid) {
+    var c = client();
+    if (!c) return Promise.resolve(null);
+    return c.from("workspace_state").select("data,rev").limit(1).maybeSingle()
+      .then(function (res) {
+        if (res && res.data && res.data.data) {
+          return { data: res.data.data, rev: res.data.rev || 0 };
+        }
+        return null;
+      }, function () { return null; });
+  }
+
+  function push(uid, payloadObj) {
+    var c = client();
+    if (!c) return Promise.resolve(null);
+    return c.rpc("save_workspace", { p_data: payloadObj }).then(function (res) {
+      if (res && res.error) throw res.error;
+      var rev = res && res.data && res.data.rev;
+      if (rev) {
+        lastRev = Math.max(lastRev, rev);
+        /* Bring the cache's rev up to the backend's. persist() wrote the
+           cache before this push knew its rev, so without this a tab that
+           closes between the two would boot one rev behind and do one
+           needless adopt-and-reload. */
+        try {
+          var cached = readCache(uid);
+          if (cached && (cached.rev || 0) < lastRev) {
+            cached.rev = lastRev;
+            writeCache(uid, cached);
+          }
+        } catch (e) { /* cache rev drift is cosmetic */ }
+      }
+      return rev || null;
+    });
+  }
+
+  function schedulePush(uid, payloadObj) {
+    pendingPayload = payloadObj;
+    if (pushTimer) return;
+    pushTimer = setTimeout(function () {
+      pushTimer = null;
+      var payload = pendingPayload;
+      pendingPayload = null;
+      if (!payload || !userId()) return;
+      pushing = true;
+      push(uid, payload).catch(function () {
+        /* Offline or transient failure: the payload stays in the local
+           cache and the next save pushes it. */
+      }).then(function () { pushing = false; });
+    }, PUSH_DEBOUNCE_MS);
+  }
+
+  function flushNow() {
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    var payload = pendingPayload;
+    pendingPayload = null;
+    var uid = userId();
+    if (payload && uid) return push(uid, payload).catch(function () { return null; });
+    return Promise.resolve(null);
+  }
+
+  /* Serialize + seal + cache + push. Throws quota errors upward so the
+     caller can trim images and retry, exactly like the local path. */
+  function persist(payloadObj) {
+    var uid = userId();
+    if (!uid) return Promise.resolve();
+    var copy = {
+      chats: payloadObj.chats,
+      providers: payloadObj.providers,
+      folders: payloadObj.folders,
+      outbox: payloadObj.outbox,
+      library: payloadObj.library || [],
+      memories: payloadObj.memories || [],
+      settings: Object.assign({}, payloadObj.settings || {})
+    };
+    return writeKey(uid, copy.settings).then(function (key) {
+      if (!key || !subtleCrypto()) return copy;
+      return sealProviders(copy.providers, key).then(function (sealed) {
+        copy.providers = sealed;
+        return copy;
+      });
+    }).then(function (sealedCopy) {
+      writeCache(uid, { v: 2, rev: lastRev, data: sealedCopy }); /* may throw quota */
+      schedulePush(uid, sealedCopy);
+    });
+  }
+
+  /* ---------- boot ---------- */
+
+  /* Returns the account payload if the cache holds one. Providers may be
+     sealed; unlockProviders runs right after boot. */
+  function bootPayload() {
+    var uid = userId();
+    if (!uid) return null;
+    var cached = readCache(uid);
+    if (cached) { lastRev = cached.rev || 0; return cached.data; }
+    return null;
+  }
+
+  /* Backend wins when it is newer than the cache (another device wrote
+     since). Returns the fresher payload or null when the cache stands. */
+  function pullIfNewer(adopt) {
+    var uid = userId();
+    if (!uid || !configured()) return Promise.resolve(false);
+    return pull(uid).then(function (remote) {
+      if (!remote || !remote.data) return false;
+      if ((remote.rev || 0) > lastRev) {
+        lastRev = remote.rev || 0;
+        var wrapped = { v: 2, rev: lastRev, data: remote.data };
+        try { writeCache(uid, wrapped); } catch (e) { /* cache is optional */ }
+        adopt(remote.data);
+        return true;
+      }
+      return false;
+    });
+  }
+
+  /* Unlock provider keys for this session. Returns the number of
+     providers that became usable. */
+  function unlockProviders(providers, settings, uid) {
+    if (!anySealedProvider(providers)) return Promise.resolve(0);
+    if (!subtleCrypto()) return Promise.resolve(0);
+    var mode = settings && settings.keyMode === "passphrase" ? "passphrase" : "device";
+    var keyPromise = mode === "passphrase"
+      ? Promise.resolve(unlockedPassphraseKey)
+      : deviceKey(uid, true);
+    return keyPromise.then(function (key) {
+      if (!key) return 0;
+      return openProviders(providers, key).then(function (opened) {
+        var gained = 0;
+        for (var i = 0; i < opened.length; i++) {
+          var before = providers[i];
+          if (before && before.keyEnc && typeof before.apiKey !== "string" && typeof opened[i].apiKey === "string") gained++;
+          providers[i] = opened[i];
+        }
+        return gained;
+      });
+    });
+  }
+
+  /* Turn the passphrase tier on: derive the wrapping key from the new
+     passphrase and hold it in memory so the next save seals provider
+     keys with it. The salt lives in settings and syncs with the blob. */
+  function armPassphraseLock(passphrase, saltB64) {
+    if (String(passphrase || "").length < 8) return Promise.reject(new Error("Use a passphrase of at least 8 characters."));
+    return passphraseKey(passphrase, saltB64).then(function (key) {
+      setUnlockedKey(key);
+      return true;
+    });
+  }
+
+  function unlockWithPassphrase(providers, settings, passphrase) {
+    if (!settings || !settings.keySalt) return Promise.reject(new Error("No passphrase lock is set."));
+    return passphraseKey(passphrase, settings.keySalt).then(function (key) {
+      return openProviders(providers, key).then(function (opened) {
+        var gained = 0;
+        for (var i = 0; i < opened.length; i++) {
+          if (opened[i] && typeof opened[i].apiKey === "string" && providers[i] && providers[i].keyEnc) gained++;
+        }
+        if (!gained && anySealedProvider(providers)) throw new Error("That passphrase could not unlock the keys.");
+        setUnlockedKey(key);
+        for (var j = 0; j < opened.length; j++) providers[j] = opened[j];
+        return gained;
+      });
+    });
+  }
+
+  /* Sign-out: the session that owned this cache is over. The durable
+     copy stays safely in the backend for the next sign-in; the device
+     keeps nothing. uidBefore is captured before the SDK clears the
+     session token, and the caller flushes pending writes BEFORE the
+     session ends (afterwards userId() is null and pushes are no-ops). */
+  function signOutReset(uidBefore) {
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    pendingPayload = null;
+    if (uidBefore) {
+      removeCache(uidBefore);
+      sweepCaches(null);
+    }
+    unlockedPassphraseKey = null;
+    lastRev = 0;
+  }
+
+  window.WSync = {
+    userId: userId,
+    configured: configured,
+    accountMode: accountMode,
+    bootPayload: bootPayload,
+    pullIfNewer: pullIfNewer,
+    persist: persist,
+    flushNow: flushNow,
+    unlockProviders: unlockProviders,
+    unlockWithPassphrase: unlockWithPassphrase,
+    armPassphraseLock: armPassphraseLock,
+    setUnlockedKey: setUnlockedKey,
+    anySealedProvider: anySealedProvider,
+    newSalt: newSalt,
+    signOutReset: signOutReset,
+    sweepCaches: sweepCaches,
+    hasLegacyBlob: hasLegacyBlob,
+    readLegacy: readLegacy,
+    removeLegacy: removeLegacy,
+    removeDeviceKey: removeDeviceKey
+  };
+})();
+
+</script>
+<script>
 /* Botocracy chat client. Bring your own key: providers speak OpenAI style,
    Anthropic, or Gemini request shapes. With no provider set, demo replies. */
 (function () {
@@ -8568,7 +9097,18 @@ window.BotoConfig = {
 
   var store = {
     read: function () {
-      try { return window.localStorage.getItem(STORE_KEY) || window.localStorage.getItem(LEGACY_STORE_KEY); }
+      try {
+        /* Signed-in: the workspace belongs to the account. Boot from the
+           per-account cache (instant, offline-safe); WSync.pullIfNewer
+           upgrades it from the backend right after, and signing out
+           removes it. The shared legacy key is never read in this mode:
+           it may hold a previous person's chats on this device. */
+        if (window.WSync && WSync.accountMode()) {
+          var payload = WSync.bootPayload();
+          return payload ? JSON.stringify(payload) : null;
+        }
+        return window.localStorage.getItem(STORE_KEY) || window.localStorage.getItem(LEGACY_STORE_KEY);
+      }
       catch (e) { return null; }
     },
     write: function (v) {
@@ -9137,11 +9677,21 @@ window.BotoConfig = {
         }
       } catch (e) { /* fall through to seed */ }
     }
-    return { chats: seedChats(), providers: [], folders: [], outbox: [], library: [], memories: [], settings: defaultSettings() };
+    /* Signed-in accounts start clean: their data arrives from the
+       backend, never from demo seed content that would then be uploaded
+       and follow them across devices forever. Seed chats stay the
+       device-local demo's first-run experience. */
+    var seedFor = (window.WSync && WSync.accountMode()) ? [] : seedChats();
+    return { chats: seedFor, providers: [], folders: [], outbox: [], library: [], memories: [], settings: defaultSettings() };
   }
 
   var state = loadState();
   var activeId = state.settings.activeChatId || null;
+  /* True when this page booted with a signed-in account. After sign-out
+     the local branch of save() must stay quiet: the in-memory state is
+     now an empty clean session, and writing it over the device-global
+     key would wipe a previous local demo's chats. */
+  var bootedAsAccount = !!(window.WSync && WSync.accountMode());
   var lastSendAt = 0;
   var relayDown = false;
   var relayRecoveryCheck = null;
@@ -9153,8 +9703,12 @@ window.BotoConfig = {
 
   var quotaTrimming = false;
 
+  function payloadObj() {
+    return { chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, library: state.library || [], memories: state.memories || [], settings: state.settings };
+  }
+
   function payloadJson() {
-    return JSON.stringify({ chats: state.chats, providers: state.providers, folders: state.folders, outbox: state.outbox, library: state.library || [], memories: state.memories || [], settings: state.settings });
+    return JSON.stringify(payloadObj());
   }
 
   /* Quota rescue: photos are the only heavy part of the store, so drop them
@@ -9179,6 +9733,42 @@ window.BotoConfig = {
   }
 
   function save() {
+    /* Signed-in: WSync persists the account payload. It seals provider
+       API keys (AES-GCM) before they touch the cache or the backend, so
+       plaintext keys are never written anywhere. Quota rescue is the
+       same as the local path: trim old images, retry, then tell the
+       user rather than silently losing data. */
+    if (window.WSync && WSync.accountMode()) {
+      WSync.persist(payloadObj()).catch(function (e) {
+        var quota = e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014);
+        if (!quota) return;
+        if (quotaTrimming) return;
+        quotaTrimming = true;
+        try {
+          var removed = trimOldestImages();
+          WSync.persist(payloadObj()).catch(function () {
+            toast("Browser storage is full. Export your chats, then delete a few old ones.");
+          });
+          toast(removed
+            ? "Browser storage was full. " + removed + " older image" + (removed === 1 ? " was" : "s were") + " removed to make space."
+            : "Browser storage is full. Export your chats, then delete a few old ones.");
+        }
+        catch (e2) {
+          toast("Browser storage is full. Export your chats, then delete a few old ones.");
+        }
+        quotaTrimming = false;
+      });
+      return;
+    }
+    if (bootedAsAccount && !(window.WSync && WSync.accountMode())
+        && !state.chats.length && !state.providers.length) {
+      /* Signed out of an account session this run: the in-memory state is
+         a clean empty session. Writing it over the device-global key would
+         erase whatever a local demo stored there, so stay quiet. A
+         non-empty state (for example a token that expired mid-session)
+         still lands locally: some persistence beats none. */
+      return;
+    }
     try {
       store.write(payloadJson());
       return;
@@ -14472,6 +15062,38 @@ window.BotoConfig = {
     toast("All chats deleted");
   }
 
+  /* Signing out leaves a clean session: no previous account's chats,
+     providers, keys or settings stay in memory or on the device. The
+     account's durable copy lives in the backend and returns on the next
+     sign-in. This mutates the same state object the engine was built
+     around, so every closure keeps working. */
+  function resetWorkspaceForSignOut() {
+    stopStream();
+    state.chats = [];
+    state.providers = [];
+    state.folders = [];
+    state.outbox = [];
+    state.library = [];
+    state.memories = [];
+    state.settings = defaultSettings();
+    state.settings.theme = "dark";
+    document.documentElement.setAttribute("data-theme", "dark");
+    activeId = null;
+    rememberActiveChat(null, "push");
+    messagesEl.innerHTML = "";
+    renderList();
+    renderModelMenu();
+    syncModelLabel();
+    renderMemory();
+    renderLibrary();
+    renderProviders();
+    syncAvatars();
+    syncToolMenu();
+    syncKeySecurityUI();
+    refreshIcons();
+    showEmpty();
+  }
+
   $("profileBtn").addEventListener("click", function () { openAccount($("profileBtn"), "top", "start"); });
 
   $("avatarBtn").addEventListener("click", function () { openAccount($("avatarBtn"), "bottom", "end"); });
@@ -14495,24 +15117,38 @@ window.BotoConfig = {
          the Supabase session survived: the menu said signed out and the
          user could still post, comment and delete. Ending the real session
          is the part that matters, and it has to come first. */
+      var uidBefore = window.WSync ? WSync.userId() : null;
+      var account = !!uidBefore;
       var done = function () {
         localStorage.removeItem("impose.auth.v1");
         if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+        if (window.WSync) WSync.signOutReset(uidBefore);
+        if (account) resetWorkspaceForSignOut();
+        if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
         syncAccountMenu();
-        toast("Signed out. Your local chats are still here.");
+        toast(account
+          ? "Signed out. Your workspace is saved to your account."
+          : "Signed out. Your local chats are still here.");
       };
-      if (window.BotoAuth && BotoAuth.signOut) {
-        BotoAuth.signOut().then(done, function () {
-          /* The server refused or the network is down. Clear the local
-             session anyway: leaving someone signed in because logout
-             failed is the wrong direction to fail in, and the token
-             expires on its own. */
+      var doSignOut = function () {
+        if (window.BotoAuth && BotoAuth.signOut) {
+          BotoAuth.signOut().then(done, function () {
+            /* The server refused or the network is down. Clear the local
+               session anyway: leaving someone signed in because logout
+               failed is the wrong direction to fail in, and the token
+               expires on its own. */
+            done();
+            toast("Signed out here. The session may still be active elsewhere.");
+          });
+        } else {
           done();
-          toast("Signed out here. The session may still be active elsewhere.");
-        });
-      } else {
-        done();
-      }
+        }
+      };
+      /* Flush pending workspace writes before the session dies: after
+         sign-out there is no token to push with, and the local cache is
+         about to be removed. */
+      if (account && window.WSync) WSync.flushNow().then(doSignOut, doSignOut);
+      else doSignOut();
       return;
     }
     window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
@@ -14992,6 +15628,7 @@ window.BotoConfig = {
     $("tglFollow").setAttribute("aria-checked", state.settings.followupsSmart ? "true" : "false");
     $("tglAutoName").setAttribute("aria-checked", state.settings.autoName ? "true" : "false");
     $("retentionSel").value = String(state.settings.retentionDays || 0);
+    syncKeySecurityUI();
   }
 
   function switchTab(name) {
@@ -15394,6 +16031,114 @@ window.BotoConfig = {
   }
 
   $("encExportBtn").addEventListener("click", function () { openEncModal("encrypt"); });
+
+  /* ---------- provider key lock ----------
+     Provider API keys never persist in plaintext. Signed-in, they are
+     sealed with AES-GCM before every write (WSync.persist). Two tiers:
+     the default device key (random, this-browser-only) and an optional
+     passphrase lock, where nothing at all is stored and the keys stay
+     locked until the passphrase is entered. */
+
+  function keysLocked() {
+    return !!(window.WSync && state.settings.keyMode === "passphrase" && WSync.anySealedProvider(state.providers));
+  }
+
+  function syncKeySecurityUI() {
+    var section = $("keySecuritySection");
+    if (!section) return;
+    var account = !!(window.WSync && WSync.accountMode());
+    section.hidden = !account;
+    if (!account) return;
+    var passphraseMode = state.settings.keyMode === "passphrase";
+    $("tglKeyPassphrase").setAttribute("aria-checked", passphraseMode ? "true" : "false");
+    $("keyLockedRow").hidden = !keysLocked();
+    $("keyStorageDesc").textContent = passphraseMode
+      ? "Sealed with your passphrase. Nothing is stored unencrypted, here or in your account"
+      : "Sealed with a key unique to this device before they are stored or synced";
+  }
+
+  var keyModalMode = null;
+  function openKeyModal(mode) {
+    keyModalMode = mode;
+    $("keyPass").value = "";
+    $("keyPass2").value = "";
+    $("keyModalStatus").textContent = "";
+    $("keyModalTitle").textContent = mode === "unlock" ? "Unlock provider keys"
+      : mode === "disable" ? "Remove passphrase lock" : "Set passphrase lock";
+    $("keyPass2Row").hidden = mode !== "enable";
+    $("keyModalGo").firstElementChild.textContent = mode === "unlock" ? "Unlock"
+      : mode === "disable" ? "Remove lock" : "Set lock";
+    openModal($("keyModal"));
+    setTimeout(function () { $("keyPass").focus(); }, 200);
+  }
+
+  $("tglKeyPassphrase").addEventListener("click", function () {
+    if (!(window.WSync && WSync.accountMode())) {
+      toast.warn("Sign in to change how your keys are stored.");
+      return;
+    }
+    openKeyModal(state.settings.keyMode === "passphrase" ? "disable" : "enable");
+  });
+  $("keyLockedBtn").addEventListener("click", function () { openKeyModal("unlock"); });
+  $("keyModalCancel").addEventListener("click", function () { closeModal($("keyModal")); });
+  $("keyModal").addEventListener("pointerdown", function (e) { if (e.target === this) closeModal(this); });
+  ["keyPass", "keyPass2"].forEach(function (id) {
+    $(id).addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); $("keyModalGo").click(); }
+      if (e.key === "Escape") closeModal($("keyModal"));
+    });
+  });
+
+  $("keyModalGo").addEventListener("click", function () {
+    if (!window.WSync) return;
+    var pw = $("keyPass").value;
+    var status = $("keyModalStatus");
+    if (keyModalMode === "enable") {
+      if (String(pw).length < 8) { status.textContent = "Use a passphrase of at least 8 characters."; return; }
+      if (pw !== $("keyPass2").value) { status.textContent = "The passphrases do not match."; return; }
+      state.settings.keySalt = WSync.newSalt();
+      WSync.armPassphraseLock(pw, state.settings.keySalt).then(function () {
+        state.settings.keyMode = "passphrase";
+        save(); /* re-seals every provider key with the passphrase key */
+        closeModal($("keyModal"));
+        syncKeySecurityUI();
+        toast.success("Passphrase lock is on. Keys unlock only with it.");
+      }, function (err) {
+        delete state.settings.keySalt;
+        status.textContent = (err && err.message) || "Could not set the lock.";
+      });
+      return;
+    }
+    /* disable and unlock both prove the passphrase by opening the keys */
+    WSync.unlockWithPassphrase(state.providers, state.settings, pw).then(function (gained) {
+      if (keyModalMode === "disable") {
+        state.settings.keyMode = "device";
+        delete state.settings.keySalt;
+        save(); /* re-seals with the device key */
+        WSync.setUnlockedKey(null);
+        closeModal($("keyModal"));
+        syncKeySecurityUI();
+        renderModelMenu();
+        syncModelLabel();
+        renderProviders();
+        refreshIcons();
+        toast.success("Passphrase lock removed. Keys are protected by this device's key.");
+        return;
+      }
+      closeModal($("keyModal"));
+      syncKeySecurityUI();
+      renderModelMenu();
+      syncModelLabel();
+      renderProviders();
+      syncToolMenu();
+      refreshIcons();
+      toast.success(gained
+        ? "Unlocked " + gained + " provider key" + (gained === 1 ? "" : "s") + "."
+        : "Unlocked.");
+    }, function (err) {
+      status.textContent = (err && err.message) || "Could not unlock.";
+    });
+  });
   $("encCancel").addEventListener("click", function () {
     if (encBusy) { toast("The encryption step is finishing. It cannot be safely interrupted."); return; }
     closeModal($("encModal"));
@@ -16522,6 +17267,69 @@ window.BotoConfig = {
       save();
     }
     maybeOnboard();
+
+    /* Signed-in boot: the cache copy rendered above is the fast path.
+       Now make it correct: unlock provider keys, adopt newer backend
+       data, and offer the one-time import of pre-account local chats. */
+    if (window.WSync && WSync.accountMode()) {
+      (function bootAccount() {
+        var uid = WSync.userId();
+        WSync.sweepCaches(uid);
+        WSync.unlockProviders(state.providers, state.settings, uid).then(function (gained) {
+          if (gained > 0) {
+            renderModelMenu();
+            syncModelLabel();
+            renderProviders();
+            syncToolMenu();
+            refreshIcons();
+          }
+        }).catch(function () { /* keys stay locked until unlocked */ });
+
+        /* Another device may have written since this cache was saved.
+           The backend is the record of truth: adopt it and restart so
+           the whole engine boots against the fresh payload, instead of
+           patching live state mid-flight. */
+        WSync.pullIfNewer(function () {
+          try {
+            if (sessionStorage.getItem("impose.hydration") !== "1") {
+              sessionStorage.setItem("impose.hydration", "1");
+              window.location.reload();
+            }
+          } catch (e) { /* the adoption is an optimization, not a requirement */ }
+        }).catch(function () { /* offline: the cache stands */ });
+
+        /* Pre-account chats live in the shared legacy key. They are
+           never adopted silently - that would hand one person's local
+          data to the next account that signs in here - only imported
+           by an explicit choice, once. */
+        if (!WSync.bootPayload() && WSync.hasLegacyBlob()) {
+          toast("Local chats from before account sync were found on this device.", "Import them", function () {
+            var legacy = WSync.readLegacy();
+            if (!legacy || !Array.isArray(legacy.chats)) return;
+            state.chats = legacy.chats;
+            state.providers = Array.isArray(legacy.providers) ? legacy.providers : [];
+            state.folders = Array.isArray(legacy.folders) ? legacy.folders : [];
+            state.outbox = Array.isArray(legacy.outbox) ? legacy.outbox : [];
+            state.library = Array.isArray(legacy.library) ? legacy.library : [];
+            state.memories = Array.isArray(legacy.memories) ? legacy.memories : [];
+            state.settings = Object.assign(defaultSettings(), legacy.settings || {});
+            activeId = state.settings.activeChatId || null;
+            renderList();
+            renderModelMenu();
+            syncModelLabel();
+            renderMemory();
+            renderLibrary();
+            renderProviders();
+            syncAvatars();
+            refreshIcons();
+            save();
+            WSync.removeLegacy();
+            dnote("app", "Legacy local chats imported into the account");
+          }, 12000);
+        }
+      })();
+    }
+
     function restoreFromHistory() {
       /* Mode switches (#/, #/workspace, or a stripped hash) must not disturb
          the open chat; only a chat deep link (#chat=...) opens one and only
@@ -17711,6 +18519,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   window.BotoData = {
     configured: configured,
+    /* The shared Supabase client: workspace-sync reuses it for the
+       per-account workspace reads/writes so token refresh happens in
+       exactly one place. */
+    db: db,
     notifications: notifications,
     unreadCount: unreadCount,
     markAllRead: markAllRead,
@@ -17764,7 +18576,38 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 (function () {
   "use strict";
 
-  var LS_KEY = "slopify:v6"; /* v6: ported into the Botocracy shell as Community mode */
+  /* v6: ported into the Botocracy shell as Community mode. The cache is
+     scoped per identity: every signed-in account gets its own key plus
+     one shared anonymous key. A cache is only ever read by the identity
+     that wrote it, so another person's private posts or "own" flags can
+     no longer resurface for whoever opens the app next. */
+  var LS_KEY_BASE = "slopify:v6";
+  var myUserId = (window.WSync && WSync.userId) ? WSync.userId() : null;
+  function cacheKeyFor(uid) { return uid ? LS_KEY_BASE + "::" + uid : LS_KEY_BASE + ":anon"; }
+  var LS_KEY = cacheKeyFor(myUserId);
+
+  /* One-time migration of the pre-scoping key. Its `own` flags were set
+     by whoever used this device before, so they cannot be trusted: keep
+     only what any viewer may see, drop the rest, then retire the key. */
+  (function migrateLegacyCommunityCache() {
+    try {
+      var raw = localStorage.getItem(LS_KEY_BASE);
+      if (!raw) return;
+      var parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.generations) && !localStorage.getItem(LS_KEY)) {
+        parsed.generations = parsed.generations.filter(function (g) {
+          return g && typeof g === "object" && !g.own && (g.visibility || "public") === "public";
+        });
+        parsed.comments = (Array.isArray(parsed.comments) ? parsed.comments : []).filter(function (c) {
+          return c && typeof c === "object" && !c.own;
+        });
+        localStorage.setItem(LS_KEY, JSON.stringify(parsed));
+      }
+      localStorage.removeItem(LS_KEY_BASE);
+    } catch (e) {
+      try { localStorage.removeItem(LS_KEY_BASE); } catch (e2) { /* leave it unreadable */ }
+    }
+  })();
 
   /* Deepest level a comment may nest. Root(0) + replies(1) + sub-replies(2)
      = 3 visible rows, the YouTube rule. Replying to a comment already at the
@@ -17848,6 +18691,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       if (!raw) return null;
       var parsed = JSON.parse(raw);
       if (!parsed || !Array.isArray(parsed.generations)) return null;
+      if (!myUserId) {
+        /* Signed out: public content only. The server enforces this via
+           RLS on every fetch; the cache enforces it again here so a
+           stale or hand-edited blob cannot leak private posts or
+           someone else's "own" records into an anonymous session. */
+        parsed.generations = parsed.generations.filter(function (g) {
+          return !g || typeof g !== "object" || (!g.own && (g.visibility || "public") === "public");
+        });
+        parsed.comments = (Array.isArray(parsed.comments) ? parsed.comments : []).filter(function (c) {
+          return !c || typeof c !== "object" || !c.own;
+        });
+      }
       /* Migration: freshPinned was persisted by an earlier build, so stored
          posts can carry a pin that would otherwise sit at the top of the
          feed forever. Pins are session state now, so strip any that were
@@ -18404,6 +19259,19 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function goSignIn() {
     try { localStorage.setItem("impose.auth.returnTo", location.hash || "#/"); } catch (e) { /* private mode */ }
     window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
+  }
+
+  /* Community is read-only for signed-out visitors. Every write path
+     checks this first and stops BEFORE any optimistic row exists: no
+     fake "Sending" card, no popup after the fact - the server would
+     refuse the write anyway, so the honest UX is to ask for sign-in
+     first and create nothing until the write can actually happen. */
+  function signedIn() { return !!myUserId; }
+
+  function requireSignIn(verb) {
+    if (myUserId) return true;
+    notify("Sign in to " + verb + ".", "Sign in", goSignIn);
+    return false;
   }
 
   /* Thread read path. Returns what should be rendered, which is not the same
@@ -19754,6 +20622,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
 
     function startReply(target) {
+      if (!requireSignIn("reply")) return;
       replyingTo = target;
       replyTargetLost = false;
       if (ctxBar) {
@@ -19773,6 +20642,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
 
     function post() {
+      if (!requireSignIn("comment")) return;
       var text = input.value.trim();
       /* State 8: empty or whitespace-only submission is not an error, it is
          a no-op. The send button is already disabled; this is the guard for
@@ -19999,7 +20869,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     });
   }
 
-  var myUserId = null;
+  /* myUserId is declared once at the top of the module, seeded
+     synchronously from the Supabase session so write gating is correct
+     from the very first render; the async refresh below only confirms
+     it. Do not re-initialise it here. */
 
   function pollOnce() {
     if (!liveOnline() || currentMode() !== "community") return Promise.resolve();
@@ -20210,6 +21083,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function sendGeneration() {
     if (streamingNow) return;
+    var verb = composeCtx ? (composeCtx.mode === "challenge" ? "challenge" : "remix") : "post";
+    if (!requireSignIn(verb)) return;
     var input = $("cmInput");
     var raw = input.value;
     /* Addressed to the agent or not. Unaddressed text is a plain post: it
@@ -20553,6 +21428,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     e.stopPropagation();
 
     if (act === "save") {
+      if (!requireSignIn("save posts")) return;
       if (gen.pending) { notify("Wait for the post to send first."); return; }
       /* Optimistic, and reverted on refusal. The count is nudged locally
          only so the number under the thumb matches the icon; the server
@@ -20603,6 +21479,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       return;
     }
     if (act === "remix" || act === "challenge") {
+      if (!requireSignIn(act)) return;
       if (gen.locked) return;
       location.hash = "#/";
       setContext(act, gen);
@@ -20686,10 +21563,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var dock = $("cmComposerDock");
     if (!btn) return;
     var toBot = addressesBot($("cmInput").value);
-    var label = toBot ? "Ask @bot" : "Post to the feed";
+    /* Signed-out visitors are read-only: the button states the truth up
+       front instead of starting a send that the server will refuse. */
+    var label = !signedIn() ? "Sign in to post" : (toBot ? "Ask @bot" : "Post to the feed");
     btn.title = label;
     btn.setAttribute("aria-label", label);
-    if (dock) dock.classList.toggle("to-bot", toBot);
+    if (dock) dock.classList.toggle("to-bot", toBot && signedIn());
   }
 
   function initComposer() {
@@ -20931,6 +21810,25 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     });
     refreshIcons();
   }
+
+  /* Signing out does not reload the page, and Community stays mounted,
+     so the workspace sign-out flow tells it to drop the previous
+     identity here: switch to the anonymous cache (public content only),
+     clear any compose context, and repaint. */
+  window.BotoCommunity = {
+    signOutReset: function () {
+      myUserId = null;
+      LS_KEY = cacheKeyFor(null);
+      state = load() || seed();
+      composeCtx = null;
+      var ctx = $("cmRemixCtx");
+      if (ctx) ctx.hidden = true;
+      route();
+      syncSend();
+      syncSendIntent();
+      refreshIcons();
+    }
+  };
 
   init();
 })();
