@@ -280,6 +280,29 @@
     } catch (e) {}
   }
 
+  var authListeners = [];
+  function onAuthStateChange(fn) {
+    if (typeof fn === "function") authListeners.push(fn);
+  }
+
+  function initAuthWatcher() {
+    if (!configured()) return;
+    try {
+      supabase().auth.onAuthStateChange(function (event, session) {
+        if (event === "SIGNED_OUT") {
+          try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+        } else if (session && session.user) {
+          cacheSession(session.user);
+        }
+        authListeners.forEach(function (fn) {
+          try { fn(event, session); } catch (e) {}
+        });
+      });
+    } catch (e) {}
+  }
+
+  initAuthWatcher();
+
   window.BotoAuth = {
     configured: configured,
     humanize: humanize,
@@ -294,6 +317,7 @@
     signOut: signOut,
     currentUser: currentUser,
     cacheSession: cacheSession,
+    onAuthStateChange: onAuthStateChange,
     SESSION_KEY: SESSION_KEY
   };
 })();

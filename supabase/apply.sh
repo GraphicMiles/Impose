@@ -21,9 +21,15 @@ set -euo pipefail
 
 REF="${SUPABASE_PROJECT_REF:-xgqcvuzkeaferjsnpjjw}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SQL="$ROOT/supabase/migrations/0001_mvp.sql"
 
-[ -f "$SQL" ] || { echo "migration not found: $SQL" >&2; exit 2; }
+MIGRATION_ARG="${1:-}"
+if [ -n "$MIGRATION_ARG" ] && [ -f "$MIGRATION_ARG" ]; then
+  FILES=("$MIGRATION_ARG")
+else
+  FILES=( $(ls "$ROOT/supabase/migrations/"*.sql | sort) )
+fi
+
+[ ${#FILES[@]} -gt 0 ] || { echo "no migrations found in $ROOT/supabase/migrations/" >&2; exit 2; }
 
 # ---- route A: psql straight at the pooler -------------------------------
 if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
@@ -54,9 +60,6 @@ if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
 
   FOUND=""
   for HOST in $HOSTS; do
-    # set -e plus a failing command inside $( ) with a pipe kills the shell
-    # before the case below can report anything, so the probe is guarded
-    # and the pipe is dropped.
     set +e
     PROBE="$(PGCONNECT_TIMEOUT=8 PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
       "postgresql://postgres.$REF@$HOST:5432/postgres?sslmode=require" \
@@ -80,18 +83,23 @@ if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
     exit 1
   fi
 
-  echo "applying via $FOUND ..."
-  PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
-    "postgresql://postgres.$REF@$FOUND:5432/postgres?sslmode=require" \
-    -v ON_ERROR_STOP=1 -f "$SQL"
-  echo "migration applied via $FOUND"
+  echo "applying migrations via $FOUND ..."
+  for SQL in "${FILES[@]}"; do
+    echo "  -> $(basename "$SQL")"
+    PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
+      "postgresql://postgres.$REF@$FOUND:5432/postgres?sslmode=require" \
+      -v ON_ERROR_STOP=1 -f "$SQL"
+  done
+  echo "all migrations applied via $FOUND"
   exit 0
 fi
 
 # ---- route B: management API -------------------------------------------
 if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
-  echo "applying via the management API ..."
-  RESPONSE="$(python3 - "$SQL" <<'PY'
+  echo "applying migrations via the management API ..."
+  for SQL in "${FILES[@]}"; do
+    echo "  -> $(basename "$SQL")"
+    RESPONSE="$(python3 - "$SQL" <<'PY'
 import json, os, sys, urllib.request, urllib.error
 sql = open(sys.argv[1]).read()
 ref = os.environ.get("SUPABASE_PROJECT_REF", "xgqcvuzkeaferjsnpjjw")
@@ -111,8 +119,12 @@ except urllib.error.HTTPError as e:
     print("ERR", e.code, e.read().decode()[:400])
 PY
 )"
-  echo "$RESPONSE"
-  case "$RESPONSE" in OK*) exit 0 ;; *) exit 1 ;; esac
+    echo "     $RESPONSE"
+    case "$RESPONSE" in OK*) ;; *) exit 1 ;; esac
+  done
+  echo "all migrations applied successfully"
+  exit 0
+fi
 fi
 
 cat >&2 <<'MSG'
