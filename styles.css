@@ -1971,6 +1971,67 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   .onboard-badge, .onboard-icon { width: 38px; }
 }
 
+/* ---------- workspace access gate (waitlist) --------------------------------
+   The sheet inherits the modal chrome; this block lays out its two states.
+   Surfaces, radii, and motion all come from the locked tokens above. */
+.access-sheet {
+  max-width: min(480px, 100%);
+  padding: 24px;
+}
+#waitlistForm { margin-top: 20px; }
+.wl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.wl-row .text-input { min-width: 0; }
+.wl-row .btn { min-height: 38px; }
+.wl-note { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-3); }
+.wl-note.error { color: var(--danger); }
+.wl-row .btn[disabled] { opacity: 0.6; pointer-events: none; }
+.wl-done {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-top: 20px;
+  padding: 14px;
+  border-radius: var(--r-5);
+  background: var(--hover);
+  animation: wl-done-in 220ms var(--ease-out);
+}
+.wl-done-badge {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-4);
+  background: var(--press);
+}
+.wl-done-badge .lucide, .wl-done-badge i[data-lucide] { width: 17px; height: 17px; }
+.wl-done strong { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.wl-done span { display: block; margin-top: 3px; color: var(--text-2); font-size: 13px; line-height: 1.45; }
+html.reduce-motion .wl-done { animation: none; }
+@keyframes wl-done-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.wl-continue {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  justify-content: center;
+  min-height: 42px;
+  background: var(--hover);
+}
+@media (max-width: 480px) {
+  .access-sheet { padding: 22px 20px 20px; }
+  /* the CTA drops under the field rather than squeezing it */
+  .wl-row { grid-template-columns: minmax(0, 1fr); }
+  .wl-row .btn { width: 100%; justify-content: center; }
+}
+
 /* ---------- tools menu ---------- */
 .tool-toggle[aria-checked="true"] { background: var(--hover); }
 .tool-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }

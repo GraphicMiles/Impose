@@ -3118,14 +3118,16 @@
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       var btn = $("waitlistJoin");
+      var note = $("waitlistNote");
       var email = $("waitlistEmail").value;
       btn.disabled = true;
+      note.classList.remove("error");
       BotoAccess.joinWaitlist(email).then(function (grant) {
         if (grant && grant.status === "granted") closeAccessSheet();
         else showWaitlistDone(grant);
       }).catch(function (err) {
-        var note = $("waitlistNote");
         note.textContent = err && err.message ? err.message : "Could not join. Try again.";
+        note.classList.add("error");
       }).finally(function () { btn.disabled = false; });
     });
     $("accessContinue").addEventListener("click", closeAccessSheet);

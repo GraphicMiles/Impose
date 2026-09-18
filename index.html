@@ -784,16 +784,16 @@ try {
       </div>
     </div>
     <form id="waitlistForm" novalidate>
-      <label class="field-label" for="waitlistEmail">Email</label>
+      <label class="flabel" for="waitlistEmail">Email</label>
       <div class="wl-row">
-        <input class="text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" required>
+        <input class="text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
         <button class="btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
       </div>
-      <p class="wl-note" id="waitlistNote">Your place is tied to this email, so you keep it if you switch devices.</p>
+      <p class="wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
     </form>
     <div id="waitlistDone" hidden>
-      <div class="wl-done">
-        <i data-lucide="check"></i>
+      <div class="wl-done" role="status">
+        <span class="wl-done-badge"><i data-lucide="check"></i></span>
         <div>
           <strong>You're on the list.</strong>
           <span id="waitlistPosition">We'll email you when your seat opens.</span>

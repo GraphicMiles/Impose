@@ -2003,6 +2003,67 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   .onboard-badge, .onboard-icon { width: 38px; }
 }
 
+/* ---------- workspace access gate (waitlist) --------------------------------
+   The sheet inherits the modal chrome; this block lays out its two states.
+   Surfaces, radii, and motion all come from the locked tokens above. */
+.access-sheet {
+  max-width: min(480px, 100%);
+  padding: 24px;
+}
+#waitlistForm { margin-top: 20px; }
+.wl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.wl-row .text-input { min-width: 0; }
+.wl-row .btn { min-height: 38px; }
+.wl-note { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-3); }
+.wl-note.error { color: var(--danger); }
+.wl-row .btn[disabled] { opacity: 0.6; pointer-events: none; }
+.wl-done {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-top: 20px;
+  padding: 14px;
+  border-radius: var(--r-5);
+  background: var(--hover);
+  animation: wl-done-in 220ms var(--ease-out);
+}
+.wl-done-badge {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-4);
+  background: var(--press);
+}
+.wl-done-badge .lucide, .wl-done-badge i[data-lucide] { width: 17px; height: 17px; }
+.wl-done strong { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.wl-done span { display: block; margin-top: 3px; color: var(--text-2); font-size: 13px; line-height: 1.45; }
+html.reduce-motion .wl-done { animation: none; }
+@keyframes wl-done-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.wl-continue {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  justify-content: center;
+  min-height: 42px;
+  background: var(--hover);
+}
+@media (max-width: 480px) {
+  .access-sheet { padding: 22px 20px 20px; }
+  /* the CTA drops under the field rather than squeezing it */
+  .wl-row { grid-template-columns: minmax(0, 1fr); }
+  .wl-row .btn { width: 100%; justify-content: center; }
+}
+
 /* ---------- tools menu ---------- */
 .tool-toggle[aria-checked="true"] { background: var(--hover); }
 .tool-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
@@ -4783,16 +4844,16 @@ try {
       </div>
     </div>
     <form id="waitlistForm" novalidate>
-      <label class="field-label" for="waitlistEmail">Email</label>
+      <label class="flabel" for="waitlistEmail">Email</label>
       <div class="wl-row">
-        <input class="text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" required>
+        <input class="text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
         <button class="btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
       </div>
-      <p class="wl-note" id="waitlistNote">Your place is tied to this email, so you keep it if you switch devices.</p>
+      <p class="wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
     </form>
     <div id="waitlistDone" hidden>
-      <div class="wl-done">
-        <i data-lucide="check"></i>
+      <div class="wl-done" role="status">
+        <span class="wl-done-badge"><i data-lucide="check"></i></span>
         <div>
           <strong>You're on the list.</strong>
           <span id="waitlistPosition">We'll email you when your seat opens.</span>
@@ -22152,14 +22213,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       var btn = $("waitlistJoin");
+      var note = $("waitlistNote");
       var email = $("waitlistEmail").value;
       btn.disabled = true;
+      note.classList.remove("error");
       BotoAccess.joinWaitlist(email).then(function (grant) {
         if (grant && grant.status === "granted") closeAccessSheet();
         else showWaitlistDone(grant);
       }).catch(function (err) {
-        var note = $("waitlistNote");
         note.textContent = err && err.message ? err.message : "Could not join. Try again.";
+        note.classList.add("error");
       }).finally(function () { btn.disabled = false; });
     });
     $("accessContinue").addEventListener("click", closeAccessSheet);
