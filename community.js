@@ -1325,8 +1325,6 @@
       '<i data-lucide="swords"></i><span class="act-cnt">' + c.challenge + "</span></button>";
     html += '<button class="gen-act" data-act="discuss" aria-label="Discuss this generation" title="Discuss">' +
       '<i data-lucide="message-circle"></i><span class="act-cnt">' + c.comment + "</span></button>";
-    html += '<button class="gen-act' + (gen.saved ? " on" : "") + '" data-act="save" aria-label="Save this generation" aria-pressed="' + gen.saved + '" title="Save">' +
-      '<i data-lucide="bookmark"></i><span class="act-cnt">' + c.save + "</span></button>";
     html += '<span class="gen-act-spacer"></span>';
     if (gen.visibility === "private") {
       html += '<span class="gen-visibility-note"><i data-lucide="eye-off"></i>Only you</span>';
@@ -3007,28 +3005,6 @@
     if (btn.disabled) return;
     e.stopPropagation();
 
-    if (act === "save") {
-      if (!requireSignIn("save posts")) return;
-      if (gen.pending) { notify("Wait for the post to send first."); return; }
-      /* Optimistic, and reverted on refusal. The count is nudged locally
-         only so the number under the thumb matches the icon; the server
-         recomputes it from the saves table and the next read corrects any
-         drift. */
-      var next = !gen.saved;
-      gen.saved = next;
-      gen.counts.save += next ? 1 : -1;
-      persist();
-      replaceCard(gen);
-      BotoData.setSaved(gen.id, next).then(function (out) {
-        if (out.ok) return;
-        gen.saved = !next;
-        gen.counts.save += next ? -1 : 1;
-        persist();
-        replaceCard(gen);
-        notify(out.error);
-      });
-      return;
-    }
     if (act === "menu") {
       var items = gen.own
         ? [{ act: "delete", label: "Delete post", icon: "trash-2", danger: true }]

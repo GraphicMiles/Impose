@@ -20250,7 +20250,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       rootId: row.root_id || row.id,
       locked: !!row.locked,
       visibility: row.visibility || "public",
-      saved: !!row.saved_by_me,
       addressed: !!row.addressed,
       createdAt: row.created_at ? Date.parse(row.created_at) : Date.now(),
       updatedAt: row.updated_at ? Date.parse(row.updated_at) : 0,
@@ -20259,7 +20258,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         remix: row.remix_count || 0,
         challenge: row.challenge_count || 0,
         comment: row.comment_count || 0,
-        save: row.save_count || 0
       }
     };
   }
@@ -20588,19 +20586,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function setLocked(id, locked) {
     return run(function () {
       return db().from("generations").update({ locked: !!locked }).eq("id", id);
-    });
-  }
-
-  function setSaved(genId, saved) {
-    return currentUser().then(function (user) {
-      if (!user) return fail({ message: "not_authenticated" });
-      return run(function () {
-        return saved
-          ? db().from("saves").upsert(
-              { user_id: user.id, generation_id: genId },
-              { onConflict: "user_id,generation_id", ignoreDuplicates: true })
-          : db().from("saves").delete().eq("user_id", user.id).eq("generation_id", genId);
-      });
     });
   }
 
@@ -21049,7 +21034,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     restoreComment: restoreComment,
     reportContent: reportContent,
     setLocked: setLocked,
-    setSaved: setSaved,
     toGeneration: toGeneration,
     toComment: toComment,
     /* admin panel */
@@ -22399,8 +22383,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '<i data-lucide="swords"></i><span class="act-cnt">' + c.challenge + "</span></button>";
     html += '<button class="gen-act" data-act="discuss" aria-label="Discuss this generation" title="Discuss">' +
       '<i data-lucide="message-circle"></i><span class="act-cnt">' + c.comment + "</span></button>";
-    html += '<button class="gen-act' + (gen.saved ? " on" : "") + '" data-act="save" aria-label="Save this generation" aria-pressed="' + gen.saved + '" title="Save">' +
-      '<i data-lucide="bookmark"></i><span class="act-cnt">' + c.save + "</span></button>";
     html += '<span class="gen-act-spacer"></span>';
     if (gen.visibility === "private") {
       html += '<span class="gen-visibility-note"><i data-lucide="eye-off"></i>Only you</span>';
@@ -23531,6 +23513,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       pollDelay = POLL_MIN;
       pendingCount = out.data || 0;
       syncPill();
+      /* Reconcile avatar identity independently of post freshness. Profile
+         edits must update existing and older cards even when no new post
+         count is returned. */
+      refreshLatestAvatars().then(function () {
+        if (currentMode() === "community") renderKnownFeed();
+      });
     });
   }
 
@@ -24075,28 +24063,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (btn.disabled) return;
     e.stopPropagation();
 
-    if (act === "save") {
-      if (!requireSignIn("save posts")) return;
-      if (gen.pending) { notify("Wait for the post to send first."); return; }
-      /* Optimistic, and reverted on refusal. The count is nudged locally
-         only so the number under the thumb matches the icon; the server
-         recomputes it from the saves table and the next read corrects any
-         drift. */
-      var next = !gen.saved;
-      gen.saved = next;
-      gen.counts.save += next ? 1 : -1;
-      persist();
-      replaceCard(gen);
-      BotoData.setSaved(gen.id, next).then(function (out) {
-        if (out.ok) return;
-        gen.saved = !next;
-        gen.counts.save += next ? -1 : 1;
-        persist();
-        replaceCard(gen);
-        notify(out.error);
-      });
-      return;
-    }
     if (act === "menu") {
       var items = gen.own
         ? [{ act: "delete", label: "Delete post", icon: "trash-2", danger: true }]

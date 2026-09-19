@@ -273,7 +273,6 @@
       rootId: row.root_id || row.id,
       locked: !!row.locked,
       visibility: row.visibility || "public",
-      saved: !!row.saved_by_me,
       addressed: !!row.addressed,
       createdAt: row.created_at ? Date.parse(row.created_at) : Date.now(),
       updatedAt: row.updated_at ? Date.parse(row.updated_at) : 0,
@@ -282,7 +281,6 @@
         remix: row.remix_count || 0,
         challenge: row.challenge_count || 0,
         comment: row.comment_count || 0,
-        save: row.save_count || 0
       }
     };
   }
@@ -611,19 +609,6 @@
   function setLocked(id, locked) {
     return run(function () {
       return db().from("generations").update({ locked: !!locked }).eq("id", id);
-    });
-  }
-
-  function setSaved(genId, saved) {
-    return currentUser().then(function (user) {
-      if (!user) return fail({ message: "not_authenticated" });
-      return run(function () {
-        return saved
-          ? db().from("saves").upsert(
-              { user_id: user.id, generation_id: genId },
-              { onConflict: "user_id,generation_id", ignoreDuplicates: true })
-          : db().from("saves").delete().eq("user_id", user.id).eq("generation_id", genId);
-      });
     });
   }
 
@@ -1072,7 +1057,6 @@
     restoreComment: restoreComment,
     reportContent: reportContent,
     setLocked: setLocked,
-    setSaved: setSaved,
     toGeneration: toGeneration,
     toComment: toComment,
     /* admin panel */
