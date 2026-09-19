@@ -2051,6 +2051,17 @@ async def admin_grant(request: Request):
                 # notice is best-effort and logged, never a reason to
                 # un-record a grant that already landed.
                 print(f"[admin] inbox notice failed for {email}: {nexc.detail}", flush=True)
+            # Brief §39/A11: the panel's admin_grant RPC audits; this path
+            # now writes the same trail, attributed to the owner exactly
+            # like the inbox notice.
+            try:
+                owners = await supabase_admin.list_admin_owners()
+                await supabase_admin.audit_event(
+                    owners[0] if owners else None,
+                    "workspace.grant", "user", user["id"],
+                    {"via": "relay", "email": email})
+            except supabase_admin.AdminError as aexc:
+                print(f"[admin] grant audit failed for {email}: {aexc.detail}", flush=True)
     except supabase_admin.AdminError as exc:
         print(f"[admin] grant failed for {email}: {exc.detail}")
         raise HTTPException(status_code=exc.status, detail=exc.safe)
@@ -2171,6 +2182,53 @@ async def notify_grant(request: Request):
         "delivery": delivery,
         "notified_by": caller.get("id"),
     }
+
+
+@app.post("/admin/revoke_sessions")
+async def admin_revoke_sessions(request: Request):
+    """Kill every session an account holds, everywhere (brief A11).
+
+    CONTROL_KEY only. The lever for a compromised account: one call and
+    every access/refresh token the account owns stops authenticating —
+    including the one the attacker may be holding right now.
+    """
+    _authed(request)
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    email = _otp_email(data)
+
+    if not supabase_admin.configured():
+        raise HTTPException(status_code=503, detail="accounts are not configured on the server")
+
+    user = await supabase_admin.find_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=404, detail="no account uses that email yet")
+
+    # Bounded the same way as approval mail: revocations are rare and one
+    # confused operator loop should not become logout-as-a-DoS.
+    if _rate_hit("revokesess", email, 3, 600.0):
+        raise HTTPException(status_code=429, detail="too many revocations for this address; try again later")
+
+    try:
+        await supabase_admin.revoke_user_sessions(user["id"])
+    except supabase_admin.AdminError as exc:
+        print(f"[admin] session revoke failed for {email}: {exc.detail}")
+        raise HTTPException(status_code=exc.status, detail=exc.safe)
+
+    try:
+        owners = await supabase_admin.list_admin_owners()
+        await supabase_admin.audit_event(
+            owners[0] if owners else None,
+            "account.revoke_sessions", "user", user["id"],
+            {"via": "relay"})
+    except supabase_admin.AdminError as aexc:
+        print(f"[admin] revoke audit failed for {email}: {aexc.detail}", flush=True)
+
+    return {"ok": True, "user_id": user["id"], "sessions": "revoked"}
 
 
 @app.get("/admin/status")

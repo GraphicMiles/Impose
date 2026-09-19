@@ -1,0 +1,46 @@
+# Nightly logical backup — the $0 stand-in for managed backups (which are
+# Pro-plan features on Supabase). Runs pg_dump against the project's direct
+# connection string and keeps 30 days of artifacts. Restore drill: create a
+# scratch free-tier project, pg_restore this dump into it, run the parity
+# queries from docs/FINAL_CLOSURE_AUDIT_PRODUCTION_2026-09-19.md (I-1).
+#
+# Required repo secret:
+#   SUPABASE_DB_URL — postgres://postgres.<ref>:<password>@aws-0-eu-west-2.pooler.supabase.com:5432/postgres
+#   (Dashboard → Project Settings → Database → Connection string → "Direct
+#   connection" is preferred for pg_dump; the session-mode pooler DSN also
+#   works. The password is the database password set at project creation.)
+name: db-backup
+
+on:
+  schedule:
+    - cron: "37 3 * * *" # nightly, staggered off the DB's own cron jobs
+  workflow_dispatch:
+
+permissions:
+  contents: none
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: pg_dump (custom format)
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          pg_dump "$SUPABASE_DB_URL" \
+            --format=custom --compress=6 \
+            --schema=public --schema=auth \
+            --file="out/impose-$(date -u +%Y-%m-%d).dump"
+          ls -la out/
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PGCONNECT_TIMEOUT: "30"
+          DEBIAN_FRONTEND: noninteractive
+      - name: Upload artifact (30-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: impose-db-dump
+          path: out/
+          retention-days: 30
+          if-no-files-found: error

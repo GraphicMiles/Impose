@@ -1,5 +1,6 @@
 """Closure audit regression tests — B-01 (chat auth split) and
 B-09 (relay grant writes the inbox notice the RPC writes)."""
+import asyncio
 import os
 
 os.environ.setdefault("CONTROL_KEY", "test123")
@@ -27,6 +28,8 @@ class FakeClient:
     Supabase, and records the notification insert."""
 
     notifications = []
+    audits = []
+    logouts = []
 
     def __init__(self, *a, **kw):
         pass
@@ -36,6 +39,13 @@ class FakeClient:
 
     async def __aexit__(self, *a):
         return False
+
+    async def request(self, method, url, headers=None, json=None, params=None):
+        """supabase_admin._request() speaks GoTrue/admin over this verb."""
+        if url.endswith("/auth/v1/admin/users"):
+            return Resp(200, {"users": [{"id": "member-1",
+                                         "email": "member@example.test"}]})
+        raise AssertionError(f"unexpected {method} {url}")
 
     async def get(self, url, headers=None, params=None):
         if "/auth/v1/user" in url:
@@ -54,6 +64,12 @@ class FakeClient:
         if url.endswith("/rest/v1/notifications"):
             FakeClient.notifications.append(json)
             return Resp(201, {})
+        if url.endswith("/rest/v1/audit_events"):
+            FakeClient.audits.append(json)
+            return Resp(201, {})
+        if "/auth/v1/admin/users/" in url and url.endswith("/logout"):
+            FakeClient.logouts.append(url)
+            return Resp(201, {})
         raise AssertionError(f"unexpected POST {url}")
 
     async def patch(self, url, headers=None, params=None, json=None):
@@ -63,6 +79,8 @@ class FakeClient:
 @pytest.fixture(autouse=True)
 def fake_httpx(monkeypatch):
     FakeClient.notifications = []
+    FakeClient.audits = []
+    FakeClient.logouts = []
     server._MEMBER_CACHE.clear()
     server._RATE_BUCKETS.clear()
     monkeypatch.setattr(supabase_admin.httpx, "AsyncClient", FakeClient)
@@ -127,3 +145,33 @@ def test_notify_waitlist_approved_skips_without_owner(monkeypatch):
     monkeypatch.setattr(supabase_admin.httpx, "AsyncClient", NoOwner)
     __import__("asyncio").run(supabase_admin.notify_waitlist_approved("member-1"))
     assert FakeClient.notifications == []
+
+
+def test_revoke_sessions_calls_gotrue_logout_and_audits():
+    asyncio.run(supabase_admin.revoke_user_sessions("member-1"))
+    assert FakeClient.logouts == [
+        "https://example.test/auth/v1/admin/users/member-1/logout"
+    ]
+    asyncio.run(supabase_admin.audit_event(
+        "owner-1", "account.revoke_sessions", "user", "member-1", {"via": "relay"}))
+    assert FakeClient.audits[-1] == {
+        "actor_id": "owner-1", "action": "account.revoke_sessions",
+        "target_type": "user", "target_id": "member-1", "metadata": {"via": "relay"},
+    }
+
+
+def test_revoke_sessions_endpoint_needs_key_and_writes_audit():
+    client = TestClient(server.app)
+    server._RATE_BUCKETS.clear()
+    r = client.post("/admin/revoke_sessions", json={"email": "member@example.test"})
+    assert r.status_code in (401, 403)
+
+    r = client.post(
+        "/admin/revoke_sessions",
+        json={"email": "member@example.test"},
+        headers={"Authorization": "Bearer test123"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["sessions"] == "revoked"
+    assert FakeClient.logouts
+    assert FakeClient.audits and FakeClient.audits[-1]["action"] == "account.revoke_sessions"

@@ -492,6 +492,59 @@ async def list_admin_owners() -> list:
     return [r["user_id"] for r in rows if isinstance(r, dict) and r.get("user_id")]
 
 
+async def audit_event(actor_id, action: str, target_type: str | None = None,
+                      target_id: str | None = None, metadata: dict | None = None) -> None:
+    """Append one row to audit_events with the service role.
+
+    The table has no client policies on purpose (default deny), so the
+    relay's admin paths write their trail here exactly as the database
+    RPCs write theirs through audit_log() — one trail, two surfaces.
+    """
+    url = _url() + "/rest/v1/audit_events"
+    headers = _postgrest_headers()
+    headers["Prefer"] = "return=minimal"
+    body = {"actor_id": actor_id, "action": action,
+            "target_type": target_type, "target_id": target_id,
+            "metadata": metadata or {}}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(url, headers=headers, json=body)
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "The action is recorded but its audit row could not be written.",
+            f"audit insert transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "The action is recorded but its audit row could not be written.",
+            f"audit insert -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )
+
+
+async def revoke_user_sessions(user_id: str) -> None:
+    """Globally invalidate one account's sessions (GoTrue admin logout).
+
+    The compromise lever from the architecture brief (A11): a stolen
+    session dies the moment the operator calls this, everywhere it exists.
+    """
+    url = _url() + f"/auth/v1/admin/users/{user_id}/logout"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(url, headers=_headers(), json={"scope": "global"})
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"session revoke transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "The sessions could not be revoked. Try again shortly.",
+            f"session revoke -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )
+
+
 async def has_workspace_grant(user_id: str) -> bool:
     """Whether the workspace grant row exists. Service role only; the table
     has no client policies, and this read is what lets /notify/grant refuse
