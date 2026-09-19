@@ -6189,8 +6189,10 @@
       : '<i data-lucide="log-in"></i><span>Sign in</span>';
     $("acctSub").textContent = session && session.email ? session.email : "Local profile";
     /* Closure audit B-07: leaving for good is only offered to a signed-in
-       session; a local profile has no account row to delete. */
+       session; a local profile has no account row to delete. Same for the
+       server-side data export — a local profile owns nothing server-side. */
     $("acctDelete").hidden = !session;
+    $("acctExportData").hidden = !session;
     disarmWipe();
     disarmDelete();
     refreshIcons();
@@ -6579,6 +6581,35 @@
      every owned row with it (cascades), so after it lands the session is
      already dead — the local cleanup runs regardless of what signOut can
      still reach, exactly like the admin sign-out path. */
+  /* Brief A5: the server-side half of export ("Export chats" covers the
+     workspace blob; this covers everything the database holds about the
+     account). Downloaded as one JSON snapshot, same mechanism as chats. */
+  $("acctExportData").addEventListener("click", function () {
+    hidePop(true);
+    var client = window.BotoData && BotoData.db ? BotoData.db() : null;
+    if (!client) { toast("Export needs a connection. Try again in a moment."); return; }
+    client.rpc("export_my_data").then(function (res) {
+      if (res && res.error) {
+        var msg = String(res.error.message || "");
+        if (/rate_limited/i.test(msg)) toast("Export is limited to a few per hour. Try again later.", null, null, 4200, "warn");
+        else toast("The export could not be prepared. Try again in a moment.", null, null, 4200, "error");
+        return;
+      }
+      var blob = new Blob([JSON.stringify(res.data, null, 2)], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "impose-account.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      toast.success("Account data download requested");
+    }, function () {
+      toast("The export could not be prepared. Try again in a moment.", null, null, 4200, "error");
+    });
+  });
+
   var deleteArmed = false;
   var deleteTimer = null;
   function disarmDelete() {
@@ -6608,6 +6639,7 @@
         var msg = String(res.error.message || "");
         if (/owner_protected/i.test(msg)) toast("The owner account cannot be deleted.", null, null, 4200, "warn");
         else if (/last_admin/i.test(msg)) toast("You are the last admin. Add another admin first.", null, null, 4200, "warn");
+        else if (/recent_auth_required/i.test(msg)) toast("For safety, sign out, sign back in, and delete within the next few minutes.", null, null, 5200, "warn");
         else if (/rate_limited/i.test(msg)) toast("Too many attempts. Try again later.", null, null, 4200, "warn");
         else toast("The account could not be deleted. Try again in a moment.", null, null, 4200, "error");
         return;

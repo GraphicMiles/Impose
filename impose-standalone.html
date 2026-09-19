@@ -5219,6 +5219,7 @@ try {
   <button class="pop-item" id="acctSettings" role="menuitem"><i data-lucide="settings"></i><span>Settings</span></button>
   <button class="pop-item" id="acctShare" role="menuitem" disabled><i data-lucide="share"></i><span>Share chat</span></button>
   <button class="pop-item" id="acctExport" role="menuitem"><i data-lucide="download"></i><span>Export chats</span></button>
+  <button class="pop-item" id="acctExportData" role="menuitem" hidden><i data-lucide="database"></i><span>Export account data</span></button>
   <div class="pop-sep"></div>
   <button class="pop-item" id="acctAbout" role="menuitem"><i data-lucide="file-text"></i><span>About &amp; privacy</span></button>
   <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
@@ -16486,8 +16487,10 @@ window.BotoConfig = {
       : '<i data-lucide="log-in"></i><span>Sign in</span>';
     $("acctSub").textContent = session && session.email ? session.email : "Local profile";
     /* Closure audit B-07: leaving for good is only offered to a signed-in
-       session; a local profile has no account row to delete. */
+       session; a local profile has no account row to delete. Same for the
+       server-side data export — a local profile owns nothing server-side. */
     $("acctDelete").hidden = !session;
+    $("acctExportData").hidden = !session;
     disarmWipe();
     disarmDelete();
     refreshIcons();
@@ -16876,6 +16879,35 @@ window.BotoConfig = {
      every owned row with it (cascades), so after it lands the session is
      already dead — the local cleanup runs regardless of what signOut can
      still reach, exactly like the admin sign-out path. */
+  /* Brief A5: the server-side half of export ("Export chats" covers the
+     workspace blob; this covers everything the database holds about the
+     account). Downloaded as one JSON snapshot, same mechanism as chats. */
+  $("acctExportData").addEventListener("click", function () {
+    hidePop(true);
+    var client = window.BotoData && BotoData.db ? BotoData.db() : null;
+    if (!client) { toast("Export needs a connection. Try again in a moment."); return; }
+    client.rpc("export_my_data").then(function (res) {
+      if (res && res.error) {
+        var msg = String(res.error.message || "");
+        if (/rate_limited/i.test(msg)) toast("Export is limited to a few per hour. Try again later.", null, null, 4200, "warn");
+        else toast("The export could not be prepared. Try again in a moment.", null, null, 4200, "error");
+        return;
+      }
+      var blob = new Blob([JSON.stringify(res.data, null, 2)], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "impose-account.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      toast.success("Account data download requested");
+    }, function () {
+      toast("The export could not be prepared. Try again in a moment.", null, null, 4200, "error");
+    });
+  });
+
   var deleteArmed = false;
   var deleteTimer = null;
   function disarmDelete() {
@@ -16905,6 +16937,7 @@ window.BotoConfig = {
         var msg = String(res.error.message || "");
         if (/owner_protected/i.test(msg)) toast("The owner account cannot be deleted.", null, null, 4200, "warn");
         else if (/last_admin/i.test(msg)) toast("You are the last admin. Add another admin first.", null, null, 4200, "warn");
+        else if (/recent_auth_required/i.test(msg)) toast("For safety, sign out, sign back in, and delete within the next few minutes.", null, null, 5200, "warn");
         else if (/rate_limited/i.test(msg)) toast("Too many attempts. Try again later.", null, null, 4200, "warn");
         else toast("The account could not be deleted. Try again in a moment.", null, null, 4200, "error");
         return;
@@ -20319,6 +20352,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (/bootstrap_used/i.test(text)) {
       return { message: "Setup was already completed on this installation.",
                retryable: false, code: "bootstrap_used" };
+    }
+    /* The 0024 closure additions. Each names exactly what the person can
+       do next; none of them retries, because retrying changes nothing. */
+    if (/thread_too_deep/i.test(text)) {
+      return { message: "Replies only go two levels deep. Reply to the comment above instead.",
+               retryable: false, code: "thread_too_deep" };
+    }
+    if (/content_blocked/i.test(text)) {
+      return { message: "That text contains something this community does not allow.",
+               retryable: false, code: "content_blocked" };
+    }
+    if (/recent_auth_required/i.test(text)) {
+      return { message: "For safety, sign in again and retry right away.",
+               retryable: false, code: "recent_auth_required" };
     }
     if (/last_capability/i.test(text)) {
       return { message: "That is their last permission. Remove the admin instead.",

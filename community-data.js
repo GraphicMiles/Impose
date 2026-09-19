@@ -173,6 +173,20 @@
       return { message: "Setup was already completed on this installation.",
                retryable: false, code: "bootstrap_used" };
     }
+    /* The 0024 closure additions. Each names exactly what the person can
+       do next; none of them retries, because retrying changes nothing. */
+    if (/thread_too_deep/i.test(text)) {
+      return { message: "Replies only go two levels deep. Reply to the comment above instead.",
+               retryable: false, code: "thread_too_deep" };
+    }
+    if (/content_blocked/i.test(text)) {
+      return { message: "That text contains something this community does not allow.",
+               retryable: false, code: "content_blocked" };
+    }
+    if (/recent_auth_required/i.test(text)) {
+      return { message: "For safety, sign in again and retry right away.",
+               retryable: false, code: "recent_auth_required" };
+    }
     if (/last_capability/i.test(text)) {
       return { message: "That is their last permission. Remove the admin instead.",
                retryable: false, code: "last_capability" };

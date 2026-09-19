@@ -1,0 +1,50 @@
+# CI: the same suites run in this workspace, on every push and PR.
+# Relay pytest suite + client node tests + standalone build parity.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  relay-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install relay deps
+        run: pip install -r backend/relay/requirements.txt pytest httpx
+      - name: Relay test suite
+        working-directory: backend
+        run: python -m pytest relay/tests/ -q
+        env:
+          CONTROL_KEY: test123
+
+  client-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Syntax check edited modules
+        run: |
+          node --check app.js
+          node --check community.js
+          node --check community-data.js
+          node --check workspace-sync.js
+          node --check auth-client.js
+          node --check access.js
+      - name: Workspace sync round-trip
+        run: node tests/workspace_sync_roundtrip.js
+      - name: 100-user community simulation
+        run: node tests/simulate_100_users.js
+      - name: Standalone build parity
+        run: python3 build_inline.py --check
