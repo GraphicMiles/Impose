@@ -21153,6 +21153,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function avatar(creator, cls) {
     var who = creator || {};
     var seed = who.avatar || who.handle || who.name || "?";
+    /* Workspace and Community share the same signed-in identity, but the
+       workspace keeps the selected character in its account payload while
+       older profile rows may still have avatar = null. Use that canonical
+       account-local selection for the current user so the header and their
+       own posts cannot render different faces. Other users remain driven by
+       their profile avatar from Supabase. */
+    if (!who.avatar && myUserId && window.WSync && WSync.userId && WSync.userId() === myUserId && WSync.bootPayload) {
+      try {
+        var payload = WSync.bootPayload();
+        if (payload && payload.settings && payload.settings.avatar) seed = payload.settings.avatar;
+      } catch (e) { /* fall back to the stable handle seed */ }
+    }
     var klass = "avatar " + (cls || "");
     if (window.BotoAvatar) {
       return '<span class="' + klass.trim() + ' avatar-img">' + BotoAvatar.svg(seed) + "</span>";
