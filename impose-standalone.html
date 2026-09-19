@@ -2082,65 +2082,321 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   .onboard-badge, .onboard-icon { width: 38px; }
 }
 
-/* ---------- workspace access gate (waitlist) --------------------------------
-   The sheet inherits the modal chrome; this block lays out its two states.
-   Surfaces, radii, and motion all come from the locked tokens above. */
-.access-sheet {
-  max-width: min(480px, 100%);
-  padding: 24px;
+/* ---------- full-page workspace access gate (waitlist) ----------------------
+   Full-page surface; never blocks Community. Surfaces, radii, and motion
+   all come from the locked tokens above. */
+.access-page {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
-#waitlistForm { margin-top: 20px; }
-.wl-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+.access-page[hidden] {
+  display: none !important;
+}
+
+.access-page-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+  padding: 12px 20px;
+}
+.access-page-nav-inner {
+  max-width: 840px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.access-back-btn {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  align-items: stretch;
-}
-.wl-row .text-input { min-width: 0; }
-.wl-row .btn { min-height: 38px; }
-.wl-note { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-3); }
-.wl-note.error { color: var(--danger); }
-.wl-row .btn[disabled] { opacity: 0.6; pointer-events: none; }
-.wl-done {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  margin-top: 20px;
-  padding: 14px;
-  border-radius: var(--r-5);
+  padding: 7px 12px;
+  border-radius: var(--r-3);
   background: var(--hover);
-  animation: wl-done-in 220ms var(--ease-out);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background 140ms var(--ease), border-color 140ms var(--ease);
 }
-.wl-done-badge {
-  width: 34px;
-  height: 34px;
+.access-back-btn:hover {
+  background: var(--press);
+  border-color: var(--border);
+}
+.access-back-btn .lucide, .access-back-btn i[data-lucide] {
+  width: 15px;
+  height: 15px;
+}
+
+.access-brand-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-2);
+}
+.access-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.access-signin-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: var(--r-3);
+  transition: color 140ms var(--ease);
+}
+.access-signin-link:hover {
+  color: var(--text);
+}
+
+.access-page-content {
+  flex: 1;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.access-page-hero {
+  text-align: center;
+  margin-bottom: 28px;
+}
+.access-badge {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 18px;
   display: grid;
   place-items: center;
   border-radius: var(--r-4);
-  background: var(--press);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
-.wl-done-badge .lucide, .wl-done-badge i[data-lucide] { width: 17px; height: 17px; }
-.wl-done strong { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; }
-.wl-done span { display: block; margin-top: 3px; color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.access-badge .lucide, .access-badge i[data-lucide] {
+  width: 24px;
+  height: 24px;
+}
+.access-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+.access-subtitle {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.access-card {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-5);
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  margin-bottom: 28px;
+}
+
+.access-card .flabel {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+
+.access-card .wl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+}
+.access-card .text-input {
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  font-size: 14px;
+  border-radius: var(--r-3);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  transition: border-color 140ms var(--ease);
+}
+.access-card .text-input:focus {
+  outline: none;
+  border-color: var(--focus);
+}
+.access-card .btn.primary {
+  height: 44px;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--r-3);
+  background: var(--primary);
+  color: var(--primary-text);
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.access-card .btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.access-card .wl-note {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.access-card .wl-note.error {
+  color: var(--danger);
+}
+
+.wl-done {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 16px;
+  border-radius: var(--r-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  animation: wl-done-in 220ms var(--ease-out);
+}
+.wl-done-badge {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-3);
+  background: var(--hover);
+  color: #10b981;
+}
+.wl-done-badge .lucide, .wl-done-badge i[data-lucide] { width: 18px; height: 18px; }
+.wl-done strong { display: block; font-size: 14.5px; font-weight: 600; line-height: 1.35; color: var(--text); }
+.wl-done span { display: block; margin-top: 4px; color: var(--text-2); font-size: 13px; line-height: 1.5; }
 html.reduce-motion .wl-done { animation: none; }
 @keyframes wl-done-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
-.wl-continue {
-  display: block;
+
+.access-features-grid {
   width: 100%;
-  margin-top: 16px;
-  justify-content: center;
-  min-height: 42px;
-  background: var(--hover);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
 }
-@media (max-width: 480px) {
-  .access-sheet { padding: 22px 20px 20px; }
-  /* the CTA drops under the field rather than squeezing it */
-  .wl-row { grid-template-columns: minmax(0, 1fr); }
-  .wl-row .btn { width: 100%; justify-content: center; }
+.access-feature-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-4);
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.access-feat-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-3);
+  background: var(--hover);
+  color: var(--text);
+}
+.access-feat-icon .lucide, .access-feat-icon i[data-lucide] {
+  width: 16px;
+  height: 16px;
+}
+.access-feature-card h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+.access-feature-card p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.access-page-footer {
+  width: 100%;
+}
+.access-page-footer .wl-continue {
+  width: 100%;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--r-3);
+  background: var(--hover);
+  color: var(--text);
+  border: 1px solid var(--border-soft);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 140ms var(--ease), border-color 140ms var(--ease);
+}
+.access-page-footer .wl-continue:hover {
+  background: var(--press);
+  border-color: var(--border);
+}
+
+@media (max-width: 600px) {
+  .access-page-content { padding: 24px 16px 60px; }
+  .access-title { font-size: 24px; }
+  .access-subtitle { font-size: 13.5px; }
+  .access-card { padding: 18px 16px; }
+  .access-card .wl-row { grid-template-columns: minmax(0, 1fr); }
+  .access-card .btn.primary { width: 100%; justify-content: center; }
+  .access-features-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 }
 
 /* ---------- tools menu ---------- */
@@ -5163,35 +5419,80 @@ try {
 </div>
 
 <!-- Access gate: Community is open, Workspace is waitlist-granted.
-     Rendered on demand; never blocks Community. -->
-<div class="overlay center" id="accessModal" hidden>
-  <div class="sheet access-sheet" role="dialog" aria-modal="true" aria-labelledby="accessTitle">
-    <div class="onboard-intro">
-      <div class="onboard-badge"><i data-lucide="lock"></i></div>
-      <div class="onboard-copy">
-        <h2 id="accessTitle">Workspace is in private beta</h2>
-        <p class="onboard-sub">The Community feed is open to everyone. The Workspace is your own chat surface, with saved history, files, and your own provider keys. We are letting people in from the waitlist a few at a time.</p>
+     Full-page surface; never blocks Community. -->
+<div class="access-page" id="accessModal" hidden>
+  <header class="access-page-nav">
+    <div class="access-page-nav-inner">
+      <button class="access-back-btn" id="accessBackBtn" type="button" aria-label="Back to Community">
+        <i data-lucide="arrow-left"></i>
+        <span>Community</span>
+      </button>
+      <div class="access-brand-pill">
+        <span class="access-pulse-dot"></span>
+        <span>Private Beta</span>
       </div>
+      <a class="access-signin-link" href="./sign-in">Sign in</a>
     </div>
-    <form id="waitlistForm" novalidate>
-      <label class="flabel" for="waitlistEmail">Email</label>
-      <div class="wl-row">
-        <input class="text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
-        <button class="btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
+  </header>
+
+  <main class="access-page-content" role="region" aria-labelledby="accessTitle">
+    <div class="access-page-hero">
+      <div class="access-badge">
+        <i data-lucide="lock"></i>
       </div>
-      <p class="wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
-    </form>
-    <div id="waitlistDone" hidden>
-      <div class="wl-done" role="status">
-        <span class="wl-done-badge"><i data-lucide="check"></i></span>
-        <div>
-          <strong>You're on the list.</strong>
-          <span id="waitlistPosition">We'll email you when your seat opens.</span>
+      <h1 class="access-title" id="accessTitle">Workspace is in private beta</h1>
+      <p class="access-subtitle">The Community feed is open to everyone. The Workspace is your own chat surface, with saved history, files, and your own provider keys. We are letting people in from the waitlist a few at a time.</p>
+    </div>
+
+    <div class="access-card">
+      <form id="waitlistForm" novalidate>
+        <label class="flabel" for="waitlistEmail">Email address</label>
+        <div class="wl-row">
+          <input class="text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
+          <button class="btn primary" id="waitlistJoin" type="submit">
+            <span>Join the waitlist</span>
+            <i data-lucide="arrow-right"></i>
+          </button>
+        </div>
+        <p class="wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
+      </form>
+
+      <div id="waitlistDone" hidden>
+        <div class="wl-done" role="status">
+          <span class="wl-done-badge"><i data-lucide="check"></i></span>
+          <div class="wl-done-content">
+            <strong>You're on the list.</strong>
+            <span id="waitlistPosition">We'll email you when your seat opens.</span>
+          </div>
         </div>
       </div>
     </div>
-    <button class="btn wl-continue" id="accessContinue">Keep browsing Community</button>
-  </div>
+
+    <div class="access-features-grid">
+      <div class="access-feature-card">
+        <div class="access-feat-icon"><i data-lucide="shield-check"></i></div>
+        <h3>Client-Sealed Encryption</h3>
+        <p>Provider credentials and sync state stay encrypted in your browser using AES-GCM before syncing.</p>
+      </div>
+      <div class="access-feature-card">
+        <div class="access-feat-icon"><i data-lucide="cpu"></i></div>
+        <h3>Direct Provider Access</h3>
+        <p>Bring your own OpenAI, Anthropic, Gemini, or self-hosted relay keys with raw token speeds and no middleman markup.</p>
+      </div>
+      <div class="access-feature-card">
+        <div class="access-feat-icon"><i data-lucide="folder-git-2"></i></div>
+        <h3>Durable Multi-Chat Workspace</h3>
+        <p>Full folder management, multi-file inspection, chat branching, and local recovery across all your devices.</p>
+      </div>
+    </div>
+
+    <div class="access-page-footer">
+      <button class="btn wl-continue" id="accessContinue" type="button">
+        <i data-lucide="compass"></i>
+        <span>Keep browsing Community</span>
+      </button>
+    </div>
+  </main>
 </div>
 
 <div class="overlay center" id="cmNotifSheet" hidden>
@@ -12071,6 +12372,7 @@ window.BotoConfig = {
       el.addEventListener("keydown", el.__imposeTrap);
     }
     modalStack.push({ el: el, prev: document.activeElement });
+    if (el.id === "accessModal" || el.dataset.noAutofocus === "true") return;
     var f = focusablesIn(el);
     if (f.length) f[0].focus();
   }
@@ -23659,8 +23961,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         }
       }).catch(function () {});
     }
-    var email = $("waitlistEmail");
-    if (email) setTimeout(function () { email.focus(); }, 120);
     refreshIcons();
   }
 
@@ -23715,6 +24015,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       }).finally(function () { btn.disabled = false; });
     });
     $("accessContinue").addEventListener("click", closeAccessSheet);
+    var backBtn = $("accessBackBtn");
+    if (backBtn) backBtn.addEventListener("click", closeAccessSheet);
     mClickListener();
   }
 

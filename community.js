@@ -3202,8 +3202,6 @@
         }
       }).catch(function () {});
     }
-    var email = $("waitlistEmail");
-    if (email) setTimeout(function () { email.focus(); }, 120);
     refreshIcons();
   }
 
@@ -3258,6 +3256,8 @@
       }).finally(function () { btn.disabled = false; });
     });
     $("accessContinue").addEventListener("click", closeAccessSheet);
+    var backBtn = $("accessBackBtn");
+    if (backBtn) backBtn.addEventListener("click", closeAccessSheet);
     mClickListener();
   }
 

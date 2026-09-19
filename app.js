@@ -2381,6 +2381,7 @@
       el.addEventListener("keydown", el.__imposeTrap);
     }
     modalStack.push({ el: el, prev: document.activeElement });
+    if (el.id === "accessModal" || el.dataset.noAutofocus === "true") return;
     var f = focusablesIn(el);
     if (f.length) f[0].focus();
   }
