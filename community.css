@@ -420,7 +420,12 @@ body:not(.community-mode) .modebar { display: none; }
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border-soft);
   transition: background-color 140ms ease;
-  cursor: pointer; animation: ctx-in var(--dur-2) var(--ease-out) both; }
+  cursor: pointer; }
+/* Admission-only entrance: plays exactly once per node, when a genuinely
+   new card joins the document. The reconciler marks every settled node
+   with data-entered, and a node that survives a rebuild-free repaint
+   must never replay this — replaying it was the feed-wide "shake". */
+.cm-scope .gen:not([data-entered]) { animation: ctx-in var(--dur-2) var(--ease-out) both; }
 
 @media (hover: hover) {
 .cm-scope .gen:hover { background: var(--hover); }

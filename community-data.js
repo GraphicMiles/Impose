@@ -347,6 +347,19 @@
   var cachedUser = null;
   var cachedProfile = null;
 
+  /* ---------- avatar authority ----------
+     The profile row is the one canonical record for a face: every card,
+     comment and composer reads from this cache rather than re-discovering
+     the same person through a second request. Keyed by immutable auth user
+     id, never by handle. A cached entry is *display material*: the server
+     row is still refreshed through TTL reads, but nothing visible ever
+     backs out of an already-known face just because a fresher one is on
+     the way. */
+  var avatarCache = Object.create(null);
+  var AVATAR_TTL = 60000;
+  var avatarInFlight = null;    /* one request per burst, shared by all callers */
+  var avatarInFlightIds = null;
+
   function currentUser() {
     if (!configured()) return Promise.resolve(null);
     if (cachedUser !== null) return Promise.resolve(cachedUser || null);
@@ -364,12 +377,33 @@
         .eq("id", user.id).maybeSingle()
         .then(function (res) {
           cachedProfile = (res && res.data) || null;
+          if (cachedProfile && user.id) {
+            /* The caller's own face joins the same cache everybody else's
+               uses, keyed by id, so optimistic rows render the real identity
+               without a round trip. */
+            avatarCache[user.id] = {
+              avatar: cachedProfile.avatar || null,
+              name: cachedProfile.display_name || cachedProfile.handle || "Someone",
+              at: Date.now()
+            };
+          }
           return cachedProfile;
         }, function () { return null; });
     });
   }
 
-  function forgetUser() { cachedUser = null; cachedProfile = null; }
+  /* The caller's own profile, synchronously, when it is already known. A
+     render path that would otherwise paint a blank placeholder and later
+     repaint it gets the canonical record up front; null means genuinely
+     unknown, not "wait and flash". */
+  function myProfileNow() { return cachedProfile || null; }
+  function avatarNow(userId) { var e = avatarCache[userId]; return e || null; }
+
+  function forgetUser() {
+    cachedUser = null;
+    cachedProfile = null;
+    avatarCache = Object.create(null);
+  }
 
   /* Fills in the author on a row that came back from a write. */
   function withMe(row, profile) {
@@ -958,6 +992,7 @@
     }).then(function (out) {
       if (out.ok) {
         cachedProfile = null;
+        avatarCache = Object.create(null); /* the writer's face changed; TTL can't know */
         window.dispatchEvent(new CustomEvent("impose:profile-updated"));
       }
       return out;
@@ -975,6 +1010,7 @@
     }).then(function (out) {
       if (out.ok) {
         cachedProfile = null;
+        avatarCache = Object.create(null); /* the writer's face changed; TTL can't know */
         window.dispatchEvent(new CustomEvent("impose:profile-updated"));
       }
       return out;
@@ -1104,24 +1140,71 @@
     });
   }
 
-  function latestAvatarsByIds(ids) {
+  function latestAvatarsByIds(ids, opts) {
+    var force = !!(opts && opts.force);
     var clean = Array.from(new Set((ids || []).map(String).filter(function (id) {
       return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
     })));
     if (!clean.length || !configured()) return Promise.resolve({ ok: true, data: {} });
-    return run(function () {
-      return db().from("profiles").select("id, avatar, display_name, handle").in("id", clean);
-    }).then(function (out) {
-      if (!out.ok) return out;
-      var map = {};
-      (out.data || []).forEach(function (row) {
-        map[row.id] = {
-          avatar: row.avatar || null,
-          name: row.display_name || row.handle || "Someone"
-        };
-      });
-      return { ok: true, data: map };
+
+    /* Stale-while-refresh: entries younger than TTL answer from cache and
+       are counted fresh; the network is spent only on ids we have never
+       seen or whose TTL lapsed. The caller still gets every id it asked
+       for — cached entries ride along with fetched ones. */
+    var need = force ? clean : clean.filter(function (id) {
+      var e = avatarCache[id];
+      return !e || (Date.now() - e.at > AVATAR_TTL);
     });
+
+    function answer(fetched) {
+      var map = {};
+      clean.forEach(function (id) {
+        var e = avatarCache[id];
+        if (e) map[id] = { avatar: e.avatar, name: e.name };
+      });
+      /* A fetch failure keeps the last known faces rather than blanking
+         them: a stale face for sixty seconds beats a white circle for a
+         moment. */
+      return { ok: fetched.ok !== false, data: map, cached: need.length === 0 };
+    }
+
+    if (!need.length) return Promise.resolve({ ok: true, data: answer({}).data, cached: true });
+
+    /* Request deduplication: one in-flight query per id set. Concurrent
+       callers (feed render, poll tick, thread hydrate) join the same
+       promise instead of launching parallel identical selects. */
+    var sig = need.slice().sort().join(",");
+    if (avatarInFlight && avatarInFlightIds.indexOf(sig) !== -1) {
+      return avatarInFlight.then(answer, function () { return answer({ ok: false }); });
+    }
+
+    var p = run(function () {
+      return db().from("profiles").select("id, avatar, display_name, handle").in("id", need);
+    }).then(function (out) {
+      if (out.ok) {
+        (out.data || []).forEach(function (row) {
+          avatarCache[row.id] = {
+            avatar: row.avatar || null,
+            name: row.display_name || row.handle || "Someone",
+            at: Date.now()
+          };
+        });
+      }
+      return out;
+    });
+
+    avatarInFlight = p;
+    avatarInFlightIds = ["*"];
+    var released = p.then(function (v) {
+      avatarInFlight = null;
+      avatarInFlightIds = null;
+      return v;
+    }, function (e) {
+      avatarInFlight = null;
+      avatarInFlightIds = null;
+      throw e;
+    });
+    return released.then(answer, function () { return { ok: false, data: answer({ ok: false }).data }; });
   }
 
   window.BotoData = {
@@ -1156,6 +1239,8 @@
     newKey: newKey,
     currentUser: currentUser,
     myProfile: myProfile,
+    myProfileNow: myProfileNow,
+    avatarNow: avatarNow,
     forgetUser: forgetUser,
     feedPage: feedPage,
     newSince: newSince,

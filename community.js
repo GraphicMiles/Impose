@@ -51,6 +51,30 @@
 
   var YOU = { name: "You", handle: "@you" };
 
+  /* The author's own identity for optimistic rows. Previously every
+     optimistic post/comment rendered `You` with no avatar, then visibly
+     swapped to the real face when the server echoed it back: blank ->
+     real in full view. The cached profile (fetched once, shared) is the
+     same record the server would return, so the first paint is already
+     correct. Falls back to YOU only before the profile has ever loaded. */
+  function meAsCreator() {
+    var p = (window.BotoData && BotoData.myProfileNow) ? BotoData.myProfileNow() : null;
+    if (!p) return YOU;
+    return {
+      name: p.display_name || p.handle || "You",
+      handle: p.handle ? "@" + String(p.handle).replace(/^@/, "") : "@you",
+      avatar: p.avatar || null
+    };
+  }
+
+  /* Kick the profile fetch once at boot so the first optimistic row
+     rarely has to fall back. Result is cached; the call is free after. */
+  function warmMyProfile() {
+    if (window.BotoData && BotoData.myProfile) {
+      BotoData.myProfile().catch(function () {});
+    }
+  }
+
   /* ---------- utils ---------- */
 
   function $(id) { return document.getElementById(id); }
@@ -99,10 +123,14 @@
        caller must have refreshed creator.avatar from public.profiles before
        rendering a server-backed row. If the profile has no selected avatar,
        keep the slot empty rather than inventing a handle/name fallback. */
+    /* data-avatar-key lets in-place patchers compare faces without
+       re-creating the SVG: identical key means identical pixels, and a
+       face that's already right stays exactly where it is. */
     if (who.avatar && window.BotoAvatar) {
-      return '<span class="' + klass.trim() + ' avatar-img">' + BotoAvatar.svg(who.avatar) + "</span>";
+      return '<span class="' + klass.trim() + ' avatar-img" data-avatar-key="' +
+        esc(String(who.avatar)) + '">' + BotoAvatar.svg(who.avatar) + "</span>";
     }
-    return '<span class="' + klass.trim() + ' avatar-empty" aria-hidden="true"></span>';
+    return '<span class="' + klass.trim() + ' avatar-empty" data-avatar-key="" aria-hidden="true"></span>';
   }
 
   /* ---------- @bot addressing ----------
@@ -1097,12 +1125,19 @@
     BotoData.thread(genId).then(function (out) {
       if (!out.ok) return;
       if (routeHash() !== "/g/" + genId) return;
+      /* Change detection BEFORE the merge: a realtime arrival that
+         describes the thread exactly as rendered (an echo of our own
+         write via another path, or a merged-away duplicate) must not
+         repaint the list or the card. That's the "stranger's comment
+         clobbered my composer keystroke rhythm" rhythm we measured. */
+      var signatureBefore = threadSignature(genId);
       var keep = state.comments.filter(function (c) {
         return c.genId !== genId || c.pending;
       });
       state.comments = keep.concat(out.data.filter(function (row) {
         return !keep.some(function (c) { return c.id === row.id; });
       }));
+      if (threadSignature(genId) === signatureBefore) return;
       syncCommentCount(genId);
       persist();
       var gen = genById(genId);
@@ -1148,12 +1183,23 @@
     });
   }
 
+  /* Last-rendered inbox, kept in memory. Reopening the sheet renders it
+     instantly (zero "spinner replaces known content"), then the fresh
+     page swaps in only where rows differ. The badge still refetches on
+     realtime arrival — this is paint continuity, not staleness. */
+  var notifLastHTML = null;
+
   function openNotifications() {
     var sheet = $("cmNotifSheet");
     var list = $("cmNotifList");
     sheet.hidden = false;
-    list.innerHTML = '<div class="detail-loading"><span class="spinner"></span><p>Loading notifications…</p></div>';
-    refreshIcons();
+    if (notifLastHTML) {
+      list.innerHTML = notifLastHTML;
+      refreshIcons();
+    } else {
+      list.innerHTML = '<div class="detail-loading"><span class="spinner"></span><p>Loading notifications…</p></div>';
+      refreshIcons();
+    }
 
     BotoData.notifications(30).then(function (out) {
       if (!out.ok) {
@@ -1165,7 +1211,7 @@
           "When someone replies to you it shows up here.</p>";
         return;
       }
-      list.innerHTML = out.data.map(function (n) {
+      var html = out.data.map(function (n) {
         return '<button class="notif-row' + (n.read ? "" : " unread") +
                  '" data-gen="' + esc(n.genId || "") + '" data-kind="' + esc(n.kind || "") + '">' +
                  '<span class="notif-who">' + esc(n.actor.name) + "</span> " +
@@ -1174,7 +1220,9 @@
                  '<span class="notif-when">' + esc(timeAgo(n.createdAt)) + "</span>" +
                "</button>";
       }).join("");
+      list.innerHTML = html;
 
+      notifLastHTML = list.innerHTML;
       /* Marked read on open, not on tap: having seen the list is the
          thing the badge is about. */
       BotoData.markAllRead().then(function () {
@@ -1220,17 +1268,26 @@
   var profileHandle = null;
   var profileIsMe = false;
 
-  function renderProfile(handle) {
+  /* The profile page obeys the same stale-while-refresh rule as the feed:
+     a refresh (an edit landed elsewhere, a follow count moved) must not
+     wipe the card and list the reader is looking at to repaint them.
+     opts.soft keeps both mounted and swings them only once fresher data
+     is ready; a cold open (new handle) still gets the honest spinner. */
+  function renderProfile(handle, opts) {
+    var soft = !!(opts && opts.soft && profileHandle === String(handle || "").replace(/^@/, ""));
     profileHandle = String(handle || "").replace(/^@/, "");
-    profileCursor = null;
-    profileDone = false;
-    profileLoading = false;
-    profileIsMe = false;
-    $("cmProfileList").innerHTML = "";
-    $("cmProfileEmpty").hidden = true;
-    $("cmProfile").innerHTML = '<div class="detail-loading"><span class="spinner"></span></div>';
+    if (!soft) {
+      profileCursor = null;
+      profileDone = false;
+      profileLoading = false;
+      profileIsMe = false;
+      $("cmProfileList").innerHTML = "";
+      $("cmProfileEmpty").hidden = true;
+      $("cmProfile").innerHTML = '<div class="detail-loading"><span class="spinner"></span></div>';
+    }
 
     if (!liveOnline()) {
+      if (soft) return;
       $("cmProfile").innerHTML = '<div class="detail-loading"><p>Profiles need a connection.</p></div>';
       return;
     }
@@ -1267,6 +1324,7 @@
           "</p>" +
           (p.isMe ? '<button class="btn" id="cmEditProfile" type="button">Edit profile</button>' : "") +
         "</div>";
+      if (soft) { loadProfilePage(true); return; }
       refreshIcons();
       var edit = $("cmEditProfile");
       if (edit) edit.addEventListener("click", editProfile);
@@ -1274,16 +1332,35 @@
     });
   }
 
-  function loadProfilePage() {
-    if (profileLoading || profileDone || !profileHandle) return;
+  function loadProfilePage(soft) {
+    /* Soft refresh is allowed past `past done: it reloads page one only,
+       and a completed pagination is exactly when a stale head matters. */
+    if (profileLoading || (!soft && profileDone) || !profileHandle) return;
     profileLoading = true;
     $("cmProfileLoader").hidden = false;
-    BotoData.profileFeed(profileHandle, profileCursor).then(function (out) {
+    BotoData.profileFeed(profileHandle, soft ? null : profileCursor).then(function (out) {
       profileLoading = false;
       $("cmProfileLoader").hidden = true;
       if (!out.ok) return;
       absorb(out.data.items);
       var list = $("cmProfileList");
+      if (soft && out.data.items.length) {
+        /* Refresh page one in place. Existing cards keep their nodes, the
+           head rows that changed patch in place, and genuinely new heads
+           prepend once. No card flicker, no jump mid-read. */
+        var seenOnSoft = {};
+        out.data.items.slice().reverse().forEach(function (gen) {
+          seenOnSoft[gen.id] = true;
+          var existing = list.querySelector('article.gen[data-id="' + gen.id + '"]');
+          if (existing ) replaceCard(gen);
+          else list.insertBefore(buildCard(gen, false), list.firstChild || null);
+          if (existing && existing !== list.firstChild) {
+            list.insertBefore(existing, list.firstChild);
+          }
+        });
+        refreshIcons(list);
+        return;
+      }
       out.data.items.forEach(function (gen) { list.appendChild(buildCard(gen, false)); });
       profileCursor = out.data.cursor;
       profileDone = out.data.done;
@@ -1457,6 +1534,13 @@
     var article = document.createElement("article");
     article.className = "gen" + (gen.status === "streaming" ? " streaming" : "");
     article.dataset.id = gen.id;
+    /* Entrance animation is admission-only: it plays exactly once, when a
+       genuinely new card joins the document. The CSS gates ctx-in on the
+       absence of data-entered; the reconciler relies on it to repaint
+       without the "whole feed jumping" effect that motivated this audit.*/
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { article.dataset.entered = "1"; });
+    });
 
     var badges = "";
     if (gen.locked) badges += badge(gen, "lock", "Locked", "locked");
@@ -1498,26 +1582,193 @@
 
   /* Shared kernel: identical icon refresh to the workspace. Falls back to a
      direct lucide pass when the kernel file is missing (e.g. a half-deployed
-     tree), so icons degrade instead of silently vanishing. */
-  function refreshIcons() {
-    if (window.BotoUI) BotoUI.refreshIcons();
-    else if (window.lucide && lucide.createIcons) lucide.createIcons();
+     tree), so icons degrade instead of silently vanishing.
+
+     Scoped when a target is given: a document-wide createIcons scan
+     re-creates *every* SVG, even untouched cards elsewhere on the page,
+     which flashes identical icons mid-interaction. Touching only the
+     subtree that changed is what keeps one card's repaint invisible to
+     the rest of the feed. */
+  function refreshIcons(root) {
+    if (window.BotoUI) BotoUI.refreshIcons(root);
+    else if (window.lucide && lucide.createIcons) {
+      if (root) lucide.createIcons({ nameAttr: "data-lucide", attrs: {}, root: root });
+      else lucide.createIcons();
+    }
   }
 
+  /* ---------- in-place card patching ----------
+
+     The old replaceCard rewrote the card's entire innerHTML for any
+     change: a lock toggle rebuilt avatar, prompt, response and buttons,
+     then a document-wide lucide scan re-created every icon. Each rewrite
+     lost the reader's transient state (expanded "Show more", button
+     press styling) and flashed structurally identical content.
+
+     A change now updates only the slots that actually differ. Structural
+     changes that have no targeted patcher still fall back to an innerHTML
+     swap of the card alone — never the whole feed, never a card node. */
+
+  function cardById(genId) {
+    return document.querySelector('article.gen[data-id="' + genId + '"]');
+  }
+
+  /* Header: face + name + handle. A live inline SVG is replaced only when
+     the identity resolved to something materially different, which is the
+     promise of the avatar cache: a face already on screen stays put. */
+  function patchHeader(gen, node) {
+    var head = node.querySelector(".gen-head");
+    if (!head) return false;
+    var curAva = head.querySelector(".gen-avatar");
+    var curName = head.querySelector(".gen-name");
+    var curHandle = head.querySelector(".gen-handle");
+    var wantName = gen.creator.name;
+    var wantHandle = gen.creator.handle;
+    var wantAvatarKey = gen.creator.avatar || "";
+    var haveAvatarKey = curAva && curAva.getAttribute("data-avatar-key") || "";
+    if (curName && curName.textContent === wantName &&
+        curHandle && curHandle.textContent === wantHandle &&
+        haveAvatarKey === wantAvatarKey) return true;
+    /* Avatar container first: swap only the inner SVG, keep the span. */
+    if (curAva && haveAvatarKey !== wantAvatarKey) {
+      if (wantAvatarKey && window.BotoAvatar) curAva.innerHTML = BotoAvatar.svg(wantAvatarKey);
+      else curAva.innerHTML = "";
+      curAva.classList.toggle("avatar-empty", !wantAvatarKey);
+      curAva.classList.toggle("avatar-img", !!wantAvatarKey);
+      curAva.setAttribute("data-avatar-key", wantAvatarKey);
+      /* Repaint even if face is the same, to be sure below attrs got set */
+    }
+    if (curName && curName.textContent !== wantName) curName.textContent = wantName;
+    if (curHandle && curHandle.textContent !== wantHandle) {
+      curHandle.textContent = wantHandle;
+      var h = String(wantHandle).replace(/^@/, "");
+      curHandle.setAttribute("href", "/u/" + encodeURIComponent(h));
+    }
+    var hb = head.querySelector(".gen-time");
+    if (hb) hb.textContent = timeAgo(gen.createdAt);
+    return true;
+  }
+
+  function patchCounts(gen, node) {
+    var spans = node.querySelectorAll(".gen-actions .act-cnt");
+    var vals = [gen.counts.remix, gen.counts.challenge, gen.counts.comment];
+    if (spans.length !== 3) return false;
+    for (var i = 0; i < 3; i++) {
+      if (spans[i].textContent !== String(vals[i])) spans[i].textContent = String(vals[i]);
+    }
+    return true;
+  }
+
+  /* Lock presentation: badge + button state + another user's disabled
+     remix/challenge controls. All attribute-level, no re-render. */
+  function patchLock(gen, node) {
+    var btn = node.querySelector('[data-act="lock"]');
+    if (btn) {
+      btn.classList.toggle("on", !!gen.locked);
+      btn.setAttribute("aria-pressed", String(!!gen.locked));
+      btn.setAttribute("aria-label", gen.locked ? "Unlock this generation" : "Lock this generation");
+      btn.setAttribute("title", gen.locked ? "Unlock" : "Lock");
+      var use = btn.querySelector("svg") || btn.querySelector("i[data-lucide]");
+      var wantIcon = gen.locked ? "lock" : "lock-open";
+      if (use && (use.getAttribute("data-lucide") !== wantIcon)) {
+        var fresh = document.createElement("i");
+        fresh.setAttribute("data-lucide", wantIcon);
+        use.replaceWith(fresh);
+        refreshIcons(node);
+      }
+    }
+    var badge = node.querySelector(".gen-badge.locked");
+    if (gen.locked && !badge) return false;  /* structural: needs the badge */
+    if (!gen.locked && badge) badge.remove();
+    /* Remix/challenge disabled state for locked posts by others. */
+    var rem = node.querySelector('[data-act="remix"]');
+    var dis = !!gen.locked && !gen.own;
+    [rem, node.querySelector('[data-act="challenge"]')].forEach(function (b) {
+      if (!b) return;
+      b.disabled = dis;
+      if (dis) b.setAttribute("title", "Locked by creator");
+      else b.removeAttribute("title");
+    });
+    return true;
+  }
+
+  /* The prompt body, with a hard editor guard: while a textarea is open
+     the editor owns that subtree and nothing external may touch it — a
+     realtime merge that arrived mid-edit must not eat the draft. */
+  function patchPrompt(gen, node) {
+    var p = node.querySelector(".gen-prompt");
+    if (!p || p.querySelector("textarea")) return true; /* editor in charge */
+    var wantText = (isAddressed(gen) ? "@bot" : "") + gen.prompt;
+    if (p.textContent === wantText) return true;
+    p.innerHTML = (isAddressed(gen) ? '<span class="gen-at">@bot</span>' : "") + esc(gen.prompt);
+    return true;
+  }
+
+  /* Any change that has no targeted slot pane rewrite: overflow into one
+     local swap of this card alone. Node survives — no entrance replay. */
+  function swapCardContents(gen, node, detail) {
+    var fresh = buildCard(gen, detail === undefined ? !!node.closest("#cmDetail") : detail);
+    node.innerHTML = fresh.innerHTML;
+    node.className = fresh.className;
+    refreshIcons(node);
+  }
+
+  /* Response body text: the streaming cursor and the failed card both
+     live inside .gen-resp, which buildCard composes as one unit. The
+     targeted patch covers the common steady case (text arrived/changed);
+     a status-class change (streaming -> complete, -> failed) is the
+     structural fallback because the block's chrome changes with it. */
+  function patchResponse(gen, node) {
+    var box = node.querySelector(".gen-resp");
+    if (!isAddressed(gen) && !box) return true;
+    if (!!box !== isAddressed(gen)) return false;
+    if (!box) return true;
+    var body = box.querySelector(".gen-resp-body");
+    var streamingNow = !!box.querySelector(".gen-cursor");
+    if (!!streamingNow !== (gen.status === "streaming")) return false;
+    if ((gen.status === "failed") !== !!box.querySelector(".gen-error")) return false;
+    if ((gen.status === "failed") !== false) return false;
+    if (gen.status === "streaming") return false; /* live cursor: repaint elsewhere */
+    if (body && gen.status === "complete") {
+      var wantHTML = rich(gen.response);
+      if (box.querySelector(".gen-resp-body").innerHTML !== wantHTML) {
+        /* keep clamp/open state: rebuild only the inner fragment in place */
+        body.innerHTML = wantHTML;
+      }
+    }
+    return true;
+  }
+
+  /* The failed-text row for plain posts. */
+  function patchFailedChip(gen, node) {
+    var chip = node.querySelector(".gen-failed");
+    if (!!chip === !!(gen.errorText && gen.status === "failed" && !isAddressed(gen))) {
+      if (chip && chip.firstChild && chip.firstChild.nodeValue !== gen.errorText) {
+        chip.firstChild.nodeValue = gen.errorText;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /* What any painter may touch when a user-visible mutation lands.
+     Targeted patches first; a slot that cannot be patched in place
+     (structure changed around it) cascades the whole card to one local
+     swap — never the document, never the node. */
   function replaceCard(gen) {
-    var existing = document.querySelector('article.gen[data-id="' + gen.id + '"]');
-    if (!existing) return;
-    var detail = !!existing.closest("#view-detail");
-    var fresh = buildCard(gen, detail);
-    /* Keep the post node itself stable. Replacing article.gen on a local
-       action forces the browser to detach and reinsert the whole card,
-       which produces a visible jump even when its geometry is unchanged.
-       The delegated listeners remain attached to document, so updating the
-       card contents in place preserves behavior without reconstructing the
-       feed item. */
-    existing.innerHTML = fresh.innerHTML;
-    existing.className = fresh.className;
-    refreshIcons();
+    var node = cardById(gen.id);
+    if (!node) return;
+    var chip = node.querySelector(".gen-pending");
+    var structural =
+      !patchPrompt(gen, node) ||
+      !patchResponse(gen, node) ||
+      !patchFailedChip(gen, node) ||
+      (!!gen.pending && !chip);
+    if (structural) { swapCardContents(gen, node); return; }
+    if (!gen.pending && chip) chip.remove();
+    if (!patchLock(gen, node)) { swapCardContents(gen, node); return; }
+    patchCounts(gen, node);
+    patchHeader(gen, node);
   }
 
   /* ---------- feed ---------- */
@@ -1629,45 +1880,132 @@
     });
   }
 
+  /* ---------- feed reconciliation ----------
+
+     The feed's contract with the reader: a card that didn't change doesn't
+     move. `renderKnownFeed` used to do `innerHTML = ""` and rebuild every
+     card from scratch on poll ticks, avatar arrivals, route-returns, own
+     post confirmations and pull-refresh landings. Each rebuild replayed
+     every card's entrance animation, re-created every icon, dropped
+     "Show more" state and selection, and moved scroll: the visible
+     "shake" this audit exists for.
+
+     The reconciler keys every row by generation.id (never an index):
+       - existing node + same signature -> keep the node, touch nothing
+       - existing node + drifted signature -> replaceCard patch in place
+       - unknown id                    -> buildCard once (the one entrance)
+       - stale node                    -> remove, no replacement
+
+     New-during-gesture continuity: adoptServerRow renames the placeholder
+     card's data-id to the server id BEFORE reconciling, so an optimistic
+     card and its canonical row are one logical UI entity and never a
+     disappear/reappear pair. */
+  var feedSig = new Map();  /* genId -> last-rendered signature */
+  var RECO = { kept: 0, patched: 0, created: 0, removed: 0 };
+
+  function cardSignature(gen) {
+    /* Everything a painter may touch. Time is intentionally excluded:
+       "2m" rolling to "3m" is not worth a reflow on every poll tick; the
+       header patcher updates it opportunistically on any other change. */
+    return [
+      gen.prompt, gen.response, gen.status, gen.kind,
+      !!gen.locked, gen.visibility, !!gen.pending, !!gen.deleted,
+      gen.errorText || "", gen.addressed === false ? "0" : "1",
+      gen.counts.remix + "/" + gen.counts.challenge + "/" + gen.counts.comment,
+      gen.creator.name, gen.creator.handle, gen.creator.avatar || "",
+      gen.updatedAt || gen.createdAt
+    ].join("|");
+  }
+
   function renderKnownFeed() {
     var list = $("cmFeedList");
-    list.innerHTML = "";
+    if (!list) return;
+
+    /* Desired order: the author's own in-flight/failed rows first (they
+       are not in the server ordering), then the server's keyset order. */
     var pending = pendingLocal();
-    var pendingIds = {};
-    pending.forEach(function (gen) {
-      pendingIds[gen.id] = true;
-      list.appendChild(buildCard(gen, false));
+    var pendingIds = Object.create(null);
+    var wantIds = [];
+    pending.forEach(function (gen) { pendingIds[gen.id] = true; wantIds.push(gen.id); });
+    feedOrder.forEach(function (id) { if (!pendingIds[id]) wantIds.push(id); });
+
+    /* Index what's on screen. */
+    var have = new Map();
+    Array.prototype.forEach.call(list.children, function (node) {
+      if (node && node.dataset && node.dataset.id) have.set(node.dataset.id, node);
     });
-    feedOrder.forEach(function (id) {
-      if (pendingIds[id]) return;
+
+    /* Remove rows that no longer belong (deleted, routed away, retired). */
+    have.forEach(function (node, id) {
+      if (wantIds.indexOf(id) !== -1) return;
+      var gen = genById(id);
+      if (gen && !isDeleted(gen) && id !== "") return;
+      node.remove();
+      feedSig.delete(id);
+      RECO.removed += 1;
+    });
+
+    /* Place every desired row, patching the ones that drifted. */
+    var cursor = list.firstChild;
+    wantIds.forEach(function (id) {
       var gen = genById(id);
       if (!gen || isDeleted(gen)) return;
-      list.appendChild(buildCard(gen, false));
+      var sig = cardSignature(gen);
+      var node = have.get(id);
+      if (!node) {
+        node = buildCard(gen, false);
+        list.appendChild(node);
+        feedSig.set(id, sig);
+        RECO.created += 1;
+        cursor = node.nextSibling;
+        return;
+      }
+      if (feedSig.get(id) !== sig) {
+        replaceCard(gen);
+        feedSig.set(id, sig);
+        RECO.patched += 1;
+      } else {
+        RECO.kept += 1;
+      }
+      if (node !== cursor) list.insertBefore(node, cursor);
+      cursor = node.nextSibling;
     });
-    refreshIcons();
+
+    refreshIcons(list);
     syncFeedState();
+    if (window.BotoDebug && (RECO.created || RECO.patched || RECO.removed)) {
+      BotoDebug.log("render", "feed kept " + RECO.kept + " patched " + RECO.patched +
+                    " created " + RECO.created + " removed " + RECO.removed);
+    }
+    RECO.kept = RECO.patched = RECO.created = RECO.removed = 0;
   }
 
   /* The order the server returned, kept separately so re-rendering does
      not depend on a client sort that would contradict the cursor. */
   var feedOrder = [];
 
+  /* Resolve avatars onto the rows we hold, and repaint ONLY what changed.
+     The previous shape always re-rendered the whole feed when this
+     resolved — every poll tick re-painted every card for sixty seconds of
+     identical faces (the periodic whole-page twitch). The reconciler's
+     signature carries name+avatar, so a changed face now patches exactly
+     one header, and an unchanged one costs zero pixels. */
   function refreshLatestAvatars() {
-    if (!window.BotoData || !BotoData.latestAvatars) return Promise.resolve();
+    if (!window.BotoData || !BotoData.latestAvatarsByIds) return Promise.resolve(false);
     var authorIds = state.generations.map(function (g) { return g.authorId; }).filter(Boolean);
-    /* Resolve by immutable auth user id, never by handle or the cached
-       generation author object. The profile row is the per-user source of
-       truth for the selected General avatar. */
-    var read = BotoData.latestAvatarsByIds
-      ? BotoData.latestAvatarsByIds(authorIds)
-      : Promise.resolve({ ok: true, data: {} });
-    return read.then(function (out) {
-      if (!out || !out.ok) return;
+    return BotoData.latestAvatarsByIds(authorIds).then(function (out) {
+      if (!out || !out.ok) return false;
+      var changed = false;
       state.generations.forEach(function (g) {
         var fresh = g.authorId ? out.data[g.authorId] : null;
-        if (fresh) { g.creator.avatar = fresh.avatar; g.creator.name = fresh.name; }
+        if (fresh && (g.creator.avatar !== fresh.avatar || g.creator.name !== fresh.name)) {
+          g.creator.avatar = fresh.avatar;
+          g.creator.name = fresh.name;
+          changed = true;
+        }
       });
-    }).catch(function () {});
+      return changed;
+    }).catch(function () { return false; });
   }
 
   function loadMoreFeed() {
@@ -1693,10 +2031,13 @@
       });
       feedCursor = out.data.cursor;
       feedDone = out.data.done;
-      refreshLatestAvatars().then(function () {
-        persist();
-        renderKnownFeed();
-        fillViewport();
+      /* Paint immediately — content never waits on faces. The avatar
+         sweep lands after and patches only headers that moved. */
+      persist();
+      renderKnownFeed();
+      fillViewport();
+      refreshLatestAvatars().then(function (changed) {
+        if (changed && currentMode() === "community") renderKnownFeed();
       });
     });
   }
@@ -1712,22 +2053,73 @@
   }
 
   /* A full reload of page one. Used by pull to refresh and by the pill,
-     both of which mean "show me the current truth". */
+     both of which mean "show me the current truth".
+
+     ATOMICITY: the pre-reload page stays visible while the request is in
+     flight. Clearing feedOrder first used to empty the feed for the
+     duration of the network round trip — the exact "valid data discarded
+     while fresher data is being requested" violation this audit's core
+     invariant forbids. Now: stash the old order, try, and only swap when
+     the server answers. On failure the old order is restored and the
+     feed keeps working with last-known rows plus an error surface. */
   function reloadFeed() {
-    feedCursor = null;
-    feedDone = false;
-    feedFailed = false;
-    feedOrder = [];
-    loadMoreFeed();
+    if (!liveOnline()) { notify("You appear to be offline."); return Promise.resolve(); }
+    return new Promise(function (resolve) {
+      var savedOrder = feedOrder;
+      var savedCursor = feedCursor;
+      var savedDone = feedDone;
+      feedFailed = false;
+
+      /* The request is a fresh page-one fetch sequenced after LOADS guard,
+         so we suspend the pagination flags instead of clobbering state. */
+      var wasLoading = feedLoading;
+      if (wasLoading) { resolve(); return; }
+      feedLoading = true;
+      syncFeedState();
+      BotoData.feedPage(null).then(function (out) {
+        feedLoading = false;
+        if (!out.ok) {
+          /* Failure: nothing is discarded. The reader sees the same feed
+             and the error surface says the refresh failed. */
+          feedOrder = savedOrder;
+          feedCursor = savedCursor;
+          feedDone = savedDone;
+          $("cmFeedErrorMsg").textContent = out.error;
+          $("cmFeedRetry").hidden = !out.retryable;
+          syncFeedState();
+          resolve(false);
+          return;
+        }
+        /* Success: atomically swap. absorb() merges by id first so cards
+           that exist in both updates patch in place through the sig, and
+           the brand-new head rows get exactly one entrance each. */
+        absorb(out.data.items);
+        feedOrder = out.data.items.map(function (r) { return r.id; }).concat(
+          savedOrder.filter(function (id) {
+            return !out.data.items.some(function (r) { return r.id === id; });
+          })
+        );
+        feedCursor = out.data.cursor;
+        feedDone = out.data.done;
+        /* The atomic swap: content appears now, faces patch after. */
+        persist();
+        renderKnownFeed();
+        fillViewport();
+        refreshLatestAvatars().then(function (changed) {
+          if (changed && currentMode() === "community") renderKnownFeed();
+          resolve(true);
+        });
+      });
+    });
   }
 
   function renderFeed() {
+    /* Stale-while-refresh: paint what we already hold (reconcile is a
+       no-op for unchanged cards), refresh faces in the background, patch
+       only rows whose identity actually moved. */
     renderKnownFeed();
-    /* A cached card may be painted immediately for responsiveness, but its
-       avatar is never authoritative. Re-query public.profiles on every feed
-       render and repaint only after the profile avatars arrive. */
-    refreshLatestAvatars().then(function () {
-      if (currentMode() === "community") renderKnownFeed();
+    refreshLatestAvatars().then(function (changed) {
+      if (changed && currentMode() === "community") renderKnownFeed();
     });
     if (feedOrder.length === 0) reloadFeed();
     else fillViewport();
@@ -2277,11 +2669,17 @@
       renderThread(gen, listEl);
     }
 
+    var postingNow = false;
     function post() {
       /* This composer is deliberately comment-only. Keep the guard beside
          the write path so a reused UI component can never fall through to
          sendGeneration() and create a feed post. */
       if (!composerEl || composerEl.getAttribute("data-composer-scope") !== "comment") return;
+      /* Double-fire guard: Enter and the button can both land in the same
+         tick on some keyboards; two queues, two server rows, one draft. */
+      if (postingNow) return;
+      postingNow = true;
+      setTimeout(function () { postingNow = false; }, 0);
       if (!requireSignIn("comment")) return;
       var text = input.value.trim();
       var toBot = BOT_ANYWHERE.test(text);
@@ -2350,7 +2748,7 @@
       var ckey = BotoData.newKey();
       var optimistic = {
         id: ckey, pending: true,
-        genId: gen.id, own: true, creator: YOU,
+        genId: gen.id, own: true, creator: meAsCreator(),
         text: text,
         parentId: parentId,
         replyingToName: replyingTo ? replyingTo.creator.name : null,
@@ -2424,6 +2822,18 @@
         }, reducedMotion ? 0 : 350);
       }
     }
+  }
+
+  /* Order-insensitive identity of what's drawn for one thread: nothing
+     that doesn't affect pixels (server-echoed duplicates) may trigger a
+     repaint. Count changes are visible in the card chip, so it's here. */
+  function threadSignature(genId) {
+    var parts = commentsFor(genId).map(function (c) {
+      return [c.id, c.text, !!c.deleted, c.parentId || "",
+              c.creator.name, c.creator.avatar || "", !!c.pending].join("|");
+    });
+    parts.sort();
+    return parts.join("%");
   }
 
   /* The heading only exists while there is a discussion, so going 0 -> 1 has
@@ -2559,11 +2969,11 @@
       pollDelay = POLL_MIN;
       pendingCount = out.data || 0;
       syncPill();
-      /* Reconcile avatar identity independently of post freshness. Profile
-         edits must update existing and older cards even when no new post
-         count is returned. */
-      refreshLatestAvatars().then(function () {
-        if (currentMode() === "community") renderKnownFeed();
+      /* Reconcile avatar identity independently of post freshness, with
+         the change-detection that turns an idle poll into a zero-paint
+         no-op. Nothing that didn't change is allowed to re-render. */
+      refreshLatestAvatars().then(function (changed) {
+        if (changed && currentMode() === "community") renderKnownFeed();
       });
     });
   }
@@ -2626,12 +3036,10 @@
   function initPill() {
     $("cmNewPostsPill").addEventListener("click", function () {
       /* The rows were never downloaded, so this is a real fetch, not a
-         re-render of something already held. */
+         re-render of something already held. Atomic reload: nothing on
+         screen is thrown away while the new head is being fetched. */
       reloadFeed();
       mergeFresh();
-      /* The feed scrolls inside #cmFeedView; window.scrollTo does nothing
-         here, so the reader stayed where they were after tapping a pill
-         that promises to take them to the new posts. */
       var box = feedScroller();
       if (box) box.scrollTo({ top: 0, behavior: "smooth" });
     });
@@ -2689,23 +3097,24 @@
 
     function refresh() {
       refreshing = true;
-      /* Pull-to-refresh must invalidate the keyset cursor and request page
-         one. The previous implementation only re-rendered cached rows. */
-      reloadFeed();
+      /* reloadFeed is atomic now: the current page stays on screen until
+         page one lands, and the indicator settles when the network does —
+         not after a fixed 700ms guess that left the feed blank when the
+         request ran longer. */
+      var landing = reloadFeed();
       mergeFresh();
       spin.hidden = false;
       arrow.hidden = true;
       ind.classList.add("is-settling");
-      place(8); /* hold as a spinner while the reload runs */
-      setTimeout(function () {
-        renderFeed();
+      place(8);
+      Promise.resolve(landing).then(function () {
         mergeFresh();
         refreshing = false;
         spin.hidden = true;
         arrow.hidden = false;
         arrow.style.transform = "";
         hide();
-      }, 700);
+      });
     }
   }
 
@@ -2763,8 +3172,14 @@
     return stripBotDeclarations(raw);
   }
 
+  var sendBusy = false;
   function sendGeneration() {
     if (streamingNow) return;
+    /* Enter + button, or two clicks inside one tick: one draft must
+       become one queued write, not two identical posts. */
+    if (sendBusy) return;
+    sendBusy = true;
+    setTimeout(function () { sendBusy = false; }, 0);
     var verb = composeCtx ? (composeCtx.mode === "challenge" ? "challenge" : "remix") : "post";
     if (!requireSignIn(verb)) return;
     var input = $("cmInput");
@@ -2811,7 +3226,7 @@
       id: key,
       pending: true,
       own: true,
-      creator: YOU,
+      creator: meAsCreator(),
       prompt: prompt,
       /* addressed: this post asked the agent for something. A plain post
          has no response block, is never streamed, and never reaches the
@@ -2885,9 +3300,15 @@
   /* Pulls one post's current state back from the server and repaints it.
      Used after a write that changes a row this client does not own the
      truth for, such as a remix bumping its parent's count. */
+  var refreshOneInFlight = Object.create(null);
   function refreshOne(genId) {
     if (!genId || !liveOnline()) return;
+    /* Dedup: realtime streams events per row-edit; a burst of UPDATEs on
+       the same post must converge on one read, not five. */
+    if (refreshOneInFlight[genId]) return;
+    refreshOneInFlight[genId] = true;
     BotoData.generation(genId).then(function (out) {
+      delete refreshOneInFlight[genId];
       if (!out.ok || !out.data) return;
       var idx = -1;
       state.generations.forEach(function (g, i) { if (g.id === genId) idx = i; });
@@ -2918,6 +3339,21 @@
     });
     state.generations = state.generations.filter(function (g) { return g.id !== row.id; });
     state.generations.push(row);
+
+    /* DOM identity continuity: rename the placeholder card's data-id to the
+       server id instead of letting the reconciler remove one node and
+       create another. The card the user has been watching since tap-time
+       and the canonical row are one view entity — same node, same place,
+       no entrance replay, no "post vanished then reappeared". */
+    var optimisticNode = cardById(localId);
+    if (optimisticNode) {
+      optimisticNode.dataset.id = row.id;
+      feedSig.delete(localId);
+      /* Signature invalidates wholesale: pending chip leaves, actions
+         arrive, counts/identity is real now. */
+      replaceCard(row);
+      feedSig.set(row.id, "[adopt]");
+    }
 
     state.comments.forEach(function (c) { if (c.genId === localId) c.genId = row.id; });
     state.generations.forEach(function (g) {
@@ -3443,8 +3879,10 @@
     }
 
     if (window.BotoData) {
+      warmMyProfile();
       BotoData.currentUser().then(function (u) {
         myUserId = u && u.id;
+        warmMyProfile();
         startRealtime();
         syncNotifBadge();
         if (BotoData.watchNotifications) {
@@ -3509,15 +3947,20 @@
       adoptExternalState();
     });
     window.addEventListener("impose:profile-updated", function (event) {
-      /* Paint the actor's own changed avatar immediately, then reconcile
-         with the server. This removes the visible delay caused by waiting
-         for JWT refresh, realtime delivery, or the next feed poll. */
+      /* Paint the actor's changed identity into the local row cache, then
+         let the reconciler patch exactly the headers that differ. No more
+         full-feed rebuild + full-profile rebuild sandwich. */
       var detail = event && event.detail;
+      var touched = false;
       if (detail && detail.avatar !== undefined && myUserId) {
         state.generations.forEach(function (g) {
           if (g.own || g.authorId === myUserId) {
-            g.creator.avatar = detail.avatar || null;
-            if (detail.name) g.creator.name = detail.name;
+            if (g.creator.avatar !== (detail.avatar || null) ||
+                (detail.name && g.creator.name !== detail.name)) {
+              g.creator.avatar = detail.avatar || null;
+              if (detail.name) g.creator.name = detail.name;
+              touched = true;
+            }
           }
         });
         state.comments.forEach(function (c) {
@@ -3526,20 +3969,16 @@
             if (detail.name) c.creator.name = detail.name;
           }
         });
-        renderKnownFeed();
-        if (routeHash().indexOf("/g/") === 0) {
-          var immediate = genById(routeHash().slice(3));
-          if (immediate) replaceCard(immediate);
-        }
       }
-      refreshLatestAvatars().then(function () {
+      refreshLatestAvatars().then(function (changed) {
+        if (!changed && !touched) return;
         if (currentMode() !== "community") return;
         renderKnownFeed();
-        if (profileHandle) renderProfile(profileHandle);
         if (routeHash().indexOf("/g/") === 0) {
           var open = genById(routeHash().slice(3));
           if (open) replaceCard(open);
         }
+        if (profileHandle && routeHash().indexOf("/u/") === 0) renderProfile(profileHandle, { soft: true });
       });
     });
     window.addEventListener("popstate", function () { window.__imposeRouteHash = null; route(); });
@@ -3559,6 +3998,8 @@
       myUserId = null;
       LS_KEY = cacheKeyFor(null);
       state = load() || seed();
+      notifLastHTML = null;   /* an inbox belongs to its account */
+      feedSig = new Map();    /* signatures belong to this identity's rows */
       composeCtx = null;
       var ctx = $("cmRemixCtx");
       if (ctx) ctx.hidden = true;

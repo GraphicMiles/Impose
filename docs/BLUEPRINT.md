@@ -155,6 +155,36 @@ blocklist AFTER replay lookup so retroactive terms never break retries;
 lineage checks: parent visible/live/unlocked) → adopt server row.
 Undo for bot replies reverts comment counts.
 
+### Community: render + state authority
+
+Server rows are canonical; the client's `state.generations/comments` is a
+server-fed display cache never written to disk. Every render path follows
+"never discard valid information to wait for fresher information":
+
+- Feed: `renderKnownFeed` reconciles by generation.id — unchanged rows keep
+  their DOM node (zero repaint), drifted rows patch in place via
+  replaceCard slot painters (header/counts/prompt/response/chips/lock),
+  only genuinely new ids build a node. The card entrance animation
+  (ctx-in) is admission-only, gated on the absence of [data-entered].
+- Optimistic rows carry the caller's real profile (myProfileNow cache),
+  never a blank "You" placeholder; adoptServerRow renames the DOM node's
+  data-id across the local->server id swap so optimistic card and canonical
+  row are one view entity.
+- Feed reload (pull-to-refresh, pill) is atomic: the previous page stays
+  mounted until page one lands; on failure nothing is discarded.
+- Avatar authority: community-data keeps a TTL (60s) + in-flight-deduped
+  avatarCache keyed by auth user id; the caller's own profile joins it.
+  Poll ticks and avatar refreshes repaint only rows whose identity moved.
+- Profile page + notification sheet render cached content instantly on
+  revisit and merge fresher data over it (soft reload).
+- Threads: hydrateThread merges server rows and repaints only when the
+  visible-thread signature changed; comments themselves are relativized
+  rows without entrance animation, so thread repaints are continuous.
+
+jsdom smoke: tests/smoke_community_render.js (14 assertions over the
+reconciler: no remount on no-op renders, avatar SWR, atomic refresh,
+optimistic identity, double-fire guards, lock patch-in-place).
+
 ### Community: comment
 `create_comment` — com:15/60s + 5/60s per post; **depth ≤ 2**
 (`thread_too_deep`); blocklist; parent must be live; notify_on_comment
