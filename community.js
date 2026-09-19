@@ -78,9 +78,20 @@
      function so they can never disagree about what counts. */
   var BOT_MENTION = /^\s*@bot\b[ \t]*/i;
   var BOT_ANYWHERE = /(?:^|\s)@bot\b/i;
+  var BOT_ALL = /(?:^|\s)@bot\b/gi;
 
   function addressesBot(raw) {
     return BOT_ANYWHERE.test(String(raw == null ? "" : raw));
+  }
+
+  /* @bot is a routing declaration, not repeated user content. Normalize all
+     declarations before a request is built so "@bot @bot hello" can only
+     produce one bot invocation and one canonical prompt. */
+  function stripBotDeclarations(raw) {
+    return String(raw == null ? "" : raw)
+      .replace(BOT_ALL, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   }
 
   /* Whether a stored generation asked the agent for something. Anything
@@ -1658,7 +1669,7 @@
           '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add a comment..." aria-label="Add to the discussion"></textarea>' +
         '</div>' +
 '<div class="composer-row">' +
-        '<button class="icon-btn" id="cmCommentThreadChip" type="button" aria-label="Comment thread" title="Comment thread"><i data-lucide="message-circle"></i></button>' +
+        '<button class="icon-btn" id="cmCommentThreadChip" type="button" title="Visibility: Public" aria-label="Visibility: Public" aria-pressed="false"><i data-lucide="globe"></i></button>' +
           '<div class="composer-spacer"></div>' +
           '<button class="send-btn" id="cmCommentSend" aria-label="Post comment" disabled><i data-lucide="arrow-up"></i></button>' +
         "</div>" +
@@ -2271,7 +2282,7 @@
       updateDiscussionTitle(gen);
 
       if (toBot) {
-        var cleanPrompt = text.replace(BOT_ANYWHERE, " ").replace(/\s{2,}/g, " ").trim() || gen.prompt;
+        var cleanPrompt = stripBotDeclarations(text) || gen.prompt;
         var botReplyText = replyFor({ prompt: cleanPrompt, kind: "comment" });
         var botTargetParentId = (targetForBot && pathToRoot(commentsFor(gen.id), ckey).size - 1 >= MAX_REPLY_DEPTH) ? parentId : ckey;
         var botCommentId = "bot-" + BotoData.newKey();
@@ -2620,7 +2631,7 @@
   /* Strip the @bot mention off an addressed prompt. The card re-adds it as
      its own coloured span, so the stored prompt never carries it twice. */
   function parsePrompt(raw) {
-    return String(raw == null ? "" : raw).replace(BOT_ANYWHERE, " ").replace(BOT_MENTION, "").replace(/\s{2,}/g, " ").trim();
+    return stripBotDeclarations(raw);
   }
 
   function sendGeneration() {

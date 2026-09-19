@@ -2775,6 +2775,17 @@ button, input, textarea, select {
   padding-bottom: 112px;
 }
 
+/* Bottom safe-area breathing room: keep the composer clear of gesture bars
+   and the physical bottom edge on mobile. */
+.composer-dock {
+  padding-bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
+}
+
+/* One more 5px of bottom clearance for both composer variants. */
+.composer-dock {
+  padding-bottom: max(25px, calc(env(safe-area-inset-bottom) + 17px));
+}
+
 </style>
 <style>
 /* Community mode: the Slopify prototype ported 1:1 into the Impose shell.
@@ -4333,6 +4344,34 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .cm-detail-view,
 .cm-scope .detail {
   padding-bottom: 112px;
+}
+
+/* Exact dock geometry with safe-area protection on both screen edges. */
+.cm-scope .comment-box {
+  padding: 4px max(16px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+.cm-scope .comment-box .composer {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+}
+
+.cm-scope .comment-box {
+  padding-bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
+}
+
+/* Keep the Community feed's flex scroll contract intact. The main Community
+   composer remains the in-flow dock; only the post-thread composer is
+   viewport-anchored because it lives inside a detail view. */
+.cm-scope .cm-composer-dock {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+}
+
+.cm-scope .comment-box {
+  padding-bottom: max(25px, calc(env(safe-area-inset-bottom) + 17px));
 }
 
 </style>
@@ -21085,9 +21124,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
      function so they can never disagree about what counts. */
   var BOT_MENTION = /^\s*@bot\b[ \t]*/i;
   var BOT_ANYWHERE = /(?:^|\s)@bot\b/i;
+  var BOT_ALL = /(?:^|\s)@bot\b/gi;
 
   function addressesBot(raw) {
     return BOT_ANYWHERE.test(String(raw == null ? "" : raw));
+  }
+
+  /* @bot is a routing declaration, not repeated user content. Normalize all
+     declarations before a request is built so "@bot @bot hello" can only
+     produce one bot invocation and one canonical prompt. */
+  function stripBotDeclarations(raw) {
+    return String(raw == null ? "" : raw)
+      .replace(BOT_ALL, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   }
 
   /* Whether a stored generation asked the agent for something. Anything
@@ -22665,7 +22715,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add a comment..." aria-label="Add to the discussion"></textarea>' +
         '</div>' +
 '<div class="composer-row">' +
-        '<button class="icon-btn" id="cmCommentThreadChip" type="button" aria-label="Comment thread" title="Comment thread"><i data-lucide="message-circle"></i></button>' +
+        '<button class="icon-btn" id="cmCommentThreadChip" type="button" title="Visibility: Public" aria-label="Visibility: Public" aria-pressed="false"><i data-lucide="globe"></i></button>' +
           '<div class="composer-spacer"></div>' +
           '<button class="send-btn" id="cmCommentSend" aria-label="Post comment" disabled><i data-lucide="arrow-up"></i></button>' +
         "</div>" +
@@ -23278,7 +23328,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       updateDiscussionTitle(gen);
 
       if (toBot) {
-        var cleanPrompt = text.replace(BOT_ANYWHERE, " ").replace(/\s{2,}/g, " ").trim() || gen.prompt;
+        var cleanPrompt = stripBotDeclarations(text) || gen.prompt;
         var botReplyText = replyFor({ prompt: cleanPrompt, kind: "comment" });
         var botTargetParentId = (targetForBot && pathToRoot(commentsFor(gen.id), ckey).size - 1 >= MAX_REPLY_DEPTH) ? parentId : ckey;
         var botCommentId = "bot-" + BotoData.newKey();
@@ -23627,7 +23677,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* Strip the @bot mention off an addressed prompt. The card re-adds it as
      its own coloured span, so the stored prompt never carries it twice. */
   function parsePrompt(raw) {
-    return String(raw == null ? "" : raw).replace(BOT_ANYWHERE, " ").replace(BOT_MENTION, "").replace(/\s{2,}/g, " ").trim();
+    return stripBotDeclarations(raw);
   }
 
   function sendGeneration() {

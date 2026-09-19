@@ -2742,3 +2742,14 @@ button, input, textarea, select {
 #chatScroll {
   padding-bottom: 112px;
 }
+
+/* Bottom safe-area breathing room: keep the composer clear of gesture bars
+   and the physical bottom edge on mobile. */
+.composer-dock {
+  padding-bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
+}
+
+/* One more 5px of bottom clearance for both composer variants. */
+.composer-dock {
+  padding-bottom: max(25px, calc(env(safe-area-inset-bottom) + 17px));
+}

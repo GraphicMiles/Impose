@@ -1555,3 +1555,31 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .detail {
   padding-bottom: 112px;
 }
+
+/* Exact dock geometry with safe-area protection on both screen edges. */
+.cm-scope .comment-box {
+  padding: 4px max(16px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+.cm-scope .comment-box .composer {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+}
+
+.cm-scope .comment-box {
+  padding-bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
+}
+
+/* Keep the Community feed's flex scroll contract intact. The main Community
+   composer remains the in-flow dock; only the post-thread composer is
+   viewport-anchored because it lives inside a detail view. */
+.cm-scope .cm-composer-dock {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+}
+
+.cm-scope .comment-box {
+  padding-bottom: max(25px, calc(env(safe-area-inset-bottom) + 17px));
+}
