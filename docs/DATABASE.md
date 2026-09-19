@@ -2,7 +2,7 @@
 
 Single source of truth for the database. Generated from the live catalog
 (Supabase project `xgqcvuzkeaferjsnpjjw`, eu-west-2, free tier) on
-2026-09-19 after migration 0001–0025. Migrations live in
+2026-09-19 after migration 0001–0026. Migrations live in
 `supabase/migrations/`; the live objects ARE the migrations applied in
 order — verified byte-identical bodies against the last-defining file.
 
@@ -361,7 +361,7 @@ All application RPCs are `security definer` with pinned `search_path` and are ca
 | `consume_auth_code(p_email citext, p_purpose text, p_hash text, p_max integer)` | OTP | exec anon=- auth=- — attempts+lockout (row deleted at max), FOR UPDATE serialized |
 | `create_comment(p_key uuid, p_gen uuid, p_body text, p_parent uuid)` | USER | exec anon=- auth=auth — idempotent, com:15/60s + com:user:gen5/60s; depth<=2 (thread_too_deep); blocklist; parent checks |
 | `create_generation(p_key uuid, p_prompt text, p_response text, p_addressed boolean, p_status text, p_visibility text, p_kind text, p_remix_of uuid)` | USER | exec anon=- auth=auth — idempotent (p_key uuid), gen:8/60s; addressed adds bot:3/60s + bot:global12/60s; blocklist; lineage+lock checks |
-| `edit_generation(p_generation uuid, p_prompt text)` | USER | exec anon=- auth=auth — author-only (not_author), FOR UPDATE serialisation; prompt-only by design (response is immutable community record); prompt ≤ 4000 (prompt_length) + blocklist (invalid_term); `edit:` 15/60s budget separate from `gen:`; returns full row |
+| `edit_generation(p_id uuid, p_prompt text)` | USER | exec anon=- auth=auth — author-only (not_author), FOR UPDATE serialisation; prompt-only by design (response is immutable community record); prompt ≤ 4000 (prompt_length) + blocklist (invalid_term); `edit:` 15/60s budget separate from `gen:`; returns full row |
 | `customize_profile(p_display_name text, p_bio text, p_handle text, p_avatar text)` | USER | exec anon=- auth=auth — handle quota 3/21d; validation |
 | `delete_my_account()` | USER | exec anon=- auth=auth — step-up require_recent_auth(900s); owner/last-admin guards; nulls grantor refs; audits account.delete; deletes auth.users |
 | `ensure_profile()` | ENGINE | exec anon=- auth=auth — creates profile on first use |

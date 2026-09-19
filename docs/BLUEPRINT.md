@@ -105,11 +105,14 @@ Modularised layout (was one ~2400-line server.py):
 - `requirements.txt` (+server deps), no state files.
 
 ### Database (supabase/migrations/)
-0001..0025 applied. The live body of every function = last-defining
+0001..0026 applied. The live body of every function = last-defining
 migration (verified byte-identical). 0024 = audit/step-up/depth/blocklist/
 handle_history/export/purge/timeouts + the same-apply overload hotfix.
 0025 = lifecycle closures: grant revoke RPC, blocked-term admin RPCs,
 edit_generation (prompt-only), purge_old_notifications + nightly cron.
+0026 = notifications_kind_check gains 'workspace_revoked' (defect caught by
+the 29-account prod simulation: admin_revoke_grant half-applied when the
+notice insert violated the constraint).
 **See DATABASE.md for the exact contract.**
 
 ### Workflows (.github/workflows/)
