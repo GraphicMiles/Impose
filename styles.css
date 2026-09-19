@@ -2650,3 +2650,81 @@ html.reduce-motion .access-done-status {
   gap: 10px;
   margin-top: 14px;
 }
+
+/* ---------- waitlist form correction ---------------------------------------
+   Taste pass: remove the generic card treatment. The access surface is one
+   quiet composition, not a stack of bordered containers. Hierarchy comes from
+   type, alignment, and breathing room. */
+.access-hero-col {
+  width: min(100%, 520px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.access-form {
+  margin-top: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.access-input-row {
+  gap: 10px;
+}
+.access-input {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: var(--r-3);
+  background: var(--composer);
+  color: var(--text);
+  box-sizing: border-box;
+  transition: background var(--dur-1) var(--ease-out), outline-color var(--dur-1) var(--ease-out);
+}
+.access-input::placeholder {
+  color: var(--text-3);
+}
+.access-input:hover {
+  background: var(--hover);
+}
+.access-input:focus {
+  border: 0;
+  outline: 0;
+  background: var(--hover);
+}
+.access-submit-btn {
+  min-height: 48px;
+  border-radius: var(--r-3);
+}
+.access-note {
+  margin-top: 12px;
+}
+@media (max-width: 860px) {
+  .access-hero-col {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+@media (max-width: 540px) {
+  .access-hero-col {
+    padding: 0;
+  }
+}
+
+/* ---------- platform-wide taste pass --------------------------------------
+   Flat hierarchy: no hairline chrome, no elevation, no decorative outlines.
+   Structure comes from type, alignment, spacing, and surface contrast. */
+:root {
+  --border: transparent;
+  --border-soft: transparent;
+  --line: transparent;
+}
+*, *::before, *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+:focus, :focus-visible {
+  outline: none !important;
+}
+button, input, textarea, select {
+  box-shadow: none !important;
+}

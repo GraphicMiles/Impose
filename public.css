@@ -280,3 +280,10 @@ i[data-lucide] { display: inline-flex; width: 20px; height: 20px; flex: none; }
 @media (prefers-reduced-motion: reduce) {
   .skip-link, .nav-link, .info-card { transition: none; }
 }
+
+/* Taste pass: public pages use flat grouping instead of outlined cards. */
+*, *::before, *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+:focus, :focus-visible { outline: none !important; }

@@ -865,7 +865,7 @@ try {
         <form class="access-form" id="waitlistForm" novalidate>
           <label class="access-label flabel" for="waitlistEmail">Email address</label>
           <div class="access-input-row wl-row">
-            <input class="access-input text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
+            <input class="access-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" aria-describedby="waitlistNote" required>
             <button class="access-submit-btn btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
           </div>
           <p class="access-note wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>

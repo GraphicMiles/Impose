@@ -1652,13 +1652,13 @@
           '<button class="remix-ctx-clear" id="cmCommentCtxClear" aria-label="Cancel reply"><i data-lucide="x"></i></button>' +
         "</div>" +
       "</div>" +
-      '<div class="composer" id="commentComposer">' +
+      '<div class="composer comment-composer" id="commentComposer" data-composer-scope="comment">' +
         '<div class="composer-field">' +
           '<div class="composer-hl" id="cmCommentInputHl" aria-hidden="true" style="position: absolute; inset: 0; color: transparent; pointer-events: none;"></div>' +
-          '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add to the discussion or mention @bot..." aria-label="Add to the discussion"></textarea>' +
+          '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add a comment..." aria-label="Add to the discussion"></textarea>' +
         '</div>' +
-        '<div class="composer-row">' +
-          '<button class="composer-chip" id="cmCommentBotChip" type="button" aria-pressed="false" title="Mention @bot"><span class="mention-at">@</span>bot</button>' +
+'<div class="composer-row">' +
+        '<button class="icon-btn" id="cmCommentThreadChip" type="button" aria-label="Comment thread" title="Comment thread"><i data-lucide="message-circle"></i></button>' +
           '<div class="composer-spacer"></div>' +
           '<button class="send-btn" id="cmCommentSend" aria-label="Post comment" disabled><i data-lucide="arrow-up"></i></button>' +
         "</div>" +
@@ -2121,7 +2121,9 @@
     /* Reveals the composer and puts the caret in it. Used by the empty
        state's Reply and by every per-comment Reply. */
     function openComposer() {
-      var wrap = document.querySelector(".comment-box");
+      var wrap = listEl && listEl.closest(".comments")
+        ? listEl.closest(".comments").querySelector(".comment-box")
+        : null;
       if (wrap) wrap.classList.remove("comment-box--closed");
       input.focus();
       /* A composer that opens below the fold has not really opened. */
@@ -2149,6 +2151,10 @@
     }
 
     function post() {
+      /* This composer is deliberately comment-only. Keep the guard beside
+         the write path so a reused UI component can never fall through to
+         sendGeneration() and create a feed post. */
+      if (!composerEl || composerEl.getAttribute("data-composer-scope") !== "comment") return;
       if (!requireSignIn("comment")) return;
       var text = input.value.trim();
       var toBot = BOT_ANYWHERE.test(text);

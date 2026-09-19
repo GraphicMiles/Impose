@@ -1477,3 +1477,62 @@ body:not(.community-mode) .modebar { display: none; }
   .cm-scope .gen-handle:hover,
   .cm-scope .comment-handle:hover { text-decoration: underline; }
 }
+
+/* Taste pass: community chrome stays flat and level with the feed. */
+.cm-scope *, .modebar *, .access-page * {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+.cm-scope :focus, .cm-scope :focus-visible,
+.modebar :focus, .modebar :focus-visible,
+.access-page :focus, .access-page :focus-visible {
+  outline: none !important;
+}
+
+/* Final flat pass: the community header and feed must not resolve any
+   hairline geometry, including pseudo-element separators and tree guides. */
+.modebar::before {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+}
+.modebar *, .cm-scope * {
+  border-color: transparent !important;
+}
+.cm-scope .trail--line::before,
+.cm-scope .telbow::before,
+.cm-scope .telbow::after,
+.cm-scope .trow--open > .trow-main > .comment::before {
+  background: transparent !important;
+}
+
+/* Restore the original top-of-feed depth cue without reinstating a hard
+   divider: the community nav is a translucent blur field, not a bordered bar. */
+.modebar::before {
+  background: color-mix(in srgb, var(--bg) 72%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(125%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(125%) !important;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 44%, rgba(0,0,0,.65) 72%, transparent 100%) !important;
+  mask-image: linear-gradient(180deg, #000 0%, #000 44%, rgba(0,0,0,.65) 72%, transparent 100%) !important;
+}
+
+/* Comment composer parity: use the same geometry/material as the primary
+   community composer. The action remains comment-only in community.js. */
+.cm-scope .comment-box {
+  padding: 4px 16px max(10px, env(safe-area-inset-bottom));
+}
+.cm-scope .comment-box .composer {
+  border-radius: 28px;
+  padding: 10px 10px 8px 20px;
+}
+.cm-scope .comment-box .composer textarea {
+  font-size: 16px;
+  max-height: 200px;
+}
+.cm-scope .comment-box .composer .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

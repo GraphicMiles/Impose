@@ -2683,6 +2683,84 @@ html.reduce-motion .access-done-status {
   margin-top: 14px;
 }
 
+/* ---------- waitlist form correction ---------------------------------------
+   Taste pass: remove the generic card treatment. The access surface is one
+   quiet composition, not a stack of bordered containers. Hierarchy comes from
+   type, alignment, and breathing room. */
+.access-hero-col {
+  width: min(100%, 520px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.access-form {
+  margin-top: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.access-input-row {
+  gap: 10px;
+}
+.access-input {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: var(--r-3);
+  background: var(--composer);
+  color: var(--text);
+  box-sizing: border-box;
+  transition: background var(--dur-1) var(--ease-out), outline-color var(--dur-1) var(--ease-out);
+}
+.access-input::placeholder {
+  color: var(--text-3);
+}
+.access-input:hover {
+  background: var(--hover);
+}
+.access-input:focus {
+  border: 0;
+  outline: 0;
+  background: var(--hover);
+}
+.access-submit-btn {
+  min-height: 48px;
+  border-radius: var(--r-3);
+}
+.access-note {
+  margin-top: 12px;
+}
+@media (max-width: 860px) {
+  .access-hero-col {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+@media (max-width: 540px) {
+  .access-hero-col {
+    padding: 0;
+  }
+}
+
+/* ---------- platform-wide taste pass --------------------------------------
+   Flat hierarchy: no hairline chrome, no elevation, no decorative outlines.
+   Structure comes from type, alignment, spacing, and surface contrast. */
+:root {
+  --border: transparent;
+  --border-soft: transparent;
+  --line: transparent;
+}
+*, *::before, *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+:focus, :focus-visible {
+  outline: none !important;
+}
+button, input, textarea, select {
+  box-shadow: none !important;
+}
+
 </style>
 <style>
 /* Community mode: the Slopify prototype ported 1:1 into the Impose shell.
@@ -4165,6 +4243,65 @@ body:not(.community-mode) .modebar { display: none; }
   .cm-scope .comment-handle:hover { text-decoration: underline; }
 }
 
+/* Taste pass: community chrome stays flat and level with the feed. */
+.cm-scope *, .modebar *, .access-page * {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+.cm-scope :focus, .cm-scope :focus-visible,
+.modebar :focus, .modebar :focus-visible,
+.access-page :focus, .access-page :focus-visible {
+  outline: none !important;
+}
+
+/* Final flat pass: the community header and feed must not resolve any
+   hairline geometry, including pseudo-element separators and tree guides. */
+.modebar::before {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+}
+.modebar *, .cm-scope * {
+  border-color: transparent !important;
+}
+.cm-scope .trail--line::before,
+.cm-scope .telbow::before,
+.cm-scope .telbow::after,
+.cm-scope .trow--open > .trow-main > .comment::before {
+  background: transparent !important;
+}
+
+/* Restore the original top-of-feed depth cue without reinstating a hard
+   divider: the community nav is a translucent blur field, not a bordered bar. */
+.modebar::before {
+  background: color-mix(in srgb, var(--bg) 72%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(125%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(125%) !important;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 44%, rgba(0,0,0,.65) 72%, transparent 100%) !important;
+  mask-image: linear-gradient(180deg, #000 0%, #000 44%, rgba(0,0,0,.65) 72%, transparent 100%) !important;
+}
+
+/* Comment composer parity: use the same geometry/material as the primary
+   community composer. The action remains comment-only in community.js. */
+.cm-scope .comment-box {
+  padding: 4px 16px max(10px, env(safe-area-inset-bottom));
+}
+.cm-scope .comment-box .composer {
+  border-radius: 28px;
+  padding: 10px 10px 8px 20px;
+}
+.cm-scope .comment-box .composer textarea {
+  font-size: 16px;
+  max-height: 200px;
+}
+.cm-scope .comment-box .composer .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 </style>
 <style>
 /* Agent pipeline visualization: beautifului Thinking trace plus Task rows,
@@ -5515,7 +5652,7 @@ try {
         <form class="access-form" id="waitlistForm" novalidate>
           <label class="access-label flabel" for="waitlistEmail">Email address</label>
           <div class="access-input-row wl-row">
-            <input class="access-input text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
+            <input class="access-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" aria-describedby="waitlistNote" required>
             <button class="access-submit-btn btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
           </div>
           <p class="access-note wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
@@ -22482,13 +22619,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           '<button class="remix-ctx-clear" id="cmCommentCtxClear" aria-label="Cancel reply"><i data-lucide="x"></i></button>' +
         "</div>" +
       "</div>" +
-      '<div class="composer" id="commentComposer">' +
+      '<div class="composer comment-composer" id="commentComposer" data-composer-scope="comment">' +
         '<div class="composer-field">' +
           '<div class="composer-hl" id="cmCommentInputHl" aria-hidden="true" style="position: absolute; inset: 0; color: transparent; pointer-events: none;"></div>' +
-          '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add to the discussion or mention @bot..." aria-label="Add to the discussion"></textarea>' +
+          '<textarea id="cmCommentInput" rows="1" maxlength="1000" placeholder="Add a comment..." aria-label="Add to the discussion"></textarea>' +
         '</div>' +
-        '<div class="composer-row">' +
-          '<button class="composer-chip" id="cmCommentBotChip" type="button" aria-pressed="false" title="Mention @bot"><span class="mention-at">@</span>bot</button>' +
+'<div class="composer-row">' +
+        '<button class="icon-btn" id="cmCommentThreadChip" type="button" aria-label="Comment thread" title="Comment thread"><i data-lucide="message-circle"></i></button>' +
           '<div class="composer-spacer"></div>' +
           '<button class="send-btn" id="cmCommentSend" aria-label="Post comment" disabled><i data-lucide="arrow-up"></i></button>' +
         "</div>" +
@@ -22951,7 +23088,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     /* Reveals the composer and puts the caret in it. Used by the empty
        state's Reply and by every per-comment Reply. */
     function openComposer() {
-      var wrap = document.querySelector(".comment-box");
+      var wrap = listEl && listEl.closest(".comments")
+        ? listEl.closest(".comments").querySelector(".comment-box")
+        : null;
       if (wrap) wrap.classList.remove("comment-box--closed");
       input.focus();
       /* A composer that opens below the fold has not really opened. */
@@ -22979,6 +23118,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
 
     function post() {
+      /* This composer is deliberately comment-only. Keep the guard beside
+         the write path so a reused UI component can never fall through to
+         sendGeneration() and create a feed post. */
+      if (!composerEl || composerEl.getAttribute("data-composer-scope") !== "comment") return;
       if (!requireSignIn("comment")) return;
       var text = input.value.trim();
       var toBot = BOT_ANYWHERE.test(text);
