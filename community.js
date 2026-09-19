@@ -3184,12 +3184,17 @@
 
   var accessSheetOpen = false;
 
+  window.__resetAccessSheetOpen = function () {
+    accessSheetOpen = false;
+  };
+
   function openAccessSheet() {
     var m = $("accessModal");
-    if (!m || accessSheetOpen) return;
+    if (!m) return;
+    if (!m.hidden && m.classList.contains("open")) return;
     accessSheetOpen = true;
     if (window.BotoUI && BotoUI.openModal) BotoUI.openModal(m);
-    else m.hidden = false;
+    else { m.hidden = false; m.classList.add("open"); }
     var st = window.BotoAccess ? BotoAccess.getStatus() : { grant: null };
     if (st.grant && (st.grant.status === "waitlisted" || st.grant.status === "approved")) showWaitlistDone(st.grant);
     if (window.BotoAccess && BotoAccess.refresh) {
@@ -3212,6 +3217,8 @@
     if (window.BotoUI && BotoUI.closeModal) BotoUI.closeModal(m);
     else { m.classList.remove("open"); m.hidden = true; }
   }
+  window.openAccessSheet = openAccessSheet;
+  window.closeAccessSheet = closeAccessSheet;
 
   function showWaitlistDone(grant) {
     $("waitlistForm").hidden = true;

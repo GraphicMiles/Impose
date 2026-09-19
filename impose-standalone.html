@@ -2110,8 +2110,17 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   color: var(--text);
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
   box-shadow: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 180ms var(--ease-out), transform 200ms var(--ease-out);
+  pointer-events: none;
+}
+.access-page.open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 .access-page[hidden] {
   display: none !important;
@@ -2122,10 +2131,10 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   top: 0;
   z-index: 10;
   background: var(--bg);
-  padding: 24px 28px;
+  padding: 24px 32px;
 }
 .access-nav-inner {
-  max-width: 580px;
+  max-width: 960px;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -2178,18 +2187,29 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px 24px 80px;
+  padding: 40px 32px 80px;
 }
-.access-container {
+.access-layout {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 60px;
+  align-items: center;
+  max-width: 960px;
   width: 100%;
-  max-width: 440px;
   margin: 0 auto;
+}
+
+.access-hero-col {
   display: flex;
   flex-direction: column;
 }
-
-.access-hero {
-  margin-bottom: 32px;
+.access-eyebrow {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 12px;
 }
 .access-title {
   font-size: 32px;
@@ -2203,8 +2223,8 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   font-size: 14.5px;
   line-height: 1.6;
   color: var(--text-2);
-  margin: 0;
-  max-width: 46ch;
+  margin: 0 0 32px;
+  max-width: 48ch;
 }
 
 .access-form {
@@ -2329,7 +2349,7 @@ html.reduce-motion .access-done-status {
 }
 
 .access-footer-action {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 .access-continue-btn {
   display: inline-flex;
@@ -2349,13 +2369,107 @@ html.reduce-motion .access-done-status {
   color: var(--text);
 }
 
-@media (max-width: 540px) {
-  .access-nav { padding: 18px 20px; }
-  .access-main { padding: 32px 20px 60px; justify-content: flex-start; }
-  .access-title { font-size: 26px; }
+/* Right column preview surface */
+.access-preview-col {
+  display: flex;
+  flex-direction: column;
+}
+.access-preview-surface {
+  background: var(--sidebar);
+  border-radius: var(--r-5);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.access-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 4px;
+}
+.access-preview-dots {
+  display: flex;
+  gap: 6px;
+}
+.access-preview-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hover);
+}
+.access-preview-title {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.access-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.access-msg-bubble {
+  padding: 12px 14px;
+  border-radius: var(--r-4);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.access-msg-bubble.user {
+  background: var(--composer);
+  color: var(--text);
+  align-self: flex-end;
+  max-width: 90%;
+}
+.access-msg-bubble.assistant {
+  background: var(--hover);
+  color: var(--text-2);
+  align-self: flex-start;
+  max-width: 100%;
+}
+.access-msg-author {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.access-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.access-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: var(--r-2);
+  background: var(--press);
+  color: var(--text-3);
+}
+
+@media (max-width: 860px) {
+  .access-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 36px;
+    max-width: 480px;
+  }
+  .access-preview-col {
+    display: none;
+  }
+  .access-title { font-size: 28px; }
   .access-desc { font-size: 14px; }
   .access-input-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .access-submit-btn { width: 100%; justify-content: center; }
+}
+
+@media (max-width: 540px) {
+  .access-nav { padding: 18px 20px; }
+  .access-main { padding: 24px 20px 48px; }
+  .access-title { font-size: 24px; }
 }
 
 /* ---------- tools menu ---------- */
@@ -5392,33 +5506,60 @@ try {
   </header>
 
   <main class="access-main" role="region" aria-labelledby="accessTitle">
-    <div class="access-container">
-      <div class="access-hero">
+    <div class="access-layout">
+      <div class="access-hero-col">
+        <div class="access-eyebrow">Private Beta</div>
         <h1 class="access-title" id="accessTitle">Workspace is in private beta</h1>
         <p class="access-desc">The Community feed is open to everyone. The Workspace is your own chat surface, with saved history, files, and your own provider keys. We are letting people in from the waitlist a few at a time.</p>
-      </div>
 
-      <form class="access-form" id="waitlistForm" novalidate>
-        <label class="access-label flabel" for="waitlistEmail">Email address</label>
-        <div class="access-input-row wl-row">
-          <input class="access-input text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
-          <button class="access-submit-btn btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
-        </div>
-        <p class="access-note wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
-      </form>
+        <form class="access-form" id="waitlistForm" novalidate>
+          <label class="access-label flabel" for="waitlistEmail">Email address</label>
+          <div class="access-input-row wl-row">
+            <input class="access-input text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
+            <button class="access-submit-btn btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
+          </div>
+          <p class="access-note wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
+        </form>
 
-      <div id="waitlistDone" hidden>
-        <div class="access-done-status wl-done" role="status">
-          <span class="access-done-icon wl-done-badge"><i data-lucide="check"></i></span>
-          <div class="access-done-text">
-            <strong>You are on the list.</strong>
-            <span id="waitlistPosition">We'll email you when your seat opens.</span>
+        <div id="waitlistDone" hidden>
+          <div class="access-done-status wl-done" role="status">
+            <span class="access-done-icon wl-done-badge"><i data-lucide="check"></i></span>
+            <div class="access-done-text">
+              <strong>You are on the list.</strong>
+              <span id="waitlistPosition">We'll email you when your seat opens.</span>
+            </div>
           </div>
         </div>
+
+        <div class="access-footer-action">
+          <button class="access-continue-btn wl-continue" id="accessContinue" type="button">Keep browsing Community</button>
+        </div>
       </div>
 
-      <div class="access-footer-action">
-        <button class="access-continue-btn wl-continue" id="accessContinue" type="button">Keep browsing Community</button>
+      <div class="access-preview-col" aria-hidden="true">
+        <div class="access-preview-surface">
+          <div class="access-preview-bar">
+            <div class="access-preview-dots">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="access-preview-title">Claude 3.5 Sonnet / Direct Relay</div>
+          </div>
+          <div class="access-preview-body">
+            <div class="access-msg-bubble user">
+              <span class="access-msg-author">You</span>
+              <p>Analyze latency on direct provider calls and verify local key sealing.</p>
+            </div>
+            <div class="access-msg-bubble assistant">
+              <span class="access-msg-author">Impose</span>
+              <p>Direct relay connected to provider endpoint. Zero middleman markup, token streams at wire speed. Provider keys stay encrypted in AES-GCM local storage.</p>
+              <div class="access-preview-tags">
+                <span class="access-tag">BYOK Direct</span>
+                <span class="access-tag">Client AES-GCM</span>
+                <span class="access-tag">Zero Markup</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </main>
@@ -12308,6 +12449,7 @@ window.BotoConfig = {
 
   function closeModal(el) {
     el.classList.remove("open");
+    if (el.id === "accessModal" && window.__resetAccessSheetOpen) window.__resetAccessSheetOpen();
     for (var i = modalStack.length - 1; i >= 0; i--) {
       if (modalStack[i].el === el) {
         var prev = modalStack[i].prev;
@@ -23872,12 +24014,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   var accessSheetOpen = false;
 
+  window.__resetAccessSheetOpen = function () {
+    accessSheetOpen = false;
+  };
+
   function openAccessSheet() {
     var m = $("accessModal");
-    if (!m || accessSheetOpen) return;
+    if (!m) return;
+    if (!m.hidden && m.classList.contains("open")) return;
     accessSheetOpen = true;
     if (window.BotoUI && BotoUI.openModal) BotoUI.openModal(m);
-    else m.hidden = false;
+    else { m.hidden = false; m.classList.add("open"); }
     var st = window.BotoAccess ? BotoAccess.getStatus() : { grant: null };
     if (st.grant && (st.grant.status === "waitlisted" || st.grant.status === "approved")) showWaitlistDone(st.grant);
     if (window.BotoAccess && BotoAccess.refresh) {
@@ -23900,6 +24047,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (window.BotoUI && BotoUI.closeModal) BotoUI.closeModal(m);
     else { m.classList.remove("open"); m.hidden = true; }
   }
+  window.openAccessSheet = openAccessSheet;
+  window.closeAccessSheet = closeAccessSheet;
 
   function showWaitlistDone(grant) {
     $("waitlistForm").hidden = true;

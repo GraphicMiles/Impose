@@ -856,33 +856,60 @@ try {
   </header>
 
   <main class="access-main" role="region" aria-labelledby="accessTitle">
-    <div class="access-container">
-      <div class="access-hero">
+    <div class="access-layout">
+      <div class="access-hero-col">
+        <div class="access-eyebrow">Private Beta</div>
         <h1 class="access-title" id="accessTitle">Workspace is in private beta</h1>
         <p class="access-desc">The Community feed is open to everyone. The Workspace is your own chat surface, with saved history, files, and your own provider keys. We are letting people in from the waitlist a few at a time.</p>
-      </div>
 
-      <form class="access-form" id="waitlistForm" novalidate>
-        <label class="access-label flabel" for="waitlistEmail">Email address</label>
-        <div class="access-input-row wl-row">
-          <input class="access-input text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
-          <button class="access-submit-btn btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
-        </div>
-        <p class="access-note wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
-      </form>
+        <form class="access-form" id="waitlistForm" novalidate>
+          <label class="access-label flabel" for="waitlistEmail">Email address</label>
+          <div class="access-input-row wl-row">
+            <input class="access-input text-input" id="waitlistEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
+            <button class="access-submit-btn btn primary" id="waitlistJoin" type="submit">Join the waitlist</button>
+          </div>
+          <p class="access-note wl-note" id="waitlistNote" aria-live="polite">Your place is tied to this email, so you keep it if you switch devices.</p>
+        </form>
 
-      <div id="waitlistDone" hidden>
-        <div class="access-done-status wl-done" role="status">
-          <span class="access-done-icon wl-done-badge"><i data-lucide="check"></i></span>
-          <div class="access-done-text">
-            <strong>You are on the list.</strong>
-            <span id="waitlistPosition">We'll email you when your seat opens.</span>
+        <div id="waitlistDone" hidden>
+          <div class="access-done-status wl-done" role="status">
+            <span class="access-done-icon wl-done-badge"><i data-lucide="check"></i></span>
+            <div class="access-done-text">
+              <strong>You are on the list.</strong>
+              <span id="waitlistPosition">We'll email you when your seat opens.</span>
+            </div>
           </div>
         </div>
+
+        <div class="access-footer-action">
+          <button class="access-continue-btn wl-continue" id="accessContinue" type="button">Keep browsing Community</button>
+        </div>
       </div>
 
-      <div class="access-footer-action">
-        <button class="access-continue-btn wl-continue" id="accessContinue" type="button">Keep browsing Community</button>
+      <div class="access-preview-col" aria-hidden="true">
+        <div class="access-preview-surface">
+          <div class="access-preview-bar">
+            <div class="access-preview-dots">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="access-preview-title">Claude 3.5 Sonnet / Direct Relay</div>
+          </div>
+          <div class="access-preview-body">
+            <div class="access-msg-bubble user">
+              <span class="access-msg-author">You</span>
+              <p>Analyze latency on direct provider calls and verify local key sealing.</p>
+            </div>
+            <div class="access-msg-bubble assistant">
+              <span class="access-msg-author">Impose</span>
+              <p>Direct relay connected to provider endpoint. Zero middleman markup, token streams at wire speed. Provider keys stay encrypted in AES-GCM local storage.</p>
+              <div class="access-preview-tags">
+                <span class="access-tag">BYOK Direct</span>
+                <span class="access-tag">Client AES-GCM</span>
+                <span class="access-tag">Zero Markup</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </main>

@@ -2388,6 +2388,7 @@
 
   function closeModal(el) {
     el.classList.remove("open");
+    if (el.id === "accessModal" && window.__resetAccessSheetOpen) window.__resetAccessSheetOpen();
     for (var i = modalStack.length - 1; i >= 0; i--) {
       if (modalStack[i].el === el) {
         var prev = modalStack[i].prev;
