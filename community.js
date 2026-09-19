@@ -71,8 +71,8 @@
 
   function cleanPathForHash(hash) {
     if (hash === "/workspace") return "/workspace";
-    if (hash.indexOf("/g/") === 0) return "/g/" + encodeURIComponent(hash.slice(4));
-    if (hash.indexOf("/u/") === 0) return "/u/" + encodeURIComponent(hash.slice(4));
+    if (hash.indexOf("/g/") === 0) return "/g/" + encodeURIComponent(hash.slice(3));
+    if (hash.indexOf("/u/") === 0) return "/u/" + encodeURIComponent(hash.slice(3));
     return "/";
   }
 
@@ -393,7 +393,7 @@
          rebuild the detail page and take the composer - and any draft in it,
          and the reader's expanded branches - down with it. Repaint the
          thread in place instead. */
-      var openId = routeHash().slice(4);
+      var openId = routeHash().slice(3);
       var stillHere = genById(openId);
       if (stillHere && !isDeleted(stillHere)) {
         refreshThreadOnly(openId);
@@ -920,7 +920,7 @@
     var detailView = $("cmDetailView");
     if (hash.indexOf("/u/") === 0) {
       if (window.BotoData && BotoData.unwatchThread) BotoData.unwatchThread();
-      renderProfile(decodeURIComponent(hash.slice(4)));
+      renderProfile(decodeURIComponent(hash.slice(3)));
       showMode("community");
       setDetailChrome(true);
       feedView.hidden = true;
@@ -933,7 +933,7 @@
     $("cmProfileView").hidden = true;
 
     if (hash.indexOf("/g/") === 0) {
-      var id = hash.slice(4);
+      var id = hash.slice(3);
       var gen = genById(id);
 
       /* A deep link is often the first thing this browser has ever seen:
