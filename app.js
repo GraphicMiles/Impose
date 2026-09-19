@@ -6497,7 +6497,7 @@
         BotoAccess.checkAccess().then(function (acc) {
           if (acc && acc.canUseWorkspace) {
             toast("Workspace access is active for this account.", "Open Workspace", function () {
-              location.hash = "#/workspace";
+              if (window.ImposeRoute) window.ImposeRoute.go("/workspace"); else history.pushState({}, "", "/workspace");
             }, 5000, "success");
           } else if (acc && acc.status === "waitlisted") {
             var posText = acc.position ? "You are #" + acc.position + " on the waitlist." : "You are on the waitlist.";
@@ -6700,7 +6700,7 @@
 
   /* Workspace -> Community from the topbar icon. */
   $("wsModeBtn").addEventListener("click", function () {
-    window.location.hash = "#/";
+    if (window.ImposeRoute) window.ImposeRoute.go("/"); else history.pushState({}, "", "/");
   });
 
   /* ---------- chat item menu: rename + delete ---------- */

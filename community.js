@@ -54,6 +54,39 @@
   /* ---------- utils ---------- */
 
   function $(id) { return document.getElementById(id); }
+  /* The browser URL is canonical and path-only. The / strings below are
+     private view-state tokens retained temporarily so the existing view
+     state machine remains small; they are never written to the address bar
+     or emitted in links. */
+  function routeHash() {
+    if (window.__imposeRouteHash) return window.__imposeRouteHash;
+    var path = window.location.pathname.replace(/\/+$/, "") || "/";
+    if (path === "/workspace") return "/workspace";
+    var match = path.match(/^\/g\/([^/]+)$/);
+    if (match) return "/g/" + decodeURIComponent(match[1]);
+    match = path.match(/^\/u\/([^/]+)$/);
+    if (match) return "/u/" + decodeURIComponent(match[1]);
+    return "/";
+  }
+
+  function cleanPathForHash(hash) {
+    if (hash === "/workspace") return "/workspace";
+    if (hash.indexOf("/g/") === 0) return "/g/" + encodeURIComponent(hash.slice(4));
+    if (hash.indexOf("/u/") === 0) return "/u/" + encodeURIComponent(hash.slice(4));
+    return "/";
+  }
+
+  function navigateRoute(hash, replace) {
+    window.__imposeRouteHash = hash || "/";
+    history[replace ? "replaceState" : "pushState"]({}, "", cleanPathForHash(window.__imposeRouteHash));
+    route();
+  }
+
+  window.ImposeRoute = {
+    hash: routeHash,
+    go: navigateRoute
+  };
+
 
   /* Identity avatar for a creator. Seeded by handle (stable) and falling
      back to name, so the same person shows the same face everywhere. If
@@ -353,14 +386,14 @@
     if (!fresh) return;
     state = fresh;
 
-    if (location.hash.indexOf("#/g/") === 0) {
+    if (routeHash().indexOf("/g/") === 0) {
       /* State 11: another tab added a comment while this one is reading the
          thread. The post itself may also now be a tombstone, which is a
          routing event. But if the post is still here, a full route() would
          rebuild the detail page and take the composer - and any draft in it,
          and the reader's expanded branches - down with it. Repaint the
          thread in place instead. */
-      var openId = location.hash.slice(4);
+      var openId = routeHash().slice(4);
       var stillHere = genById(openId);
       if (stillHere && !isDeleted(stillHere)) {
         refreshThreadOnly(openId);
@@ -611,7 +644,7 @@
   function refreshThreadOnly(genId) {
     var gen = genById(genId);
     var listEl = $("cmCommentList");
-    if (gen && listEl && location.hash === "#/g/" + genId) {
+    if (gen && listEl && routeHash() === "/g/" + genId) {
       /* The composer may be aimed at a comment that just became a tombstone,
          or that a cross-tab merge removed outright. Either way it is no
          longer a real target. Re-resolve by id: after a merge the object in
@@ -662,8 +695,8 @@
      stand, so the detail view hands back to the feed. Deleting from the
      feed just re-renders in place. */
   function rerenderAfterDelete(id) {
-    if (location.hash === "#/g/" + id) {
-      location.hash = "#/";
+    if (routeHash() === "/g/" + id) {
+      navigateRoute("/");
       return;
     }
     renderFeed();
@@ -671,7 +704,7 @@
 
   function refreshDetail(genId) {
     var gen = genById(genId);
-    if (gen && location.hash === "#/g/" + genId) renderDetail(gen);
+    if (gen && routeHash() === "/g/" + genId) renderDetail(gen);
     else renderFeed();
   }
 
@@ -701,7 +734,7 @@
      return hash is stashed so auth.js can land the reader back where
      the attempt happened instead of dropping them at the feed root. */
   function goSignIn() {
-    try { localStorage.setItem("impose.auth.returnTo", location.hash || "#/"); } catch (e) { /* private mode */ }
+    try { localStorage.setItem("impose.auth.returnTo", routeHash() || "/"); } catch (e) { /* private mode */ }
     window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
   }
 
@@ -801,9 +834,9 @@
 
   /* ---------- mode + view integration ----------
 
-     Hash grammar for the merged app: #/workspace switches to the chat
+     Hash grammar for the merged app: /workspace switches to the chat
      shell (its own state and hash idiom are untouched), #chat=<id> stays
-     entirely workspace owned, everything else is Community. #/g/<id> is the
+     entirely workspace owned, everything else is Community. /g/<id> is the
      generation detail. The mode is a body class because the workspace chrome
      hides with pure CSS. */
   function currentMode() {
@@ -844,16 +877,16 @@
   }
 
   function route() {
-    var hash = location.hash || "#/";
+    var hash = routeHash() || "/";
     /* Shareable alias: /u/@handle/post/<id> names the same post detail as
        /g/<id>. The handle segment is descriptive; the post id is
        authoritative, so the short form stays canonical everywhere the
        app generates links and the long form is simply accepted. */
     var postAt = hash.indexOf("/post/");
-    if (hash.indexOf("#/u/") === 0 && postAt > -1) {
-      hash = "#/g/" + decodeURIComponent(hash.slice(postAt + 6));
+    if (hash.indexOf("/u/") === 0 && postAt > -1) {
+      hash = "/g/" + decodeURIComponent(hash.slice(postAt + 6));
     }
-    if (hash === "#/workspace" || hash.indexOf("#chat=") === 0) {
+    if (hash === "/workspace" || hash.indexOf("#chat=") === 0) {
       if (window.BotoAccess && !BotoAccess.canUseWorkspace()) {
         var accState = window.BotoAccess.getStatus ? window.BotoAccess.getStatus().state : "";
         if (accState === "unknown" && window.BotoAccess.refresh) {
@@ -862,7 +895,7 @@
               showMode("workspace");
               setDetailChrome(false);
             } else {
-              if (hash !== "#/") history.replaceState(null, "", location.pathname + location.search + "#/");
+              if (hash !== "/") history.replaceState(null, "", location.pathname + location.search + "/");
               showMode("community");
               setDetailChrome(false);
               openAccessSheet();
@@ -873,7 +906,7 @@
         /* Community is open; the Workspace is grant-gated. Land the user in
            Community and show the waitlist sheet. The grant itself is checked
            server-side (RLS); this is the UX for that gate, not the gate. */
-        if (hash !== "#/") history.replaceState(null, "", location.pathname + location.search + "#/");
+        if (hash !== "/") history.replaceState(null, "", location.pathname + location.search + "/");
         showMode("community");
         setDetailChrome(false);
         if (window.BotoAccess && !BotoAccess.canUseWorkspace()) openAccessSheet();
@@ -885,7 +918,7 @@
     }
     var feedView = $("cmFeedView");
     var detailView = $("cmDetailView");
-    if (hash.indexOf("#/u/") === 0) {
+    if (hash.indexOf("/u/") === 0) {
       if (window.BotoData && BotoData.unwatchThread) BotoData.unwatchThread();
       renderProfile(decodeURIComponent(hash.slice(4)));
       showMode("community");
@@ -899,7 +932,7 @@
     }
     $("cmProfileView").hidden = true;
 
-    if (hash.indexOf("#/g/") === 0) {
+    if (hash.indexOf("/g/") === 0) {
       var id = hash.slice(4);
       var gen = genById(id);
 
@@ -984,7 +1017,7 @@
      is "missing" an honest answer. */
   function hydrateDetail(id) {
     BotoData.generation(id).then(function (out) {
-      if (location.hash !== "#/g/" + id) return; /* the reader moved on */
+      if (routeHash() !== "/g/" + id) return; /* the reader moved on */
       if (!out.ok) {
         var detail = $("cmDetail");
         detail.innerHTML = '<div class="detail-loading"><p>' + esc(out.error) + "</p>" +
@@ -1011,7 +1044,7 @@
     if (!liveOnline()) return;
     BotoData.thread(genId).then(function (out) {
       if (!out.ok) return;
-      if (location.hash !== "#/g/" + genId) return;
+      if (routeHash() !== "/g/" + genId) return;
       var keep = state.comments.filter(function (c) {
         return c.genId !== genId || c.pending;
       });
@@ -1021,7 +1054,7 @@
       syncCommentCount(genId);
       persist();
       var gen = genById(genId);
-      if (!gen || location.hash !== "#/g/" + genId) return;
+      if (!gen || routeHash() !== "/g/" + genId) return;
 
       /* refreshThreadOnly, not renderDetail. renderDetail rebuilds the
          whole page including the composer, which discards whatever the
@@ -1115,12 +1148,12 @@
       $("cmNotifSheet").hidden = true;
       if (kind === "waitlist_approved") {
         if (window.BotoAccess && BotoAccess.checkAccess) BotoAccess.checkAccess();
-        location.hash = "#/workspace";
+        navigateRoute("/workspace");
         return;
       }
       /* Every notification opens the thing it is about. A list of events
          with nowhere to go is a dead end. */
-      if (id) location.hash = "#/g/" + id;
+      if (id) navigateRoute("/g/" + id);
     });
   }
 
@@ -1151,7 +1184,7 @@
     }
 
     BotoData.profile(profileHandle).then(function (out) {
-      if (location.hash !== "#/u/" + encodeURIComponent(profileHandle)) return;
+      if (routeHash() !== "/u/" + encodeURIComponent(profileHandle)) return;
       if (!out.ok) {
         $("cmProfile").innerHTML = '<div class="detail-loading"><p>' + esc(out.error) + "</p></div>";
         return;
@@ -1162,7 +1195,7 @@
         $("cmProfile").innerHTML =
           '<div class="detail-missing"><h2>No such person</h2>' +
           "<p>Nobody here uses " + esc("@" + profileHandle) + ".</p>" +
-          '<a class="btn" href="#/">Back to the feed</a></div>';
+          '<a class="btn" href="/">Back to the feed</a></div>';
         refreshIcons();
         return;
       }
@@ -1268,7 +1301,7 @@
     });
   }
 
-  /* The missing state for #/g/<id>. wasDeleted distinguishes "the author
+  /* The missing state for /g/<id>. wasDeleted distinguishes "the author
      removed it" from "this link never pointed at anything", because those
      are different facts and the reader can act on the difference. */
   function renderMissing(wasDeleted) {
@@ -1284,7 +1317,7 @@
           ? "The author removed it. The replies it started are gone with it."
           : "The link may be mistyped, or it pointed at something that was never public.") +
         "</p>" +
-        '<a class="detail-missing-back" href="#/">Back to the feed</a>' +
+        '<a class="detail-missing-back" href="/">Back to the feed</a>' +
       "</div>";
     refreshIcons();
   }
@@ -1382,7 +1415,7 @@
         avatar(gen.creator, "gen-avatar") +
         '<div class="gen-id">' +
           '<span class="gen-name">' + esc(gen.creator.name) + "</span>" +
-          '<a class="gen-handle" href="#/u/' +
+          '<a class="gen-handle" href="/u/' +
             encodeURIComponent(String(gen.creator.handle).replace(/^@/, "")) + '">' +
             esc(gen.creator.handle) + "</a>" +
           '<span class="gen-time">' + esc(timeAgo(gen.createdAt)) + "</span>" +
@@ -1641,7 +1674,7 @@
       '<span class="detail-back-title">Generation</span>';
     detail.appendChild(back);
     back.querySelector("#backBtn").addEventListener("click", function () {
-      location.hash = "#/";
+      navigateRoute("/");
     });
 
     detail.appendChild(buildCard(gen, true));
@@ -1878,7 +1911,7 @@
           '<div class="comment-main">' +
             '<div class="comment-id">' +
               '<span class="comment-name">' + esc(c.creator.name) + "</span>" +
-              '<a class="comment-handle" href="#/u/' +
+              '<a class="comment-handle" href="/u/' +
                 encodeURIComponent(String(c.creator.handle).replace(/^@/, "")) + '">' +
                 esc(c.creator.handle) + "</a>" +
               '<span class="comment-time">' + esc(timeAgo(c.createdAt)) + "</span>" +
@@ -2430,7 +2463,7 @@
       /* Refetch rather than trusting the payload, so one code path builds
          the thread and a comment arriving mid-draft cannot clobber the
          composer. hydrateThread already preserves pending local rows. */
-      if (location.hash === "#/g/" + genId) hydrateThread(genId);
+      if (routeHash() === "/g/" + genId) hydrateThread(genId);
     });
   }
 
@@ -2827,7 +2860,7 @@
     if (wasPinned) pinForThisView(row.id);
 
     persist();
-    if (location.hash === "#/g/" + localId) location.hash = "#/g/" + row.id;
+    if (routeHash() === "/g/" + localId) navigateRoute("/g/" + row.id);
     else renderFeed();
     syncOutboxChrome();
     return;
@@ -2867,7 +2900,7 @@
     if (wasPinned) pinForThisView(row.id);
 
     persist();
-    if (location.hash === "#/g/" + localId) location.hash = "#/g/" + row.id;
+    if (routeHash() === "/g/" + localId) navigateRoute("/g/" + row.id);
     else renderFeed();
     syncOutboxChrome();
   }
@@ -3037,12 +3070,12 @@
     if (act === "remix" || act === "challenge") {
       if (!requireSignIn(act)) return;
       if (gen.locked) return;
-      location.hash = "#/";
+      navigateRoute("/");
       setContext(act, gen);
       return;
     }
     if (act === "discuss") {
-      location.hash = "#/g/" + gen.id;
+      navigateRoute("/g/" + gen.id);
       return;
     }
     if (act === "expand") {
@@ -3067,8 +3100,8 @@
     if (e.target.closest("[data-act]") || e.target.closest("a")) return;
     var gen = genById(card.dataset.id);
     if (!gen || gen.status === "streaming") return;
-    if ((location.hash || "").indexOf("#/g/" + gen.id) === 0) return;
-    location.hash = "#/g/" + gen.id;
+    if ((routeHash() || "").indexOf("/g/" + gen.id) === 0) return;
+    navigateRoute("/g/" + gen.id);
   });
 
   /* ---------- wiring ---------- */
@@ -3180,10 +3213,10 @@
 
   function initModeSeg() {
     $("cmTabCommunity").addEventListener("click", function () {
-      if (location.hash === "#/" || location.hash === "") {
+      if (routeHash() === "/" || routeHash() === "") {
         route(); /* already there: pull the feed view forward */
       } else {
-        location.hash = "#/";
+        navigateRoute("/");
       }
     });
     $("cmTabWorkspace").addEventListener("click", function () {
@@ -3191,7 +3224,7 @@
         openAccessSheet();
         return;
       }
-      location.hash = "#/workspace";
+      navigateRoute("/workspace");
     });
     window.addEventListener("resize", function () {
       moveGlide(currentMode() === "workspace" ? $("cmTabWorkspace") : $("cmTabCommunity"));
@@ -3221,7 +3254,7 @@
       BotoAccess.refresh().then(function (g) {
         if (g && (g.status === "granted" || BotoAccess.canUseWorkspace())) {
           closeAccessSheet();
-          location.hash = "#/workspace";
+          navigateRoute("/workspace");
         } else if (g && (g.status === "waitlisted" || g.status === "approved")) {
           showWaitlistDone(g);
         }
@@ -3263,7 +3296,7 @@
     BotoAccess.onChange(function () {
       if (accessSheetOpen && BotoAccess.canUseWorkspace()) {
         closeAccessSheet();
-        location.hash = "#/workspace";
+        navigateRoute("/workspace");
       }
     });
     var form = $("waitlistForm");
@@ -3398,8 +3431,7 @@
       if (e.key && e.key !== LS_KEY) return;
       adoptExternalState();
     });
-    window.addEventListener("hashchange", route);
-    route();
+        window.addEventListener("popstate", function () { window.__imposeRouteHash = null; route(); });
     route();
     requestAnimationFrame(function () {
       moveGlide(currentMode() === "workspace" ? $("cmTabWorkspace") : $("cmTabCommunity"));

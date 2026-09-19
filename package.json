@@ -1,0 +1,13 @@
+{
+  "name": "impose-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Impose web client and clean deep-link server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
