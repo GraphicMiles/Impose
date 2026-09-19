@@ -13,6 +13,26 @@ Secrets: client ships only the publishable Supabase key + relay URL. The
 relay holds: CONTROL_KEY (owner ops), Supabase service key,
 SENDLIB_* (mail), model gateway keys. Everything else derives from those.
 
+## 1a. Provider inventory (every external service we depend on)
+
+| Provider | Role in the platform | Where wired | Failure impact |
+|---|---|---|---|
+| **Render** (free hobby) | hosts both services: `impose-web` static site + `impose-relay` web service. NOTE: free web services SLEEP after 15 min idle → first request after sleep has a cold-start latency (by design, $0 posture) | Render dashboards; `config.js` RELAY_URL | app unreachable until instance wakes/redeployed |
+| **Supabase** (free, eu-west-2) | Postgres database + GoTrue auth + PostgREST REST/RPC + **pg_cron scheduler** (the one and only cron in the platform) | `config.js` URL+publishable key; relay SUPABASE_* env | login/community/workspace all dead; free projects PAUSE after ~7d inactivity (resume in dashboard) |
+| **Sendlib** (sendlib.samueltuoyo.com) | transactional email API: sends OTP codes and waitlist-approval mail | relay env `SENDLIB_API_KEY`/`SENDLIB_FROM`(+URL override) | OTP sign-in emails stop (users can't log in) |
+| **Lightning.ai** (SDK `lightning-sdk`) | wake/idle control of the self-hosted GPU Studio ("the box") so it only burns GPU when someone chats | relay requirements.txt; relay start logic | box won't auto-wake; chat says model unavailable |
+| **Self-hosted GPU Studio** ("the box") | serves the AI model behind an OpenAI-style `/v1` gateway | relay env `LLM_GATEWAY_URL`/`LLM_GATEWAY_KEY` | agents/bot replies unavailable; rest of app fine |
+| **Cloudflare Web Analytics** | cookieless page-view beacon on the site (token `ea82ca…`) | `index.html` head script | none (analytics only — remove cheaply anytime) |
+| **GitHub** | source repo + CI + nightly backup artifacts (`SUPABASE_DB_URL` secret) | `origin`; `.github/workflows/` | loses CI + backups, not the running product |
+| Google s2 favicons + Twitch embeds | micro-niceties: favicon fetcher and video embeds when a user pastes a Twitch link | client code | cosmetic |
+| **BYOK providers (optional, per user)** — OpenAI, Anthropic, Gemini, Groq, OpenRouter, DeepSeek, Mistral, Together, xAI, local LM Studio/llama.cpp, custom OpenAI-compatible endpoint | the browser can talk directly to any listed provider when a USER pastes their own key (demo mode otherwise). The platform itself has ZERO dependency on any of these | Settings in the client; keys live inside the user's encrypted workspace blob | per-user only |
+
+**Who handles cron, definitively:** Supabase's pg_cron extension, inside the
+database (5 jobs: rate-counter sweep 20min, OTP/ticket purge hourly,
+idempotency daily, soft-delete retention weekly, plus none elsewhere).
+Render runs NO cron; GitHub Actions runs scheduled workflows (nightly backup
+only). On any restore, re-applying migrations recreates every cron job.
+
 ---
 
 ## 1. File inventory (what each file IS)
