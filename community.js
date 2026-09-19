@@ -1457,7 +1457,14 @@
     if (!existing) return;
     var detail = !!existing.closest("#view-detail");
     var fresh = buildCard(gen, detail);
-    existing.replaceWith(fresh);
+    /* Keep the post node itself stable. Replacing article.gen on a local
+       action forces the browser to detach and reinsert the whole card,
+       which produces a visible jump even when its geometry is unchanged.
+       The delegated listeners remain attached to document, so updating the
+       card contents in place preserves behavior without reconstructing the
+       feed item. */
+    existing.innerHTML = fresh.innerHTML;
+    existing.className = fresh.className;
     refreshIcons();
   }
 

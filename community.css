@@ -603,7 +603,7 @@ body:not(.community-mode) .modebar { display: none; }
   font-size: 13px;
   line-height: 1;
   color: var(--text-3);
-  transition: transform 160ms var(--ease-out), background-color 140ms ease, color 140ms ease;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 /* Icon-only controls are square at that same height, so the row's right end
@@ -617,7 +617,7 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .gen-act:hover { background: var(--hover); color: var(--text); }
 }
 
-.cm-scope .gen-act:active { transform: scale(0.93); background: var(--press); }
+.cm-scope .gen-act:active { background: var(--press); }
 
 .cm-scope .gen-act:disabled { color: var(--text-3); opacity: 0.5; cursor: default; }
 
