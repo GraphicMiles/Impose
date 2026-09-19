@@ -181,24 +181,7 @@ set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 select test_denied('deleting someone else''s comment is refused', $$
   select public.soft_delete_comment('c0000000-0000-0000-0000-000000000001')$$);
 
--- --------------------------------------------------------------- saves
-set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
-insert into public.saves (user_id, generation_id)
-values ('22222222-2222-2222-2222-222222222222', 'a0000000-0000-0000-0000-000000000001');
-
-select test_ok('saving bumps the public total',
-  (select save_count from public.generations
-    where id = 'a0000000-0000-0000-0000-000000000001') = 1);
-
-set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
-select test_ok('one reader''s save is private to them',
-  (select count(*) from public.saves) = 0);
-
-select test_denied('saving on behalf of another user is refused', $$
-  insert into public.saves (user_id, generation_id)
-  values ('22222222-2222-2222-2222-222222222222',
-          'a0000000-0000-0000-0000-000000000002')$$);
-
+-- Community bookmarks were removed in migration 0021.
 -- ------------------------------------------------------------ waitlist
 reset role;
 -- Called twice on purpose: a retry or a double tap must not create a
@@ -324,7 +307,7 @@ select test_denied('the same key with a different body is refused', $$
 
 -- Counts stay derived. The client cannot send one.
 select test_ok('a new post starts with zero derived counts',
-  (select comment_count = 0 and save_count = 0 from public.generations
+  (select comment_count = 0 from public.generations
     where prompt = 'hello'));
 
 -- Comment RPC, and the reply-target rule enforced server side.
@@ -540,18 +523,18 @@ reset role;
 select test_ok('anon cannot truncate any table',
   (select count(*) from (values ('auth_codes'),('auth_tickets'),('comments'),
      ('generations'),('idempotency_keys'),('notifications'),('profiles'),
-     ('rate_counters'),('saves'),('waitlist'),('workspace_grants')) as t(name)
+     ('rate_counters'),('waitlist'),('workspace_grants')) as t(name)
    where has_table_privilege('anon', 'public.' || t.name, 'TRUNCATE')) = 0);
 
 select test_ok('authenticated cannot truncate any table either',
   (select count(*) from (values ('auth_codes'),('auth_tickets'),('comments'),
      ('generations'),('idempotency_keys'),('notifications'),('profiles'),
-     ('rate_counters'),('saves'),('waitlist'),('workspace_grants')) as t(name)
+     ('rate_counters'),('waitlist'),('workspace_grants')) as t(name)
    where has_table_privilege('authenticated', 'public.' || t.name, 'TRUNCATE')) = 0);
 
 select test_ok('no trigger or references privileges survive on anon',
   (select count(*) from (values ('auth_codes'),('auth_tickets'),('comments'),
-     ('generations'),('idempotency_keys'),('profiles'),('saves'),
+     ('generations'),('idempotency_keys'),('profiles'),
      ('waitlist'),('workspace_grants')) as t(name)
    where has_table_privilege('anon', 'public.' || t.name, 'TRIGGER')
       or has_table_privilege('anon', 'public.' || t.name, 'REFERENCES')) = 0);
