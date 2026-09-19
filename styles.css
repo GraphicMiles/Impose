@@ -2052,7 +2052,9 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
 
 /* ---------- full-page workspace access gate (waitlist) ----------------------
    Full-page surface; never blocks Community. Surfaces, radii, and motion
-   all come from the locked tokens above. */
+   all come from the locked tokens above. Zero shadows, zero decorative dots,
+   zero artificial outline boundaries. Layout hierarchy via negative space
+   and typographic weight. */
 .access-page {
   position: fixed;
   inset: 0;
@@ -2063,23 +2065,21 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  box-shadow: none;
 }
 .access-page[hidden] {
   display: none !important;
 }
 
-.access-page-nav {
+.access-nav {
   position: sticky;
   top: 0;
   z-index: 10;
   background: var(--bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-soft);
-  padding: 12px 20px;
+  padding: 24px 28px;
 }
-.access-page-nav-inner {
-  max-width: 840px;
+.access-nav-inner {
+  max-width: 580px;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -2089,282 +2089,227 @@ html.reduce-motion .onboard-sheet { transform: none; transition: opacity 150ms e
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
+  padding: 8px 12px;
+  margin-left: -12px;
   border-radius: var(--r-3);
-  background: var(--hover);
-  color: var(--text);
-  font-size: 13px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13.5px;
   font-weight: 500;
-  border: 1px solid var(--border-soft);
+  border: none;
   cursor: pointer;
-  transition: background 140ms var(--ease), border-color 140ms var(--ease);
+  box-shadow: none;
+  transition: color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
 }
 .access-back-btn:hover {
-  background: var(--press);
-  border-color: var(--border);
+  color: var(--text);
+  background: var(--hover);
 }
 .access-back-btn .lucide, .access-back-btn i[data-lucide] {
-  width: 15px;
-  height: 15px;
-}
-
-.access-brand-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 9999px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-soft);
-  font-size: 11.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-2);
-}
-.access-pulse-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  width: 16px;
+  height: 16px;
 }
 
 .access-signin-link {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 500;
-  color: var(--text-2);
+  color: var(--text-3);
   text-decoration: none;
-  padding: 6px 10px;
+  padding: 8px 12px;
+  margin-right: -12px;
   border-radius: var(--r-3);
-  transition: color 140ms var(--ease);
+  border: none;
+  box-shadow: none;
+  transition: color var(--dur-1) var(--ease-out);
 }
 .access-signin-link:hover {
   color: var(--text);
 }
 
-.access-page-content {
+.access-main {
   flex: 1;
   width: 100%;
-  max-width: 640px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px 80px;
+}
+.access-container {
+  width: 100%;
+  max-width: 440px;
   margin: 0 auto;
-  padding: 40px 20px 80px;
   display: flex;
   flex-direction: column;
-  align-items: center;
 }
 
-.access-page-hero {
-  text-align: center;
-  margin-bottom: 28px;
-}
-.access-badge {
-  width: 52px;
-  height: 52px;
-  margin: 0 auto 18px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-4);
-  background: var(--surface-2);
-  border: 1px solid var(--border-soft);
-  color: var(--text);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-}
-.access-badge .lucide, .access-badge i[data-lucide] {
-  width: 24px;
-  height: 24px;
+.access-hero {
+  margin-bottom: 32px;
 }
 .access-title {
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.18;
   color: var(--text);
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
-.access-subtitle {
+.access-desc {
   font-size: 14.5px;
   line-height: 1.6;
   color: var(--text-2);
-  max-width: 520px;
-  margin: 0 auto;
+  margin: 0;
+  max-width: 46ch;
 }
 
-.access-card {
-  width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-5);
-  padding: 24px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-  margin-bottom: 28px;
+.access-form {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 24px;
 }
-
-.access-card .flabel {
+.access-label {
   display: block;
-  font-size: 12.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--text-3);
   margin-bottom: 8px;
 }
-
-.access-card .wl-row {
+.access-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
   align-items: stretch;
 }
-.access-card .text-input {
+.access-input {
   min-width: 0;
   height: 44px;
-  padding: 0 14px;
+  padding: 0 16px;
   font-size: 14px;
+  font-family: inherit;
   border-radius: var(--r-3);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text);
-  transition: border-color 140ms var(--ease);
-}
-.access-card .text-input:focus {
+  border: none;
   outline: none;
-  border-color: var(--focus);
+  background: var(--composer);
+  color: var(--text);
+  box-shadow: none;
+  transition: background var(--dur-1) var(--ease-out);
 }
-.access-card .btn.primary {
+.access-input:focus {
+  outline: 2px solid rgba(255, 255, 255, 0.2);
+  outline-offset: 0;
+}
+.access-submit-btn {
   height: 44px;
   padding: 0 18px;
   font-size: 14px;
   font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  font-family: inherit;
   border-radius: var(--r-3);
-  background: var(--primary);
-  color: var(--primary-text);
+  background: var(--accent);
+  color: var(--accent-fg);
   border: none;
   cursor: pointer;
+  box-shadow: none;
   white-space: nowrap;
+  transition: opacity var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
 }
-.access-card .btn.primary:disabled {
-  opacity: 0.5;
+.access-submit-btn:hover {
+  opacity: 0.92;
+}
+.access-submit-btn:active {
+  transform: translateY(1px);
+}
+.access-submit-btn:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
 }
 
-.access-card .wl-note {
+.access-note {
   margin: 10px 0 0;
   font-size: 12.5px;
   line-height: 1.5;
   color: var(--text-3);
 }
-.access-card .wl-note.error {
+.access-note.error {
   color: var(--danger);
 }
 
-.wl-done {
+.access-done-status {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
   padding: 16px;
   border-radius: var(--r-4);
-  background: var(--surface-2);
-  border: 1px solid var(--border-soft);
-  animation: wl-done-in 220ms var(--ease-out);
+  background: var(--composer);
+  border: none;
+  box-shadow: none;
+  animation: access-done-in 220ms var(--ease-out);
 }
-.wl-done-badge {
-  width: 36px;
-  height: 36px;
+.access-done-icon {
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border-radius: var(--r-3);
+  border-radius: var(--r-2);
   background: var(--hover);
-  color: #10b981;
+  color: var(--ok);
 }
-.wl-done-badge .lucide, .wl-done-badge i[data-lucide] { width: 18px; height: 18px; }
-.wl-done strong { display: block; font-size: 14.5px; font-weight: 600; line-height: 1.35; color: var(--text); }
-.wl-done span { display: block; margin-top: 4px; color: var(--text-2); font-size: 13px; line-height: 1.5; }
-html.reduce-motion .wl-done { animation: none; }
-@keyframes wl-done-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
-}
-
-.access-features-grid {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 28px;
-}
-.access-feature-card {
-  background: var(--surface-2);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-4);
-  padding: 18px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  text-align: left;
-}
-.access-feat-icon {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-3);
-  background: var(--hover);
-  color: var(--text);
-}
-.access-feat-icon .lucide, .access-feat-icon i[data-lucide] {
+.access-done-icon .lucide, .access-done-icon i[data-lucide] {
   width: 16px;
   height: 16px;
 }
-.access-feature-card h3 {
-  font-size: 13px;
+.access-done-text strong {
+  display: block;
+  font-size: 14.5px;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--text);
-  margin: 0;
 }
-.access-feature-card p {
-  font-size: 12px;
+.access-done-text span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-2);
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--text-3);
-  margin: 0;
+}
+html.reduce-motion .access-done-status {
+  animation: none;
+}
+@keyframes access-done-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
 }
 
-.access-page-footer {
-  width: 100%;
+.access-footer-action {
+  margin-top: 12px;
 }
-.access-page-footer .wl-continue {
-  width: 100%;
-  height: 44px;
+.access-continue-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: var(--r-3);
-  background: var(--hover);
-  color: var(--text);
-  border: 1px solid var(--border-soft);
-  font-size: 14px;
+  padding: 8px 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
   font-weight: 500;
+  font-family: inherit;
+  border: none;
   cursor: pointer;
-  transition: background 140ms var(--ease), border-color 140ms var(--ease);
+  box-shadow: none;
+  transition: color var(--dur-1) var(--ease-out);
 }
-.access-page-footer .wl-continue:hover {
-  background: var(--press);
-  border-color: var(--border);
+.access-continue-btn:hover {
+  color: var(--text);
 }
 
-@media (max-width: 600px) {
-  .access-page-content { padding: 24px 16px 60px; }
-  .access-title { font-size: 24px; }
-  .access-subtitle { font-size: 13.5px; }
-  .access-card { padding: 18px 16px; }
-  .access-card .wl-row { grid-template-columns: minmax(0, 1fr); }
-  .access-card .btn.primary { width: 100%; justify-content: center; }
-  .access-features-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+@media (max-width: 540px) {
+  .access-nav { padding: 18px 20px; }
+  .access-main { padding: 32px 20px 60px; justify-content: flex-start; }
+  .access-title { font-size: 26px; }
+  .access-desc { font-size: 14px; }
+  .access-input-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .access-submit-btn { width: 100%; justify-content: center; }
 }
 
 /* ---------- tools menu ---------- */
