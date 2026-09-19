@@ -87,7 +87,10 @@ def test_an_absurd_password_is_refused():
 def test_signup_and_reset_share_one_rule():
     """Two call sites, one function. Separate rules drift, and the weaker
     one becomes the real policy."""
-    src = open(os.path.join(os.path.dirname(__file__), "..", "server.py")).read()
+    # Post-modularisation the two call sites live in the auth router; the
+    # rule under test (one policy function, two routes) is unchanged.
+    src = open(os.path.join(os.path.dirname(__file__), "..",
+                            "routers", "auth.py")).read()
     assert src.count("_otp_password(data)") == 2
 
 

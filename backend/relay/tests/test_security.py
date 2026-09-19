@@ -6,7 +6,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 os.environ.setdefault("CONTROL_KEY", "test123")
 
-from relay import server  # noqa: E402
+from relay import server
+import relay.settings as _settings  # noqa: E402
 
 
 def _answer(ip):
@@ -79,28 +80,28 @@ def test_rate_buckets_prune_stale_keys(monkeypatch):
     """An address seen once must not be carried forever."""
     import time as _time
 
-    monkeypatch.setattr(server, "_RATE_BUCKETS", {})
-    monkeypatch.setattr(server, "_rate_pruned_at", 0.0)
+    monkeypatch.setattr(_settings, "_RATE_BUCKETS", {})
+    monkeypatch.setattr(_settings, "_rate_pruned_at", 0.0)
     now = _time.time()
     # A stale bucket (quiet for two hours) and a live one.
-    server._RATE_BUCKETS["otpaddr:old@x.com"] = [now - 7200]
-    server._RATE_BUCKETS["otpaddr:new@x.com"] = [now - 1]
+    _settings._RATE_BUCKETS["otpaddr:old@x.com"] = [now - 7200]
+    _settings._RATE_BUCKETS["otpaddr:new@x.com"] = [now - 1]
 
     server._rate_hit("probe", "k", 100, 60.0)
 
-    assert "otpaddr:old@x.com" not in server._RATE_BUCKETS
-    assert "otpaddr:new@x.com" in server._RATE_BUCKETS
+    assert "otpaddr:old@x.com" not in _settings._RATE_BUCKETS
+    assert "otpaddr:new@x.com" in _settings._RATE_BUCKETS
 
 
 def test_rate_prune_is_throttled(monkeypatch):
     import time as _time
 
-    monkeypatch.setattr(server, "_RATE_BUCKETS", {})
+    monkeypatch.setattr(_settings, "_RATE_BUCKETS", {})
     now = _time.time()
-    server._RATE_BUCKETS["otpaddr:old@x.com"] = [now - 7200]
+    _settings._RATE_BUCKETS["otpaddr:old@x.com"] = [now - 7200]
     # Pruned moments ago: a stale bucket survives this pass.
-    monkeypatch.setattr(server, "_rate_pruned_at", now)
+    monkeypatch.setattr(_settings, "_rate_pruned_at", now)
 
     server._rate_hit("probe", "k", 100, 60.0)
 
-    assert "otpaddr:old@x.com" in server._RATE_BUCKETS
+    assert "otpaddr:old@x.com" in _settings._RATE_BUCKETS

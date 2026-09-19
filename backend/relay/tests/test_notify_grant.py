@@ -20,6 +20,7 @@ os.environ.setdefault("SUPABASE_SERVICE_KEY", "service-key-stub")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from relay import server, supabase_admin  # noqa: E402
+import relay.routers.admin as admin_routes  # noqa: E402
 
 client = TestClient(server.app)
 
@@ -62,7 +63,7 @@ def _stub_mail(monkeypatch):
     async def send(email):
         sent.append(email)
 
-    monkeypatch.setattr(server, "send_grant", send)
+    monkeypatch.setattr(admin_routes, "send_grant", send)
     return sent
 
 
@@ -163,7 +164,7 @@ def test_notify_says_so_when_the_email_fails(monkeypatch):
     async def broken(email):
         raise MailFailed("provider down")
 
-    monkeypatch.setattr(server, "send_grant", broken)
+    monkeypatch.setattr(admin_routes, "send_grant", broken)
     res = client.post("/notify/grant",
                       headers={"Authorization": "Bearer admin-jwt"},
                       json={"email": "mailfail1@company.com"})

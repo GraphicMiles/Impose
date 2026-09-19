@@ -2,7 +2,7 @@
 
 Single source of truth for the database. Generated from the live catalog
 (Supabase project `xgqcvuzkeaferjsnpjjw`, eu-west-2, free tier) on
-2026-09-19 after migration 0001–0024. Migrations live in
+2026-09-19 after migration 0001–0025. Migrations live in
 `supabase/migrations/`; the live objects ARE the migrations applied in
 order — verified byte-identical bodies against the last-defining file.
 
@@ -50,7 +50,7 @@ RLS: enabled, **no policies = default deny** for API roles.
 API grants: none
 
 ### `workspace_grants`
-who may use the workspace (the save/load synchronizer). Writers: admin_grant RPC or relay /admin/grant inserts. save_workspace requires a row here (0023).
+who may use the workspace (the save/load synchronizer). Writers: admin_grant RPC or relay /admin/grant inserts; admin_revoke_grant RPC or relay /admin/revoke_grant deletes. save_workspace requires a row here (0023); the NEXT save after a revoke fails `workspace_not_granted` immediately.
 
 Columns:  
 `user_id uuid not null, granted_at timestamp with time zone not null, granted_by uuid, note text`
@@ -88,7 +88,7 @@ RLS policies:
 API grants: authenticated:DELETE, authenticated:INSERT, authenticated:SELECT, authenticated:UPDATE
 
 ### `generations`
-community posts (prompt/response pairs) incl. remix/challenge lineage. Writers: create_generation (idempotent uuid-key) is the ONLY insert path; soft-deleted via PATCH deleted_at (only PATCH-granted column). purge_soft_deleted removes permanently.
+community posts (prompt/response pairs) incl. remix/challenge lineage. Writers: create_generation (idempotent uuid-key) is the ONLY insert path; soft-deleted via PATCH deleted_at (only PATCH-granted column). purge_soft_deleted removes permanently. edit_generation updates prompt only (updated_at / touch triggers fire as usual).
 
 Columns:  
 `id uuid not null, author_id uuid not null, prompt text not null, response text not null, model text, visibility text not null, kind text not null, remix_of uuid, root_id uuid, status text not null, addressed boolean not null, locked boolean not null, deleted_at timestamp with time zone, created_at timestamp with time zone not null, comment_count integer not null, remix_count integer not null, challenge_count integer not null, updated_at timestamp with time zone not null`
@@ -138,7 +138,7 @@ RLS: enabled, **no policies = default deny** for API roles.
 API grants: none
 
 ### `notifications`
-per-user inbox (comments/replies/remixes/waitlist_approved). Writers: triggers notify_on_comment/notify_on_lineage insert; RPCs feed page/unread/mark-read.
+per-user inbox (comments/replies/remixes/waitlist_approved/workspace_revoked). Writers: triggers notify_on_comment/notify_on_lineage insert; RPCs feed page/unread/mark-read. Retention: purge_old_notifications deletes READ rows older than 30 days nightly (unread persist).
 
 Columns:  
 `id uuid not null, user_id uuid not null, actor_id uuid not null, kind text not null, generation_id uuid, comment_id uuid, read_at timestamp with time zone, created_at timestamp with time zone not null`
@@ -273,7 +273,7 @@ RLS: enabled, **no policies = default deny** for API roles.
 API grants: none
 
 ### `blocked_terms`
-owner-managed denylist consulted by create_comment/create_generation. Writers: SQL-only (no client grants at all). Empty table = no-op.
+owner/moderator denylist consulted by create_comment/create_generation/edit_generation. Writers: admin_block_term/admin_unblock_term (moderation.manage, 0025; previously SQL-only). Empty table = no-op.
 
 Columns:  
 `term text not null, created_at timestamp with time zone not null`
@@ -332,17 +332,22 @@ API grants: none
 - `impose-purge-auth-codes` `17 * * * *` → `select public.purge_expired_auth_codes()`
 - `impose-purge-idempotency` `23 3 * * *` → `select public.purge_idempotency_keys()`
 - `impose-purge-rate-counters` `*/20 * * * *` → `select public.purge_rate_counters()`
-- `impose-purge-soft-deleted` `41 4 * * 0` → `select public.purge_soft_deleted()`## Functions (107 in catalog — app-facing subset annotated; the rest are pgcrypto/internal & migration-era helpers)
+- `impose-purge-soft-deleted` `41 4 * * 0` → `select public.purge_soft_deleted()`
+- `impose-purge-notifications` `5 7 * * *` → `select public.purge_old_notifications()`## Functions (113 in catalog — app-facing subset annotated; the rest are pgcrypto/internal & migration-era helpers)
 
 All application RPCs are `security definer` with pinned `search_path` and are called only via PostgREST named arguments.
 
 | Function | Class | Behavior / limits |
 |---|---|---|
+| `admin_block_term(p_term text)` | ADMIN | exec anon=- auth=auth — require_cap via block trio→moderation.manage; 2–100 chars, lowercase-trimmed; ON CONFLICT DO NOTHING; audit `moderation.block_term` |
+| `admin_unblock_term(p_term text)` | ADMIN | exec anon=- auth=auth — same cap; audit `moderation.unblock_term` |
+| `admin_blocked_terms()` | ADMIN READ | exec anon=- auth=auth — same cap; full denylist |
 | `admin_add(p_email citext)` | ADMIN | exec anon=- auth=auth — require_cap('admin_add'); adm:30/60s; seeds waitlist.manage+moderation.manage; audits |
 | `admin_audit_events(p_limit integer, p_before timestamp with time zone)` | ADMIN READ | exec anon=- auth=auth — is_admin() gate |
 | `admin_bootstrap_claim(p_note text)` | BOOTSTRAP | exec anon=- auth=auth — one-time claim of admin_bootstrap row |
 | `admin_caps_for(p_user_id uuid)` | ADMIN READ | exec anon=- auth=auth — caps of a user |
 | `admin_grant(p_email citext)` | ADMIN | exec anon=- auth=auth — require_cap('admin_grant'); adm:30/60s; workspace_grants+waitlist approve+notification; audits only when new |
+| `admin_revoke_grant(p_email citext)` | ADMIN | exec anon=- auth=auth — require_cap via admin_revoke_grant→waitlist.manage; deletes workspace_grants row; status jsonb `revoked`/`no_grant` (idempotent, never raises on no_grant); notification `workspace_revoked` + audit `workspace.revoke` when a row existed |
 | `admin_grant_cap(p_user_id uuid, p_cap text)` | ADMIN | exec anon=- auth=auth — require_cap; adm:30/60s (0024); audits |
 | `admin_remove(p_user_id uuid)` | ADMIN | exec anon=- auth=auth — require_cap('admin_remove') + STEP-UP(900s); owner_protected, last_admin; clears caps; audits |
 | `admin_reports(p_status text, p_limit integer)` | ADMIN READ | exec anon=- auth=auth — pending queue |
@@ -356,6 +361,7 @@ All application RPCs are `security definer` with pinned `search_path` and are ca
 | `consume_auth_code(p_email citext, p_purpose text, p_hash text, p_max integer)` | OTP | exec anon=- auth=- — attempts+lockout (row deleted at max), FOR UPDATE serialized |
 | `create_comment(p_key uuid, p_gen uuid, p_body text, p_parent uuid)` | USER | exec anon=- auth=auth — idempotent, com:15/60s + com:user:gen5/60s; depth<=2 (thread_too_deep); blocklist; parent checks |
 | `create_generation(p_key uuid, p_prompt text, p_response text, p_addressed boolean, p_status text, p_visibility text, p_kind text, p_remix_of uuid)` | USER | exec anon=- auth=auth — idempotent (p_key uuid), gen:8/60s; addressed adds bot:3/60s + bot:global12/60s; blocklist; lineage+lock checks |
+| `edit_generation(p_generation uuid, p_prompt text)` | USER | exec anon=- auth=auth — author-only (not_author), FOR UPDATE serialisation; prompt-only by design (response is immutable community record); prompt ≤ 4000 (prompt_length) + blocklist (invalid_term); `edit:` 15/60s budget separate from `gen:`; returns full row |
 | `customize_profile(p_display_name text, p_bio text, p_handle text, p_avatar text)` | USER | exec anon=- auth=auth — handle quota 3/21d; validation |
 | `delete_my_account()` | USER | exec anon=- auth=auth — step-up require_recent_auth(900s); owner/last-admin guards; nulls grantor refs; audits account.delete; deletes auth.users |
 | `ensure_profile()` | ENGINE | exec anon=- auth=auth — creates profile on first use |
@@ -377,6 +383,7 @@ All application RPCs are `security definer` with pinned `search_path` and are ca
 | `purge_idempotency_keys()` | CRON | exec anon=- auth=- — >24h |
 | `purge_rate_counters()` | CRON | exec anon=- auth=- — expired windows |
 | `purge_soft_deleted(p_days integer)` | CRON | exec anon=- auth=- — >90d soft-deleted generations/comments (0024) |
+| `purge_old_notifications()` | CRON | nightly 05:07 — deletes notifications read_at < now-30d; unread rows are never touched |
 | `rate_hit(p_bucket text, p_limit integer, p_window_seconds integer)` | ENGINE | exec anon=- auth=- — fixed-window upsert into rate_counters; true=over limit (caller raises 53100) |
 | `record_handle_history()` | TRIGGER FN | exec anon=anon auth=auth — archives old handle (0024) |
 | `recount_comments()` | TRIGGER FN/maintenance | exec anon=anon auth=auth — comment_count rollup |
@@ -398,6 +405,7 @@ All application RPCs are `security definer` with pinned `search_path` and are ca
 |---|---|---|---|
 | gen:{uid} | 8 | 60s | create_generation |
 | bot:{uid} / bot:global | 3 / 12 | 60s | addressed posts (compute ceiling) |
+| edit:{uid} | 15 | 60s | edit_generation (kept apart from the create budget) |
 | com:{uid} / com:{uid}:{gen} | 15 / 5 | 60s | create_comment |
 | rep:{uid} | 20 | 3600s | report_content |
 | ws:{uid} | 30 | 60s | save_workspace |

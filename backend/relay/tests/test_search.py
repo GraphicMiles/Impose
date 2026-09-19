@@ -83,7 +83,8 @@ async def fake_search(query, limit=8, domains=None, freshness=None,
             "count": 1, "ms": 1}
 
 
-srv.engine_search = fake_search
+import relay.routers.media as media_mod
+media_mod.engine_search = fake_search
 c = TestClient(srv.app)
 r = c.post("/v1/search", json={"query": "x"})
 check("keyless search serves the public tier", r.status_code == 200, r.status_code)

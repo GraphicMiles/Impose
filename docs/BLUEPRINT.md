@@ -68,13 +68,32 @@ only). On any restore, re-applying migrations recreates every cron job.
 - misc: `styles.css`, `admin.js/admin.html` (admin panel UI), prose pages.
 
 ### Relay (backend/relay/) — stateless by contract
-- `server.py` — FastAPI app. Two auth classes:
-  `CONTROL_KEY` bearer → `/admin/*` (+/chat); app-session bearer → `/chat`,
-  `/session/can`, `/session/my_grant` (chat = session OR owner key since B-01).
+Modularised layout (was one ~2400-line server.py):
+
+- `server.py` (~200 lines) — the shell: FastAPI app, lifespan hook,
+  correlation middleware, /health, router mounts, back-compat aliases so
+  earlier test/tooling imports keep resolving.
+- `settings.py` — env/.env loading, config constants, and the SINGLE OWNER
+  of every mutable runtime container (`_RATE_BUCKETS`, `_CACHE`,
+  `_MEMBER_CACHE`, `_gateway_state`, wake/lifecycle flags). Code everywhere
+  reads these attribute-wise (`_settings.X`) at call time; any test that
+  replaces state wholesale replaces it on `relay.settings`.
+- `shared.py` — cross-cutting request machinery: client-ip, rate/cache
+  helpers, CONTROL_KEY/member/owner/tier auth, wake scaffolding,
+  image verify/convert signature, SSRF-safe fetch, email validators,
+  html readers. Helpers resolve names through their own module globals —
+  monkeypatch a helper on the module that CALLS it.
+- `routers/auth.py` — `/v1/auth/otp/request|verify`, `/v1/auth/password/reset`.
+- `routers/media.py` — models, chat/completions, search, source/catalog,
+  images, videos, files, file, fetch, read, signed image-convert.
+- `routers/admin.py` — `/admin/*` + `/notify/grant` (accounts, reports,
+  waitlist, grant, revoke_grant, revoke_sessions, status, wake-llm).
 - `supabase_admin.py` — service-key helpers: find_user_by_email,
   create_pending_user/confirm after OTP, grant/has_workspace_grant,
-  approve_waitlist, notify_waitlist_approved, **audit_event** (REST insert
-  into audit_events), **revoke_user_sessions** (GoTrue admin logout, global),
+  **revoke_workspace_grant** (delete row; /admin/revoke_grant parity with
+  the admin_revoke_grant RPC), approve_waitlist, notify_waitlist_approved,
+  notify_access_revoked, **audit_event** (REST insert into audit_events),
+  **revoke_user_sessions** (GoTrue admin logout, global),
   list_admin_owners, list_emailed.
 - `mailer.py` — Sendlib HTTP mail (SENDLIB_API_KEY/FROM/URL; default host
   sendlib.samueltuoyo.com).
@@ -82,13 +101,15 @@ only). On any restore, re-applying migrations recreates every cron job.
   (`_RATE_BUCKETS`). B-06: durable floors now ALSO in DB (auth_codes rows
   with attempts+lockout).
 - `tests/` — pytest incl. `test_closure_b01_b09.py` (chat auth split,
-  OTP limits, grant notification + audit, revoke_sessions endpoint).
+  OTP limits, grant notification + audit, revoke_sessions/grant endpoints).
 - `requirements.txt` (+server deps), no state files.
 
 ### Database (supabase/migrations/)
-0001..0024 applied. The live body of every function = last-defining
+0001..0025 applied. The live body of every function = last-defining
 migration (verified byte-identical). 0024 = audit/step-up/depth/blocklist/
 handle_history/export/purge/timeouts + the same-apply overload hotfix.
+0025 = lifecycle closures: grant revoke RPC, blocked-term admin RPCs,
+edit_generation (prompt-only), purge_old_notifications + nightly cron.
 **See DATABASE.md for the exact contract.**
 
 ### Workflows (.github/workflows/)
@@ -147,6 +168,29 @@ roster/waitlist/reports reads; writes `admin_add`, `admin_grant`
 audited. **Step-up (recent_auth_required 900s) on admin_remove,
 admin_revoke_cap, delete_my_account** — the client says "sign in again".
 
+### Grant revocation (single write surface)
+Admin panel Approved-row "Revoke access" (two-tap confirm) →
+`admin_revoke_grant` RPC (waitlist.manage cap; idempotent
+`{"status":"revoked"|"no_grant"}`) deletes the workspace_grants row, drops
+a `workspace_revoked` inbox notice and audits `workspace.revoke`. The very
+next `save_workspace` refuses (`workspace_not_granted`); the client's
+10-minute access cache converges harmlessly. Relay CAUTION counterpart:
+`/admin/revoke_grant` (CONTROL_KEY) — same guarantee, parallel audit.
+Account-level session invalidation is a separate control:
+`/admin/revoke_sessions` / `delete_my_account`.
+
+### Blocked terms management (admin)
+Panel card (moderation.manage) lists `admin_blocked_terms` and calls
+`admin_block_term` / `admin_unblock_term` (2–100 chars, normalised lower,
+ON CONFLICT no-op, audited). create_generation / create_comment /
+edit_generation all consult the same denylist.
+
+### Post editing (author)
+Own-post kebab menu → "Edit prompt" opens an inline editor on the card
+(textarea, 4000-char cap, blocklist, `edit:` 15/60s budget) →
+`edit_generation` RPC returns the full row; the card repaints from the
+returned row. The RESPONSE text is immutable by design (community record).
+
 ### Owner relay ops (CONTROL_KEY)
 - `POST /admin/grant {email}` — waitlist approve + grants + welcome mail +
   inbox notification + `audit_events('workspace.grant', via: relay)` (B-09 parity).
@@ -179,6 +223,8 @@ profile/posts/comments/grants/caps; audit row survives via SET NULL).
 - Blocklist terms (owner-managed SQL table) checked inside create RPCs.
 - CAP-style guards: owner_protected, last_admin, last_capability
   (rollback-by-reinsert-then-raise), bootstrap one-time claim.
+- `edit:{uid}` 15/60s in-DB (edit_generation); relay IP bucket
+  `grantrevoke` 6/600s for /admin/revoke_grant flips.
 
 ## 4. Failure modes that are BY DESIGN (don't "fix")
 

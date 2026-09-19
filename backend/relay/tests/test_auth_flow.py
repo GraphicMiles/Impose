@@ -24,6 +24,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from relay import otp_store, supabase_admin  # noqa: E402
 from relay.server import app  # noqa: E402
+import relay.settings  # noqa: E402
+import relay.routers.auth as auth_routes  # noqa: E402
 
 
 class FakeStore:
@@ -129,7 +131,7 @@ def env(monkeypatch):
     monkeypatch.setattr(supabase_admin, "configured", lambda: True)
 
     from relay import server
-    monkeypatch.setattr(server, "_RATE_BUCKETS", {})
+    monkeypatch.setattr(relay.settings, "_RATE_BUCKETS", {})
 
     return {"client": TestClient(app), "store": store, "created": created, "passwords": passwords}
 
@@ -300,7 +302,7 @@ def test_a_failed_send_leaves_no_ghost_account(env, monkeypatch):
     async def boom(*a, **k):
         raise server.MailFailed("smtp down")
 
-    monkeypatch.setattr(server, "send_code", boom)
+    monkeypatch.setattr(auth_routes, "send_code", boom)
     r = env["client"].post("/v1/auth/otp/request",
                            json={"email": "a@b.com", "password": "Str0ng!pass", "purpose": "signup"})
     assert r.status_code == 502
