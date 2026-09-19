@@ -20638,6 +20638,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   function loadOutbox() {
+    /* Writes are sent to Supabase immediately; no browser outbox is a
+       source of Community data. */
+    outbox = [];
+    return outbox;
     try {
       var raw = localStorage.getItem(OUTBOX_KEY);
       outbox = raw ? JSON.parse(raw) : [];
@@ -20647,6 +20651,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   function saveOutbox() {
+    /* No local persistence. Supabase is the only durable source. */
+    if (onChange) { try { onChange(outbox.slice()); } catch (e) {} }
+    return;
     try {
       /* Store the data, never the closures: they would serialise to
          nothing and give a false impression that the job is complete. */
@@ -21246,6 +21253,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* ---------- state ---------- */
 
   function load() {
+    /* Community is database-backed. Do not hydrate posts, comments, avatars,
+       or notifications from browser storage. The in-memory state below is
+       only the current render, and is populated by Supabase reads. */
+    return null;
+    /* legacy cache reader intentionally unreachable */
     try {
       var raw = localStorage.getItem(LS_KEY);
       if (!raw) return null;
@@ -21431,6 +21443,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   function persist() {
+    /* No Community persistence: Supabase is the sole source of truth. */
+    return true;
     try {
       reconcileWithDisk();
       localStorage.setItem(LS_KEY, JSON.stringify(state));

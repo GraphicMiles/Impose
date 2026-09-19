@@ -165,6 +165,11 @@
   /* ---------- state ---------- */
 
   function load() {
+    /* Community is database-backed. Do not hydrate posts, comments, avatars,
+       or notifications from browser storage. The in-memory state below is
+       only the current render, and is populated by Supabase reads. */
+    return null;
+    /* legacy cache reader intentionally unreachable */
     try {
       var raw = localStorage.getItem(LS_KEY);
       if (!raw) return null;
@@ -350,6 +355,8 @@
   }
 
   function persist() {
+    /* No Community persistence: Supabase is the sole source of truth. */
+    return true;
     try {
       reconcileWithDisk();
       localStorage.setItem(LS_KEY, JSON.stringify(state));

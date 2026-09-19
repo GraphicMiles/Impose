@@ -661,6 +661,10 @@
   }
 
   function loadOutbox() {
+    /* Writes are sent to Supabase immediately; no browser outbox is a
+       source of Community data. */
+    outbox = [];
+    return outbox;
     try {
       var raw = localStorage.getItem(OUTBOX_KEY);
       outbox = raw ? JSON.parse(raw) : [];
@@ -670,6 +674,9 @@
   }
 
   function saveOutbox() {
+    /* No local persistence. Supabase is the only durable source. */
+    if (onChange) { try { onChange(outbox.slice()); } catch (e) {} }
+    return;
     try {
       /* Store the data, never the closures: they would serialise to
          nothing and give a false impression that the job is complete. */
