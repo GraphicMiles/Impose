@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install relay deps
-        run: pip install -r backend/relay/requirements.txt pytest httpx
+        run: pip install -r backend/relay/requirements.txt pytest httpx pillow fastapi
       - name: Relay test suite
         working-directory: backend
         run: python -m pytest relay/tests/ -q
