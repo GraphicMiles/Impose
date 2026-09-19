@@ -14,6 +14,9 @@ os.environ.setdefault("CONTROL_KEY", "test123")
 os.environ.setdefault("PUB_SEARCH_LIMIT", "2")
 
 from relay import server  # noqa: E402
+import relay.shared  # noqa: E402
+import relay.routers.admin as admin_routes  # noqa: E402
+import relay.routers.media as media_mod  # noqa: E402
 from relay.server import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -33,9 +36,9 @@ def _patch_engines(monkeypatch):
         return {"results": [{"title": "v", "url": "https://www.youtube.com/watch?v=gTKS8SAwUzE",
                              "platform": "youtube", "kind": "youtube-video", "id": "gTKS8SAwUzE"}],
                 "provider": "test", "query": "q", "count": 1}
-    monkeypatch.setattr(server, "engine_search", fake_search)
-    monkeypatch.setattr(server, "engine_images", fake_images)
-    monkeypatch.setattr(server, "engine_videos", fake_videos)
+    monkeypatch.setattr(media_mod, "engine_search", fake_search)
+    monkeypatch.setattr(media_mod, "engine_images", fake_images)
+    monkeypatch.setattr(media_mod, "engine_videos", fake_videos)
 
 
 def test_public_search_needs_no_key(monkeypatch):
@@ -80,7 +83,7 @@ def test_public_limit_is_tight(monkeypatch):
 
 def test_public_tier_can_be_disabled(monkeypatch):
     _patch_engines(monkeypatch)
-    monkeypatch.setattr(server, "PUBLIC_TIER", False)
+    monkeypatch.setattr(relay.shared, "PUBLIC_TIER", False)
     r = client.post("/v1/search", json={"query": "test"})
     assert r.status_code == 401
     r2 = client.post("/v1/search", json={"query": "test"}, headers=H)
@@ -112,8 +115,10 @@ def test_health_is_cors_readable_from_local_and_portable_clients():
 
 
 def test_admin_status_explains_missing_gateway_and_disabled_wake(monkeypatch):
-    monkeypatch.setattr(server, "GATEWAY_URL", "")
-    monkeypatch.setattr(server, "WAKE_STUDIO", False)
+    monkeypatch.setattr(admin_routes, "GATEWAY_URL", "")
+    monkeypatch.setattr(admin_routes, "WAKE_STUDIO", False)
+    monkeypatch.setattr(relay.shared, "GATEWAY_URL", "")
+    monkeypatch.setattr(relay.shared, "WAKE_STUDIO", False)
     r = client.get("/admin/status", headers=H)
     assert r.status_code == 200
     data = r.json()
@@ -124,9 +129,11 @@ def test_admin_status_explains_missing_gateway_and_disabled_wake(monkeypatch):
 
 
 def test_manual_wake_is_an_error_when_disabled(monkeypatch):
-    monkeypatch.setattr(server, "GATEWAY_URL", "https://gateway.test")
-    monkeypatch.setattr(server, "WAKE_STUDIO", False)
-    monkeypatch.setattr(server, "gateway_reachable", lambda force=False: False)
+    monkeypatch.setattr(admin_routes, "GATEWAY_URL", "https://gateway.test")
+    monkeypatch.setattr(admin_routes, "WAKE_STUDIO", False)
+    monkeypatch.setattr(admin_routes, "gateway_reachable", lambda force=False: False)
+    monkeypatch.setattr(relay.shared, "GATEWAY_URL", "https://gateway.test")
+    monkeypatch.setattr(relay.shared, "WAKE_STUDIO", False)
     r = client.post("/admin/wake-llm?background=1", headers=H)
     assert r.status_code == 409
     assert "disabled" in r.json()["detail"].lower()
@@ -138,7 +145,7 @@ def test_gateway_probe_rejects_unrelated_http_pages(monkeypatch):
         def json(self):
             return {"ok": True, "service": "not-the-gateway"}
 
-    monkeypatch.setattr(server, "GATEWAY_URL", "https://gateway.test")
+    monkeypatch.setattr(relay.shared, "GATEWAY_URL", "https://gateway.test")
     monkeypatch.setattr(server.httpx, "get", lambda *a, **k: FakeResponse())
     assert server.gateway_reachable(force=True) is False
     assert "unexpected" in server._gateway_snapshot()["error"]
@@ -158,7 +165,7 @@ def test_file_discovery_endpoint_returns_typed_artifacts(monkeypatch):
             "sourceUrl": "https://github.com/a/b/blob/main/guide.md",
             "previewUrl": "https://raw.githubusercontent.com/a/b/main/guide.md",
             "downloadUrl": "https://raw.githubusercontent.com/a/b/main/guide.md", "kind": "text"}]}
-    monkeypatch.setattr(server, "discover_files", fake_files)
+    monkeypatch.setattr(media_mod, "discover_files", fake_files)
     server._CACHE.clear()
     response = client.post("/v1/files", headers=H, json={"query": "a guide", "extensions": ["md"]})
     assert response.status_code == 200
@@ -168,7 +175,7 @@ def test_file_discovery_endpoint_returns_typed_artifacts(monkeypatch):
 def test_file_transport_preserves_bytes_and_forces_download(monkeypatch):
     async def fake_bytes(url):
         return b"hello", "text/plain", "https://files.example/guide.txt"
-    monkeypatch.setattr(server, "_safe_file_bytes", fake_bytes)
+    monkeypatch.setattr(media_mod, "_safe_file_bytes", fake_bytes)
     response = client.post("/v1/file", headers=H, json={"url": "https://files.example/guide.txt", "download": True})
     assert response.status_code == 200
     assert response.content == b"hello"
@@ -184,7 +191,7 @@ def test_requested_png_transparency_is_verified_from_bytes(monkeypatch):
     payloads = {"https://assets.test/clear.png": png(0), "https://assets.test/solid.png": png(255)}
     async def fake_bytes(url, cap):
         return payloads[url], "image/png", url
-    monkeypatch.setattr(server, "_safe_file_bytes", fake_bytes)
+    monkeypatch.setattr(relay.shared, "_safe_file_bytes", fake_bytes)
     rows = [{"title": "clear", "image": "https://assets.test/clear.png"},
             {"title": "solid", "image": "https://assets.test/solid.png"}]
     verified, rejected = asyncio.run(server._verify_image_constraints(rows, {
@@ -198,7 +205,7 @@ def test_svg_specialist_result_is_converted_and_verified_as_real_png(monkeypatch
     svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="6" fill="black"/></svg>'
     async def fake_bytes(url, cap):
         return svg, "image/svg+xml", url
-    monkeypatch.setattr(server, "_safe_file_bytes", fake_bytes)
+    monkeypatch.setattr(relay.shared, "_safe_file_bytes", fake_bytes)
     verified, rejected = asyncio.run(server._verify_image_constraints([
         {"title": "service professional", "image": "https://icons.test/waiter.svg", "format": "svg", "convertibleTo": ["png"]}],
         {"formats": ["png"], "characteristics": ["transparent_background"]}, "https://relay.test"))
@@ -213,7 +220,7 @@ def test_signed_conversion_route_survives_without_ephemeral_artifact_state(monke
     svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><rect width="6" height="6"/></svg>'
     async def fake_bytes(url, cap):
         return svg, "image/svg+xml", url
-    monkeypatch.setattr(server, "_safe_file_bytes", fake_bytes)
+    monkeypatch.setattr(relay.shared, "_safe_file_bytes", fake_bytes)
     source = "https://icons.test/stable.svg"
     response = client.get("/v1/image-convert", params={"source": source, "sig": server._conversion_signature(source)}, headers=H)
     assert response.status_code == 200
@@ -227,7 +234,7 @@ def test_gateway_probe_records_model_state(monkeypatch):
         def json(self):
             return {"ok": True, "service": "impose-control-plane", "llm_up": False}
 
-    monkeypatch.setattr(server, "GATEWAY_URL", "https://gateway.test")
+    monkeypatch.setattr(relay.shared, "GATEWAY_URL", "https://gateway.test")
     monkeypatch.setattr(server.httpx, "get", lambda *a, **k: FakeResponse())
     assert server.gateway_reachable(force=True) is True
     assert server._gateway_snapshot()["llm_up"] is False
@@ -240,7 +247,7 @@ def test_search_cache_varies_by_language_freshness_and_region(monkeypatch):
         calls.append((query, kwargs))
         return {"query": query, "provider": "fake", "results": []}
 
-    monkeypatch.setattr(server, "engine_search", fake_search)
+    monkeypatch.setattr(media_mod, "engine_search", fake_search)
     server._CACHE.clear()
     base = {"query": "same query", "limit": 2}
     assert client.post("/v1/search", headers=H, json={**base, "language": "en"}).status_code == 200

@@ -12,6 +12,7 @@ HERE = Path(__file__).resolve(); sys.path.insert(0, str(HERE.parents[2]))
 os.environ.setdefault("CONTROL_KEY", "test123")
 from fastapi.testclient import TestClient
 from relay import files, server
+import relay.routers.media as media_mod
 
 client = TestClient(server.app)
 
@@ -27,7 +28,7 @@ PHRASES = ["find", "show me", "locate a reliable", "get me", "I need", "please d
 
 def test_500_randomized_retrieval_requests_never_reject_valid_semantic_shapes(monkeypatch):
     rng = random.Random(20260915)
-    monkeypatch.setattr(server, "_tier_auth", lambda *args, **kwargs: None)
+    monkeypatch.setattr(media_mod, "_tier_auth", lambda *args, **kwargs: None)
 
     async def fake_search(query, limit=8, domains=None, freshness=None, language="en", region=None, requirements=None):
         return {"query": query, "retrievalQuery": (requirements or {}).get("retrievalQuery", query),
@@ -57,12 +58,12 @@ def test_500_randomized_retrieval_requests_never_reject_valid_semantic_shapes(mo
         return {"query": query, "provider": "fixture-video", "count": 1,
                 "results": [{"title": query, "url": "https://www.youtube.com/watch?v=abcdefghijk", "provider": "youtube", "kind": "youtube-video", "videoId": "abcdefghijk", "verifiedClaims": ["playable"]}]}
 
-    monkeypatch.setattr(server, "engine_search", fake_search)
-    monkeypatch.setattr(server, "engine_images", fake_images)
-    monkeypatch.setattr(server, "_verify_image_constraints", lambda rows, requirements, artifact_base_url="": __import__('asyncio').sleep(0, result=(rows, [])))
+    monkeypatch.setattr(media_mod, "engine_search", fake_search)
+    monkeypatch.setattr(media_mod, "engine_images", fake_images)
+    monkeypatch.setattr(media_mod, "_verify_image_constraints", lambda rows, requirements, artifact_base_url="": __import__('asyncio').sleep(0, result=(rows, [])))
     monkeypatch.setattr(files, "engine_search", fake_file_search)
     monkeypatch.setattr(files, "_github_repository_search", no_repository_fallback)
-    monkeypatch.setattr(server, "engine_videos", fake_videos)
+    monkeypatch.setattr(media_mod, "engine_videos", fake_videos)
 
     counts = {"search": 0, "images": 0, "files": 0, "videos": 0}
     for index in range(500):
