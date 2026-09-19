@@ -259,6 +259,7 @@
   function toGeneration(row, myId) {
     return {
       id: row.id,
+      authorId: row.author_id || null,
       own: !!myId && row.author_id === myId,
       creator: {
         name: row.display_name || row.handle || "Someone",
@@ -289,6 +290,7 @@
     return {
       id: row.id,
       genId: row.generation_id,
+      authorId: row.author_id || null,
       parentId: row.parent_id || null,
       own: !!myId && row.author_id === myId,
       creator: {
@@ -416,9 +418,9 @@
       }).then(function (out) {
         if (!out.ok) return out;
         var rows = (out.data || []).map(function (r) { return toComment(r, myId); });
-        return latestAvatars(rows.map(function (r) { return r.creator.handle; })).then(function (avatars) {
+        return latestAvatarsByIds(rows.map(function (r) { return r.authorId; })).then(function (avatars) {
           if (avatars.ok) rows.forEach(function (r) {
-            var fresh = avatars.data[r.creator.handle];
+            var fresh = avatars.data[r.authorId];
             if (fresh) { r.creator.avatar = fresh.avatar; r.creator.name = fresh.name; }
           });
           return { ok: true, data: rows };
@@ -1013,9 +1015,30 @@
     });
   }
 
+  function latestAvatarsByIds(ids) {
+    var clean = Array.from(new Set((ids || []).map(String).filter(function (id) {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+    })));
+    if (!clean.length || !configured()) return Promise.resolve({ ok: true, data: {} });
+    return run(function () {
+      return db().from("profiles").select("id, avatar, display_name, handle").in("id", clean);
+    }).then(function (out) {
+      if (!out.ok) return out;
+      var map = {};
+      (out.data || []).forEach(function (row) {
+        map[row.id] = {
+          avatar: row.avatar || null,
+          name: row.display_name || row.handle || "Someone"
+        };
+      });
+      return { ok: true, data: map };
+    });
+  }
+
   window.BotoData = {
     configured: configured,
     latestAvatars: latestAvatars,
+    latestAvatarsByIds: latestAvatarsByIds,
     /* The shared Supabase client: workspace-sync reuses it for the
        per-account workspace reads/writes so token refresh happens in
        exactly one place. */

@@ -94,25 +94,15 @@
      old initial rather than rendering an empty circle. */
   function avatar(creator, cls) {
     var who = creator || {};
-    var seed = who.avatar || who.handle || who.name || "?";
-    /* Workspace and Community share the same signed-in identity, but the
-       workspace keeps the selected character in its account payload while
-       older profile rows may still have avatar = null. Use that canonical
-       account-local selection for the current user so the header and their
-       own posts cannot render different faces. Other users remain driven by
-       their profile avatar from Supabase. */
-    if (!who.avatar && myUserId && window.WSync && WSync.userId && WSync.userId() === myUserId && WSync.bootPayload) {
-      try {
-        var payload = WSync.bootPayload();
-        if (payload && payload.settings && payload.settings.avatar) seed = payload.settings.avatar;
-      } catch (e) { /* fall back to the stable handle seed */ }
-    }
     var klass = "avatar " + (cls || "");
-    if (window.BotoAvatar) {
-      return '<span class="' + klass.trim() + ' avatar-img">' + BotoAvatar.svg(seed) + "</span>";
+    /* Community avatars are profile data, not generated identity art. The
+       caller must have refreshed creator.avatar from public.profiles before
+       rendering a server-backed row. If the profile has no selected avatar,
+       keep the slot empty rather than inventing a handle/name fallback. */
+    if (who.avatar && window.BotoAvatar) {
+      return '<span class="' + klass.trim() + ' avatar-img">' + BotoAvatar.svg(who.avatar) + "</span>";
     }
-    return '<span class="' + klass.trim() + '">' +
-      esc(String(who.name || "?").charAt(0).toUpperCase()) + "</span>";
+    return '<span class="' + klass.trim() + ' avatar-empty" aria-hidden="true"></span>';
   }
 
   /* ---------- @bot addressing ----------
@@ -1614,11 +1604,17 @@
 
   function refreshLatestAvatars() {
     if (!window.BotoData || !BotoData.latestAvatars) return Promise.resolve();
-    var handles = state.generations.map(function (g) { return g.creator && g.creator.handle; });
-    return BotoData.latestAvatars(handles).then(function (out) {
+    var authorIds = state.generations.map(function (g) { return g.authorId; }).filter(Boolean);
+    /* Resolve by immutable auth user id, never by handle or the cached
+       generation author object. The profile row is the per-user source of
+       truth for the selected General avatar. */
+    var read = BotoData.latestAvatarsByIds
+      ? BotoData.latestAvatarsByIds(authorIds)
+      : Promise.resolve({ ok: true, data: {} });
+    return read.then(function (out) {
       if (!out || !out.ok) return;
       state.generations.forEach(function (g) {
-        var fresh = out.data[g.creator && g.creator.handle];
+        var fresh = g.authorId ? out.data[g.authorId] : null;
         if (fresh) { g.creator.avatar = fresh.avatar; g.creator.name = fresh.name; }
       });
     }).catch(function () {});
@@ -1677,6 +1673,12 @@
 
   function renderFeed() {
     renderKnownFeed();
+    /* A cached card may be painted immediately for responsiveness, but its
+       avatar is never authoritative. Re-query public.profiles on every feed
+       render and repaint only after the profile avatars arrive. */
+    refreshLatestAvatars().then(function () {
+      if (currentMode() === "community") renderKnownFeed();
+    });
     if (feedOrder.length === 0) reloadFeed();
     else fillViewport();
   }
