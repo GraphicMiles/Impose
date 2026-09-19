@@ -3464,10 +3464,30 @@
       if (e.key && e.key !== LS_KEY) return;
       adoptExternalState();
     });
-    window.addEventListener("impose:profile-updated", function () {
-      /* Profile edits are server-authoritative. Re-fetch avatar/name data
-         immediately so existing posts, comments, remixes, challenges, and
-         the open profile view update without a reload. */
+    window.addEventListener("impose:profile-updated", function (event) {
+      /* Paint the actor's own changed avatar immediately, then reconcile
+         with the server. This removes the visible delay caused by waiting
+         for JWT refresh, realtime delivery, or the next feed poll. */
+      var detail = event && event.detail;
+      if (detail && detail.avatar !== undefined && myUserId) {
+        state.generations.forEach(function (g) {
+          if (g.own || g.authorId === myUserId) {
+            g.creator.avatar = detail.avatar || null;
+            if (detail.name) g.creator.name = detail.name;
+          }
+        });
+        state.comments.forEach(function (c) {
+          if (c.own || c.authorId === myUserId) {
+            c.creator.avatar = detail.avatar || null;
+            if (detail.name) c.creator.name = detail.name;
+          }
+        });
+        renderKnownFeed();
+        if (routeHash().indexOf("/g/") === 0) {
+          var immediate = genById(routeHash().slice(3));
+          if (immediate) replaceCard(immediate);
+        }
+      }
       refreshLatestAvatars().then(function () {
         if (currentMode() !== "community") return;
         renderKnownFeed();

@@ -6466,15 +6466,31 @@
       var bio = bioInput ? bioInput.value.trim() : "";
 
       customSave.disabled = true;
+      /* Apply the selected General avatar to this tab immediately. The
+         database write remains authoritative and rolls this back on failure,
+         but the user should never wait for auth refresh/realtime/polling to
+         see their own action. */
+      var previousName = state.settings.displayName;
+      var previousAvatar = state.settings.avatar;
+      if (dName) state.settings.displayName = dName;
+      state.settings.avatar = selectedAvatarId;
+      syncAvatars();
+      window.dispatchEvent(new CustomEvent("impose:profile-updated", {
+        detail: { name: dName || previousName, avatar: selectedAvatarId, optimistic: true }
+      }));
       if (window.BotoData && BotoData.customizeProfile) {
         BotoData.customizeProfile(dName, bio, handle, selectedAvatarId).then(function (out) {
           customSave.disabled = false;
           if (!out.ok) {
+            state.settings.displayName = previousName;
+            state.settings.avatar = previousAvatar;
+            syncAvatars();
+            window.dispatchEvent(new CustomEvent("impose:profile-updated", {
+              detail: { name: previousName, avatar: previousAvatar, optimistic: false }
+            }));
             toast(out.error || "Could not update profile.", null, null, 4500, "warn");
             return;
           }
-          if (dName) state.settings.displayName = dName;
-          state.settings.avatar = selectedAvatarId;
           save();
           syncAvatars();
           closeModal(profileCustomModal);

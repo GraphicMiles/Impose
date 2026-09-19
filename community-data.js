@@ -41,9 +41,12 @@
   function db() {
     if (client) return client;
     if (!configured()) throw new Error("not_configured");
-    client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+    /* One Supabase client per origin. Multiple GoTrue clients sharing the
+       same storage key race refreshes and produce expired-JWT reads. */
+    client = window.__imposeSupabaseClient || window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
     });
+    window.__imposeSupabaseClient = client;
     return client;
   }
 

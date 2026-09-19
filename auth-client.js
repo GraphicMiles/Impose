@@ -44,9 +44,11 @@
     if (!window.supabase || !window.supabase.createClient) {
       throw new Error("Could not reach the accounts service. Check your connection.");
     }
-    client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+    /* Reuse the page-wide client so GoTrue has one session refresh owner. */
+    client = window.__imposeSupabaseClient || window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
     });
+    window.__imposeSupabaseClient = client;
     return client;
   }
 

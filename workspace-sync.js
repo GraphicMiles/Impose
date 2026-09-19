@@ -27,7 +27,7 @@
   var CACHE_PREFIX = "impose.cache.";
   var WSK_PREFIX = "impose.wsk.";
   var LEGACY_KEY = "impose.clone.v1";
-  var PUSH_DEBOUNCE_MS = 1200;
+  var PUSH_DEBOUNCE_MS = 0;
 
   /* ---------- small utilities ---------- */
 
@@ -308,11 +308,15 @@
     /* The shared SDK client handles token refresh; reuse it whenever it
        exists. Falls back to raw REST for contexts where the SDK never
        loaded. */
+    if (window.__imposeSupabaseClient) return window.__imposeSupabaseClient;
     if (window.BotoData && BotoData.db) {
       try { return BotoData.db(); } catch (e) { /* fall through */ }
     }
     if (window.supabase && supabase.createClient) {
-      return supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+      window.__imposeSupabaseClient = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+      });
+      return window.__imposeSupabaseClient;
     }
     return null;
   }

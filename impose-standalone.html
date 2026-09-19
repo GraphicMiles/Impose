@@ -9699,7 +9699,7 @@ window.BotoConfig = {
   var CACHE_PREFIX = "impose.cache.";
   var WSK_PREFIX = "impose.wsk.";
   var LEGACY_KEY = "impose.clone.v1";
-  var PUSH_DEBOUNCE_MS = 1200;
+  var PUSH_DEBOUNCE_MS = 0;
 
   /* ---------- small utilities ---------- */
 
@@ -9980,11 +9980,15 @@ window.BotoConfig = {
     /* The shared SDK client handles token refresh; reuse it whenever it
        exists. Falls back to raw REST for contexts where the SDK never
        loaded. */
+    if (window.__imposeSupabaseClient) return window.__imposeSupabaseClient;
     if (window.BotoData && BotoData.db) {
       try { return BotoData.db(); } catch (e) { /* fall through */ }
     }
     if (window.supabase && supabase.createClient) {
-      return supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+      window.__imposeSupabaseClient = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+      });
+      return window.__imposeSupabaseClient;
     }
     return null;
   }
@@ -16736,15 +16740,31 @@ window.BotoConfig = {
       var bio = bioInput ? bioInput.value.trim() : "";
 
       customSave.disabled = true;
+      /* Apply the selected General avatar to this tab immediately. The
+         database write remains authoritative and rolls this back on failure,
+         but the user should never wait for auth refresh/realtime/polling to
+         see their own action. */
+      var previousName = state.settings.displayName;
+      var previousAvatar = state.settings.avatar;
+      if (dName) state.settings.displayName = dName;
+      state.settings.avatar = selectedAvatarId;
+      syncAvatars();
+      window.dispatchEvent(new CustomEvent("impose:profile-updated", {
+        detail: { name: dName || previousName, avatar: selectedAvatarId, optimistic: true }
+      }));
       if (window.BotoData && BotoData.customizeProfile) {
         BotoData.customizeProfile(dName, bio, handle, selectedAvatarId).then(function (out) {
           customSave.disabled = false;
           if (!out.ok) {
+            state.settings.displayName = previousName;
+            state.settings.avatar = previousAvatar;
+            syncAvatars();
+            window.dispatchEvent(new CustomEvent("impose:profile-updated", {
+              detail: { name: previousName, avatar: previousAvatar, optimistic: false }
+            }));
             toast(out.error || "Could not update profile.", null, null, 4500, "warn");
             return;
           }
-          if (dName) state.settings.displayName = dName;
-          state.settings.avatar = selectedAvatarId;
           save();
           syncAvatars();
           closeModal(profileCustomModal);
@@ -19667,9 +19687,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (!window.supabase || !window.supabase.createClient) {
       throw new Error("Could not reach the accounts service. Check your connection.");
     }
-    client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+    /* Reuse the page-wide client so GoTrue has one session refresh owner. */
+    client = window.__imposeSupabaseClient || window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
     });
+    window.__imposeSupabaseClient = client;
     return client;
   }
 
@@ -20024,9 +20046,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function db() {
     if (client) return client;
     if (!configured()) throw new Error("not_configured");
-    client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+    /* One Supabase client per origin. Multiple GoTrue clients sharing the
+       same storage key race refreshes and produce expired-JWT reads. */
+    client = window.__imposeSupabaseClient || window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
     });
+    window.__imposeSupabaseClient = client;
     return client;
   }
 
@@ -24564,10 +24589,30 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       if (e.key && e.key !== LS_KEY) return;
       adoptExternalState();
     });
-    window.addEventListener("impose:profile-updated", function () {
-      /* Profile edits are server-authoritative. Re-fetch avatar/name data
-         immediately so existing posts, comments, remixes, challenges, and
-         the open profile view update without a reload. */
+    window.addEventListener("impose:profile-updated", function (event) {
+      /* Paint the actor's own changed avatar immediately, then reconcile
+         with the server. This removes the visible delay caused by waiting
+         for JWT refresh, realtime delivery, or the next feed poll. */
+      var detail = event && event.detail;
+      if (detail && detail.avatar !== undefined && myUserId) {
+        state.generations.forEach(function (g) {
+          if (g.own || g.authorId === myUserId) {
+            g.creator.avatar = detail.avatar || null;
+            if (detail.name) g.creator.name = detail.name;
+          }
+        });
+        state.comments.forEach(function (c) {
+          if (c.own || c.authorId === myUserId) {
+            c.creator.avatar = detail.avatar || null;
+            if (detail.name) c.creator.name = detail.name;
+          }
+        });
+        renderKnownFeed();
+        if (routeHash().indexOf("/g/") === 0) {
+          var immediate = genById(routeHash().slice(3));
+          if (immediate) replaceCard(immediate);
+        }
+      }
       refreshLatestAvatars().then(function () {
         if (currentMode() !== "community") return;
         renderKnownFeed();
