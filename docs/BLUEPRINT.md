@@ -5,9 +5,9 @@ One repo, three deploy surfaces:
 
 | Surface | Where | What runs |
 |---|---|---|
-| Static app | GitHub Pages (`GraphicMiles/Impose`, branch main) | `index.html` + `*.js` + `impose-standalone.html` |
+| Static app | Render static site `impose-web.onrender.com` (serves `GraphicMiles/Impose`, branch main) | `index.html` + `*.js` + `impose-standalone.html` |
 | Database | Supabase free tier, project `xgqcvuzkeaferjsnpjjw` (eu-west-2) | Postgres+RLS+RPC — full contract in **DATABASE.md** |
-| AI/OTP relay | Render FastAPI service | `backend/relay/server.py` + helpers, ZERO persistence |
+| AI/OTP relay | Render web service `impose-relay.onrender.com` | `backend/relay/server.py` + helpers, ZERO persistence |
 
 Secrets: client ships only the publishable Supabase key + relay URL. The
 relay holds: CONTROL_KEY (owner ops), Supabase service key,
@@ -176,8 +176,19 @@ profile/posts/comments/grants/caps; audit row survives via SET NULL).
 
 ## 5. Operations
 
-- Deploy client: push to main (GitHub Pages). Standalone: CI `--check` gate.
-- Deploy relay: Render (see environment var list in relay files / tasks).
+- Deploy client: push to main — Render (Impose-web static site) auto-deploys
+  `index.html` + `*.js`. Standalone: CI `--check` gate.
+- Deploy relay: Render web service impose-relay (environment vars in Render
+  dashboard; see relay files for names: CONTROL_KEY, SUPABASE_*,
+  SENDLIB_* and the model gateway keys).
+- Cron: NO Render cron jobs anywhere — periodic work lives IN the database
+  (5 pg_cron jobs: OTP/ticket purge hourly, idempotency purge daily, rate
+  counters every 20min, soft-delete retention weekly). Because every cron
+  job is created idempotently inside the migrations (0017/0019/0024 pattern:
+  guard pg_cron availability → schedule inside a do-block with an exception
+  handler), the "re-apply migrations 0001–0024" restore step recreates all
+  five automatically. The pg_dump artifact does NOT carry cron jobs — the
+  migrations are the source of truth for them.
 - DB changes: migrations in order; follow the runbook in DATABASE.md §5 —
   identity-arg rule, drop-policy idempotence, overload check after.
 - Backup: nightly artifact (needs `SUPABASE_DB_URL` secret); restore = fresh
