@@ -61,7 +61,7 @@
      old initial rather than rendering an empty circle. */
   function avatar(creator, cls) {
     var who = creator || {};
-    var seed = who.handle || who.name || "?";
+    var seed = who.avatar || who.handle || who.name || "?";
     var klass = "avatar " + (cls || "");
     if (window.BotoAvatar) {
       return '<span class="' + klass.trim() + ' avatar-img">' + BotoAvatar.svg(seed) + "</span>";
@@ -1562,6 +1562,18 @@
      not depend on a client sort that would contradict the cursor. */
   var feedOrder = [];
 
+  function refreshLatestAvatars() {
+    if (!window.BotoData || !BotoData.latestAvatars) return Promise.resolve();
+    var handles = state.generations.map(function (g) { return g.creator && g.creator.handle; });
+    return BotoData.latestAvatars(handles).then(function (out) {
+      if (!out || !out.ok) return;
+      state.generations.forEach(function (g) {
+        var fresh = out.data[g.creator && g.creator.handle];
+        if (fresh) { g.creator.avatar = fresh.avatar; g.creator.name = fresh.name; }
+      });
+    }).catch(function () {});
+  }
+
   function loadMoreFeed() {
     if (feedLoading || feedDone || !liveOnline()) return;
     feedLoading = true;
@@ -1585,9 +1597,11 @@
       });
       feedCursor = out.data.cursor;
       feedDone = out.data.done;
-      persist();
-      renderKnownFeed();
-      fillViewport();
+      refreshLatestAvatars().then(function () {
+        persist();
+        renderKnownFeed();
+        fillViewport();
+      });
     });
   }
 
@@ -2443,6 +2457,12 @@
       pollDelay = POLL_MIN;
       pendingCount = out.data || 0;
       syncPill();
+      /* Reconcile avatar identity independently of post freshness. Profile
+         edits must update existing and older cards even when no new post
+         count is returned. */
+      refreshLatestAvatars().then(function () {
+        if (currentMode() === "community") renderKnownFeed();
+      });
     });
   }
 
@@ -2530,7 +2550,8 @@
     }
 
     document.addEventListener("touchstart", function (e) {
-      if (refreshing || $("cmFeedView").hidden || window.scrollY > 0) return;
+      var box = feedScroller();
+      if (refreshing || !box || box.hidden || box.scrollTop > 0) return;
       var t = e.target;
       if (t && t.closest && t.closest("#cmComposerDock")) return;
       if (e.touches.length !== 1) return;
@@ -2542,7 +2563,9 @@
     document.addEventListener("touchmove", function (e) {
       if (!active || refreshing) return;
       dist = e.touches[0].clientY - startY;
-      if (dist <= 0 || window.scrollY > 0) {
+      var box = feedScroller();
+      if (dist > 0 && box && box.scrollTop <= 0 && e.cancelable) e.preventDefault();
+      if (dist <= 0 || !box || box.scrollTop > 0) {
         if (!ind.hidden) hide();
         dist = 0;
         return;
@@ -2551,7 +2574,7 @@
       ind.hidden = false;
       arrow.style.transform = "rotate(" + Math.min(180, (d / TRIGGER) * 180) + "deg)";
       place(d - 56);
-    }, { passive: true });
+    }, { passive: false });
 
     document.addEventListener("touchend", function () {
       if (!active) return;
@@ -2564,6 +2587,10 @@
 
     function refresh() {
       refreshing = true;
+      /* Pull-to-refresh must invalidate the keyset cursor and request page
+         one. The previous implementation only re-rendered cached rows. */
+      reloadFeed();
+      mergeFresh();
       spin.hidden = false;
       arrow.hidden = true;
       ind.classList.add("is-settling");

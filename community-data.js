@@ -262,7 +262,8 @@
       own: !!myId && row.author_id === myId,
       creator: {
         name: row.display_name || row.handle || "Someone",
-        handle: row.handle ? "@" + String(row.handle).replace(/^@/, "") : "@someone"
+        handle: row.handle ? "@" + String(row.handle).replace(/^@/, "") : "@someone",
+        avatar: row.avatar || null
       },
       prompt: row.prompt,
       response: row.response || "",
@@ -294,7 +295,8 @@
       own: !!myId && row.author_id === myId,
       creator: {
         name: row.display_name || row.handle || "Someone",
-        handle: row.handle ? "@" + String(row.handle).replace(/^@/, "") : "@someone"
+        handle: row.handle ? "@" + String(row.handle).replace(/^@/, "") : "@someone",
+        avatar: row.avatar || null
       },
       text: row.body || "",
       createdAt: row.created_at ? Date.parse(row.created_at) : Date.now(),
@@ -325,7 +327,7 @@
     if (cachedProfile) return Promise.resolve(cachedProfile);
     return currentUser().then(function (user) {
       if (!user) return null;
-      return db().from("profiles").select("handle, display_name")
+      return db().from("profiles").select("handle, display_name, avatar")
         .eq("id", user.id).maybeSingle()
         .then(function (res) {
           cachedProfile = (res && res.data) || null;
@@ -341,6 +343,7 @@
     if (!profile) return row;
     row.handle = profile.handle;
     row.display_name = profile.display_name;
+    row.avatar = profile.avatar || null;
     return row;
   }
 
@@ -414,10 +417,14 @@
         return db().rpc("thread_for", { p_gen: genId });
       }).then(function (out) {
         if (!out.ok) return out;
-        return {
-          ok: true,
-          data: (out.data || []).map(function (r) { return toComment(r, myId); })
-        };
+        var rows = (out.data || []).map(function (r) { return toComment(r, myId); });
+        return latestAvatars(rows.map(function (r) { return r.creator.handle; })).then(function (avatars) {
+          if (avatars.ok) rows.forEach(function (r) {
+            var fresh = avatars.data[r.creator.handle];
+            if (fresh) { r.creator.avatar = fresh.avatar; r.creator.name = fresh.name; }
+          });
+          return { ok: true, data: rows };
+        });
       });
     });
   }
@@ -1001,8 +1008,29 @@
     channel = null;
   }
 
+  function latestAvatars(handles) {
+    var clean = Array.from(new Set((handles || []).map(function (h) {
+      return String(h || "").replace(/^@/, "").trim();
+    }).filter(Boolean)));
+    if (!clean.length || !configured()) return Promise.resolve({ ok: true, data: {} });
+    return run(function () {
+      return db().from("profiles").select("handle, avatar, display_name").in("handle", clean);
+    }).then(function (out) {
+      if (!out.ok) return out;
+      var map = {};
+      (out.data || []).forEach(function (row) {
+        map["@" + String(row.handle || "").replace(/^@/, "")] = {
+          avatar: row.avatar || null,
+          name: row.display_name || row.handle || "Someone"
+        };
+      });
+      return { ok: true, data: map };
+    });
+  }
+
   window.BotoData = {
     configured: configured,
+    latestAvatars: latestAvatars,
     /* The shared Supabase client: workspace-sync reuses it for the
        per-account workspace reads/writes so token refresh happens in
        exactly one place. */

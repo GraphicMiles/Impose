@@ -20239,7 +20239,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       own: !!myId && row.author_id === myId,
       creator: {
         name: row.display_name || row.handle || "Someone",
-        handle: row.handle ? "@" + String(row.handle).replace(/^@/, "") : "@someone"
+        handle: row.handle ? "@" + String(row.handle).replace(/^@/, "") : "@someone",
+        avatar: row.avatar || null
       },
       prompt: row.prompt,
       response: row.response || "",
@@ -20271,7 +20272,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       own: !!myId && row.author_id === myId,
       creator: {
         name: row.display_name || row.handle || "Someone",
-        handle: row.handle ? "@" + String(row.handle).replace(/^@/, "") : "@someone"
+        handle: row.handle ? "@" + String(row.handle).replace(/^@/, "") : "@someone",
+        avatar: row.avatar || null
       },
       text: row.body || "",
       createdAt: row.created_at ? Date.parse(row.created_at) : Date.now(),
@@ -20302,7 +20304,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (cachedProfile) return Promise.resolve(cachedProfile);
     return currentUser().then(function (user) {
       if (!user) return null;
-      return db().from("profiles").select("handle, display_name")
+      return db().from("profiles").select("handle, display_name, avatar")
         .eq("id", user.id).maybeSingle()
         .then(function (res) {
           cachedProfile = (res && res.data) || null;
@@ -20318,6 +20320,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (!profile) return row;
     row.handle = profile.handle;
     row.display_name = profile.display_name;
+    row.avatar = profile.avatar || null;
     return row;
   }
 
@@ -20391,10 +20394,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         return db().rpc("thread_for", { p_gen: genId });
       }).then(function (out) {
         if (!out.ok) return out;
-        return {
-          ok: true,
-          data: (out.data || []).map(function (r) { return toComment(r, myId); })
-        };
+        var rows = (out.data || []).map(function (r) { return toComment(r, myId); });
+        return latestAvatars(rows.map(function (r) { return r.creator.handle; })).then(function (avatars) {
+          if (avatars.ok) rows.forEach(function (r) {
+            var fresh = avatars.data[r.creator.handle];
+            if (fresh) { r.creator.avatar = fresh.avatar; r.creator.name = fresh.name; }
+          });
+          return { ok: true, data: rows };
+        });
       });
     });
   }
@@ -20978,8 +20985,29 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     channel = null;
   }
 
+  function latestAvatars(handles) {
+    var clean = Array.from(new Set((handles || []).map(function (h) {
+      return String(h || "").replace(/^@/, "").trim();
+    }).filter(Boolean)));
+    if (!clean.length || !configured()) return Promise.resolve({ ok: true, data: {} });
+    return run(function () {
+      return db().from("profiles").select("handle, avatar, display_name").in("handle", clean);
+    }).then(function (out) {
+      if (!out.ok) return out;
+      var map = {};
+      (out.data || []).forEach(function (row) {
+        map["@" + String(row.handle || "").replace(/^@/, "")] = {
+          avatar: row.avatar || null,
+          name: row.display_name || row.handle || "Someone"
+        };
+      });
+      return { ok: true, data: map };
+    });
+  }
+
   window.BotoData = {
     configured: configured,
+    latestAvatars: latestAvatars,
     /* The shared Supabase client: workspace-sync reuses it for the
        per-account workspace reads/writes so token refresh happens in
        exactly one place. */
@@ -21107,7 +21135,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
      old initial rather than rendering an empty circle. */
   function avatar(creator, cls) {
     var who = creator || {};
-    var seed = who.handle || who.name || "?";
+    var seed = who.avatar || who.handle || who.name || "?";
     var klass = "avatar " + (cls || "");
     if (window.BotoAvatar) {
       return '<span class="' + klass.trim() + ' avatar-img">' + BotoAvatar.svg(seed) + "</span>";
@@ -22608,6 +22636,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
      not depend on a client sort that would contradict the cursor. */
   var feedOrder = [];
 
+  function refreshLatestAvatars() {
+    if (!window.BotoData || !BotoData.latestAvatars) return Promise.resolve();
+    var handles = state.generations.map(function (g) { return g.creator && g.creator.handle; });
+    return BotoData.latestAvatars(handles).then(function (out) {
+      if (!out || !out.ok) return;
+      state.generations.forEach(function (g) {
+        var fresh = out.data[g.creator && g.creator.handle];
+        if (fresh) { g.creator.avatar = fresh.avatar; g.creator.name = fresh.name; }
+      });
+    }).catch(function () {});
+  }
+
   function loadMoreFeed() {
     if (feedLoading || feedDone || !liveOnline()) return;
     feedLoading = true;
@@ -22631,9 +22671,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       });
       feedCursor = out.data.cursor;
       feedDone = out.data.done;
-      persist();
-      renderKnownFeed();
-      fillViewport();
+      refreshLatestAvatars().then(function () {
+        persist();
+        renderKnownFeed();
+        fillViewport();
+      });
     });
   }
 
@@ -23576,7 +23618,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
 
     document.addEventListener("touchstart", function (e) {
-      if (refreshing || $("cmFeedView").hidden || window.scrollY > 0) return;
+      var box = feedScroller();
+      if (refreshing || !box || box.hidden || box.scrollTop > 0) return;
       var t = e.target;
       if (t && t.closest && t.closest("#cmComposerDock")) return;
       if (e.touches.length !== 1) return;
@@ -23588,7 +23631,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     document.addEventListener("touchmove", function (e) {
       if (!active || refreshing) return;
       dist = e.touches[0].clientY - startY;
-      if (dist <= 0 || window.scrollY > 0) {
+      var box = feedScroller();
+      if (dist > 0 && box && box.scrollTop <= 0 && e.cancelable) e.preventDefault();
+      if (dist <= 0 || !box || box.scrollTop > 0) {
         if (!ind.hidden) hide();
         dist = 0;
         return;
@@ -23597,7 +23642,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       ind.hidden = false;
       arrow.style.transform = "rotate(" + Math.min(180, (d / TRIGGER) * 180) + "deg)";
       place(d - 56);
-    }, { passive: true });
+    }, { passive: false });
 
     document.addEventListener("touchend", function () {
       if (!active) return;
@@ -23610,6 +23655,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
     function refresh() {
       refreshing = true;
+      /* Pull-to-refresh must invalidate the keyset cursor and request page
+         one. The previous implementation only re-rendered cached rows. */
+      reloadFeed();
+      mergeFresh();
       spin.hidden = false;
       arrow.hidden = true;
       ind.classList.add("is-settling");
