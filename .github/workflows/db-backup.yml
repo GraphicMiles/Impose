@@ -35,12 +35,16 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get -yqq update -o Dir::Etc::sourcelist="sources.list.d/pgdg.list"
           sudo apt-get -yqq install postgresql-client-17
-          pg_dump --version
+          # /usr/bin/pg_dump is Ubuntu's cluster wrapper and stays on the
+          # preinstalled 16 even after 17 lands — use the versioned binary.
+          PGDUMP=$(command -v /usr/lib/postgresql/17/bin/pg_dump || command -v pg_dump)
+          "$PGDUMP" --version
+          echo "PGDUMP=$PGDUMP" >> "$GITHUB_ENV"
       - name: pg_dump (custom format)
         run: |
           set -euo pipefail
           mkdir -p out
-          pg_dump "$SUPABASE_DB_URL" \
+          "$PGDUMP" "$SUPABASE_DB_URL" \
             --format=custom --compress=6 \
             --schema=public --schema=auth \
             --file="out/impose-$(date -u +%Y-%m-%d).dump"
