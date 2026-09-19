@@ -2786,6 +2786,11 @@ button, input, textarea, select {
   padding-bottom: max(25px, calc(env(safe-area-inset-bottom) + 17px));
 }
 
+/* 0025: inline prompt editor */
+.gen-edit-input{width:100%;resize:vertical;min-height:70px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg-2);color:var(--text);font:inherit;line-height:1.5}
+.gen-edit-input:focus{outline:none;border-color:var(--accent)}
+.gen-edit-bar{display:flex;gap:8px;margin-top:8px}
+
 </style>
 <style>
 /* Community mode: the Slopify prototype ported 1:1 into the Impose shell.
@@ -5475,6 +5480,15 @@ try {
         <h2>Reports</h2>
         <p class="admin-help">What readers flagged. Acting on a report is done by an operator; this view is read-only.</p>
         <div id="adminReports"></div>
+      </section>
+      <section class="admin-card" id="adminSecBlocked" hidden>
+        <h2>Blocked terms</h2>
+        <p class="admin-help">Posts and comments containing any of these refuse to publish, server-side, however the caller reaches the API. The list is case-insensitive.</p>
+        <div id="adminBlocked"></div>
+        <div class="mem-add">
+          <input type="text" class="text-input" id="adminBlockTermInput" placeholder="Block a word or phrase" autocomplete="off" maxlength="100">
+          <button class="btn" id="adminBlockTermBtn" type="button"><i data-lucide="ban"></i><span>Block term</span></button>
+        </div>
       </section>
     </div>
   </div>
@@ -19086,12 +19100,113 @@ window.BotoConfig = {
                   null, null, 5000, mail.ok ? "success" : "warn");
           });
         });
+        /* 0025: revoke is the second half of the grant lifecycle. Server
+           enforcement is immediate (next save_workspace fails); the member
+           is told in their inbox and the action lands in audit_events. */
+        var revokeBtn = document.createElement("button");
+        revokeBtn.type = "button";
+        revokeBtn.className = "btn small";
+        revokeBtn.innerHTML = '<i data-lucide="shield-off"></i><span>Revoke access</span>';
+        var revokeArmed = false;
+        revokeBtn.addEventListener("click", function () {
+          if (!revokeArmed) {
+            revokeArmed = true;
+            revokeBtn.innerHTML = '<i data-lucide="alert-triangle"></i><span>Tap again to revoke</span>';
+            setTimeout(function () {
+              revokeArmed = false;
+              revokeBtn.innerHTML = '<i data-lucide="shield-off"></i><span>Revoke access</span>';
+            }, 4000);
+            return;
+          }
+          revokeBtn.disabled = true;
+          BotoData.adminRevokeGrant(w.email).then(function (out) {
+            revokeBtn.disabled = false;
+            revokeArmed = false;
+            revokeBtn.innerHTML = '<i data-lucide="shield-off"></i><span>Revoke access</span>';
+            if (out.ok) {
+              var st = out.data && out.data.status ? out.data.status : "revoked";
+              toast(st === "no_grant" ? "No workspace grant existed for " + w.email + "."
+                                      : "Access revoked for " + w.email + ".",
+                    "Re-grant", function () { /* nothing baked in — the Revoke audit trail is the trail */ }, 6000,
+                    st === "no_grant" ? "info" : "success");
+              if (st !== "no_grant") renderAdminApproved();
+            } else {
+              toast("Revoke failed: " + out.error, null, null, 5000, "error");
+            }
+          });
+        });
         row.appendChild(btn);
+        row.appendChild(revokeBtn);
         box.appendChild(row);
         refreshIcons();
       });
     });
   }
+
+  /* 0025: the moderation blocklist surface. Same posture as every other
+     admin mutation — capability gate lives server-side; the panel only
+     surfaces what the database lets this account do. */
+  function renderAdminBlocked() {
+    var box = $("adminBlocked");
+    if (!box) return;
+    adminPaneNote(box, "Loading blocked terms…");
+    BotoData.adminBlockedTerms().then(function (out) {
+      box.innerHTML = "";
+      if (!out.ok) { adminPaneNote(box, out.error || "The blocklist could not be loaded."); return; }
+      var rows = out.data || [];
+      if (!rows.length) { adminPaneNote(box, "Nothing is blocked right now."); return; }
+      rows.forEach(function (t) {
+        var row = document.createElement("div");
+        row.className = "mem-row admin-row";
+        var left = document.createElement("div");
+        left.className = "admin-row-text";
+        var name = document.createElement("strong");
+        name.textContent = t.term;
+        var sub = document.createElement("span");
+        sub.textContent = "blocked " + fmtAdminDate(t.created_at);
+        left.appendChild(name);
+        left.appendChild(sub);
+        row.appendChild(left);
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn small";
+        btn.innerHTML = '<i data-lucide="rotate-ccw"></i><span>Unblock</span>';
+        btn.addEventListener("click", function () {
+          btn.disabled = true;
+          BotoData.adminUnblockTerm(t.term).then(function (res) {
+            btn.disabled = false;
+            if (res.ok) {
+              toast('"' + t.term + '" is allowed again.', null, null, 4000, "success");
+              renderAdminBlocked();
+            } else {
+              toast("Unblock failed: " + res.error, null, null, 5000, "error");
+            }
+          });
+        });
+        row.appendChild(btn);
+        box.appendChild(row);
+      });
+      refreshIcons();
+    });
+  }
+
+  $("adminBlockTermBtn").addEventListener("click", function () {
+    var input = $("adminBlockTermInput");
+    var term = input.value.trim();
+    if (!term) { toast("Type a term to block.", null, null, 3000, "warn"); input.focus(); return; }
+    var btn = this;
+    btn.disabled = true;
+    BotoData.adminBlockTerm(term).then(function (out) {
+      btn.disabled = false;
+      if (out.ok) {
+        toast('"' + term.toLowerCase() + '" is now blocked on the server.', null, null, 4500, "success");
+        input.value = "";
+        renderAdminBlocked();
+      } else {
+        toast("Block failed: " + out.error, null, null, 5000, "error");
+      }
+    });
+  });
 
   function renderAdminRoster() {
     var box = $("adminRoster");
@@ -19330,6 +19445,8 @@ window.BotoConfig = {
     if (adminHasCap("admins.manage")) renderAdminRoster();
     $("adminSecReports").hidden = !adminHasCap("moderation.manage");
     if (adminHasCap("moderation.manage")) renderAdminReports();
+    $("adminSecBlocked").hidden = !adminHasCap("moderation.manage");
+    if (adminHasCap("moderation.manage")) renderAdminBlocked();
     var none = !(queue || adminHasCap("admins.manage") || adminHasCap("moderation.manage"));
     var note = $("adminNoCaps");
     if (note) note.hidden = !none;
@@ -20367,6 +20484,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       return { message: "For safety, sign in again and retry right away.",
                retryable: false, code: "recent_auth_required" };
     }
+    if (/not_author/i.test(text)) {
+      return { message: "Only the author can change that post.",
+               retryable: false, code: "not_author" };
+    }
+    if (/prompt_length/i.test(text)) {
+      return { message: "The prompt must be 1-4000 characters.",
+               retryable: false, code: "prompt_length" };
+    }
+    if (/invalid_term/i.test(text)) {
+      return { message: "Blocked terms must be 2-100 characters.",
+               retryable: false, code: "invalid_term" };
+    }
+    if (/post_gone/i.test(text)) {
+      return { message: "That post no longer exists.",
+               retryable: false, code: "post_gone" };
+    }
     if (/last_capability/i.test(text)) {
       return { message: "That is their last permission. Remove the admin instead.",
                retryable: false, code: "last_capability" };
@@ -20662,6 +20795,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     });
   }
 
+  /* 0025: prompt-only editing. The response text stays immutable by
+     design — it is what the model said and what remixes attach to. */
+  function editGeneration(id, prompt) {
+    return Promise.all([currentUser(), myProfile()]).then(function (both) {
+      var myId = both[0] && both[0].id;
+      var profile = both[1];
+      return run(function () {
+        return db().rpc("edit_generation", { p_id: id, p_prompt: prompt });
+      }).then(function (out) {
+        if (!out.ok) return out;
+        var row = withMe(Array.isArray(out.data) ? out.data[0] : out.data, profile);
+        return { ok: true, data: toGeneration(row, myId) };
+      });
+    });
+  }
+
   function createComment(key, genId, body, parentId) {
     return Promise.all([currentUser(), myProfile()]).then(function (both) {
       var myId = both[0] && both[0].id;
@@ -20744,6 +20893,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function adminWaitlist(status) {
     return adminRpc("admin_waitlist", { p_status: status || "pending" });
+  }
+
+  /* 0025 lifecycle closures. Revoke access is approved-row ergonomics; the
+     blocklist trio is the moderation lifecycle. All four carry the adm:
+     budget server-side, so no client pacing is needed. */
+  function adminRevokeGrant(email) {
+    return adminRpc("admin_revoke_grant", { p_email: email });
+  }
+  function adminBlockTerm(term) {
+    return adminRpc("admin_block_term", { p_term: term });
+  }
+  function adminUnblockTerm(term) {
+    return adminRpc("admin_unblock_term", { p_term: term });
+  }
+  function adminBlockedTerms() {
+    return adminRpc("admin_blocked_terms");
   }
 
   function adminRoster() {
@@ -21880,6 +22045,49 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function reportComment(c) {
     if (!c || c.pending) return;
     sendReport("comment", c.id);
+  }
+
+  /* 0025: inline prompt editing. The editor lives inside the card so the
+     surrounding context (response, lineage, counts) never dismounts; on
+     save the whole card repaints from the server's returned row. The
+     response text is deliberately not editable — see the RPC's comment. */
+  function startPromptEdit(gen, card) {
+    if (gen.pending) { notify("Wait for the post to send first."); return; }
+    var body = card && card.querySelector(".gen-prompt");
+    if (!body || body.querySelector("textarea")) return;
+    var original = gen.prompt;
+    body.innerHTML =
+      '<textarea class="gen-edit-input" rows="3" maxlength="4000" aria-label="Edit prompt">' + esc(original) + "</textarea>" +
+      '<div class="gen-edit-bar">' +
+        '<button class="btn small gen-edit-save" type="button"><i data-lucide="check"></i><span>Save</span></button>' +
+        '<button class="btn small gen-edit-cancel" type="button"><i data-lucide="x"></i><span>Cancel</span></button>' +
+      "</div>";
+    refreshIcons();
+    var input = body.querySelector("textarea");
+    input.value = original;
+    input.focus();
+    body.querySelector(".gen-edit-cancel").addEventListener("click", function () {
+      replaceCard(gen);
+    });
+    var save = body.querySelector(".gen-edit-save");
+    save.addEventListener("click", function () {
+      var next = input.value.trim();
+      if (!next) { notify("A prompt cannot be empty."); input.focus(); return; }
+      if (next === original) { replaceCard(gen); return; }
+      save.disabled = true;
+      BotoData.editGeneration(gen.id, next).then(function (out) {
+        save.disabled = false;
+        if (out.ok) {
+          gen.prompt = out.data ? out.data.prompt : next;
+          persist();
+          replaceCard(gen);
+          notify("Post updated.");
+        } else {
+          replaceCard(gen);
+          notify(out.error);
+        }
+      });
+    });
   }
 
   function deleteGeneration(id) {
@@ -24393,9 +24601,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
     if (act === "menu") {
       var items = gen.own
-        ? [{ act: "delete", label: "Delete post", icon: "trash-2", danger: true }]
+        ? [{ act: "edit", label: "Edit prompt", icon: "pencil" }, { act: "delete", label: "Delete post", icon: "trash-2", danger: true }]
         : [{ act: "report", label: "Report post", icon: "flag" }];
       openKebabMenu(btn, "g:" + gen.id, items, function (picked) {
+        if (picked === "edit") startPromptEdit(gen, card);
         if (picked === "delete") deleteGeneration(gen.id);
         if (picked === "report") reportPost(gen);
       });

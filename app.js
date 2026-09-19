@@ -8788,12 +8788,113 @@
                   null, null, 5000, mail.ok ? "success" : "warn");
           });
         });
+        /* 0025: revoke is the second half of the grant lifecycle. Server
+           enforcement is immediate (next save_workspace fails); the member
+           is told in their inbox and the action lands in audit_events. */
+        var revokeBtn = document.createElement("button");
+        revokeBtn.type = "button";
+        revokeBtn.className = "btn small";
+        revokeBtn.innerHTML = '<i data-lucide="shield-off"></i><span>Revoke access</span>';
+        var revokeArmed = false;
+        revokeBtn.addEventListener("click", function () {
+          if (!revokeArmed) {
+            revokeArmed = true;
+            revokeBtn.innerHTML = '<i data-lucide="alert-triangle"></i><span>Tap again to revoke</span>';
+            setTimeout(function () {
+              revokeArmed = false;
+              revokeBtn.innerHTML = '<i data-lucide="shield-off"></i><span>Revoke access</span>';
+            }, 4000);
+            return;
+          }
+          revokeBtn.disabled = true;
+          BotoData.adminRevokeGrant(w.email).then(function (out) {
+            revokeBtn.disabled = false;
+            revokeArmed = false;
+            revokeBtn.innerHTML = '<i data-lucide="shield-off"></i><span>Revoke access</span>';
+            if (out.ok) {
+              var st = out.data && out.data.status ? out.data.status : "revoked";
+              toast(st === "no_grant" ? "No workspace grant existed for " + w.email + "."
+                                      : "Access revoked for " + w.email + ".",
+                    "Re-grant", function () { /* nothing baked in — the Revoke audit trail is the trail */ }, 6000,
+                    st === "no_grant" ? "info" : "success");
+              if (st !== "no_grant") renderAdminApproved();
+            } else {
+              toast("Revoke failed: " + out.error, null, null, 5000, "error");
+            }
+          });
+        });
         row.appendChild(btn);
+        row.appendChild(revokeBtn);
         box.appendChild(row);
         refreshIcons();
       });
     });
   }
+
+  /* 0025: the moderation blocklist surface. Same posture as every other
+     admin mutation — capability gate lives server-side; the panel only
+     surfaces what the database lets this account do. */
+  function renderAdminBlocked() {
+    var box = $("adminBlocked");
+    if (!box) return;
+    adminPaneNote(box, "Loading blocked terms…");
+    BotoData.adminBlockedTerms().then(function (out) {
+      box.innerHTML = "";
+      if (!out.ok) { adminPaneNote(box, out.error || "The blocklist could not be loaded."); return; }
+      var rows = out.data || [];
+      if (!rows.length) { adminPaneNote(box, "Nothing is blocked right now."); return; }
+      rows.forEach(function (t) {
+        var row = document.createElement("div");
+        row.className = "mem-row admin-row";
+        var left = document.createElement("div");
+        left.className = "admin-row-text";
+        var name = document.createElement("strong");
+        name.textContent = t.term;
+        var sub = document.createElement("span");
+        sub.textContent = "blocked " + fmtAdminDate(t.created_at);
+        left.appendChild(name);
+        left.appendChild(sub);
+        row.appendChild(left);
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn small";
+        btn.innerHTML = '<i data-lucide="rotate-ccw"></i><span>Unblock</span>';
+        btn.addEventListener("click", function () {
+          btn.disabled = true;
+          BotoData.adminUnblockTerm(t.term).then(function (res) {
+            btn.disabled = false;
+            if (res.ok) {
+              toast('"' + t.term + '" is allowed again.', null, null, 4000, "success");
+              renderAdminBlocked();
+            } else {
+              toast("Unblock failed: " + res.error, null, null, 5000, "error");
+            }
+          });
+        });
+        row.appendChild(btn);
+        box.appendChild(row);
+      });
+      refreshIcons();
+    });
+  }
+
+  $("adminBlockTermBtn").addEventListener("click", function () {
+    var input = $("adminBlockTermInput");
+    var term = input.value.trim();
+    if (!term) { toast("Type a term to block.", null, null, 3000, "warn"); input.focus(); return; }
+    var btn = this;
+    btn.disabled = true;
+    BotoData.adminBlockTerm(term).then(function (out) {
+      btn.disabled = false;
+      if (out.ok) {
+        toast('"' + term.toLowerCase() + '" is now blocked on the server.', null, null, 4500, "success");
+        input.value = "";
+        renderAdminBlocked();
+      } else {
+        toast("Block failed: " + out.error, null, null, 5000, "error");
+      }
+    });
+  });
 
   function renderAdminRoster() {
     var box = $("adminRoster");
@@ -9032,6 +9133,8 @@
     if (adminHasCap("admins.manage")) renderAdminRoster();
     $("adminSecReports").hidden = !adminHasCap("moderation.manage");
     if (adminHasCap("moderation.manage")) renderAdminReports();
+    $("adminSecBlocked").hidden = !adminHasCap("moderation.manage");
+    if (adminHasCap("moderation.manage")) renderAdminBlocked();
     var none = !(queue || adminHasCap("admins.manage") || adminHasCap("moderation.manage"));
     var note = $("adminNoCaps");
     if (note) note.hidden = !none;

@@ -187,6 +187,22 @@
       return { message: "For safety, sign in again and retry right away.",
                retryable: false, code: "recent_auth_required" };
     }
+    if (/not_author/i.test(text)) {
+      return { message: "Only the author can change that post.",
+               retryable: false, code: "not_author" };
+    }
+    if (/prompt_length/i.test(text)) {
+      return { message: "The prompt must be 1-4000 characters.",
+               retryable: false, code: "prompt_length" };
+    }
+    if (/invalid_term/i.test(text)) {
+      return { message: "Blocked terms must be 2-100 characters.",
+               retryable: false, code: "invalid_term" };
+    }
+    if (/post_gone/i.test(text)) {
+      return { message: "That post no longer exists.",
+               retryable: false, code: "post_gone" };
+    }
     if (/last_capability/i.test(text)) {
       return { message: "That is their last permission. Remove the admin instead.",
                retryable: false, code: "last_capability" };
@@ -482,6 +498,22 @@
     });
   }
 
+  /* 0025: prompt-only editing. The response text stays immutable by
+     design — it is what the model said and what remixes attach to. */
+  function editGeneration(id, prompt) {
+    return Promise.all([currentUser(), myProfile()]).then(function (both) {
+      var myId = both[0] && both[0].id;
+      var profile = both[1];
+      return run(function () {
+        return db().rpc("edit_generation", { p_id: id, p_prompt: prompt });
+      }).then(function (out) {
+        if (!out.ok) return out;
+        var row = withMe(Array.isArray(out.data) ? out.data[0] : out.data, profile);
+        return { ok: true, data: toGeneration(row, myId) };
+      });
+    });
+  }
+
   function createComment(key, genId, body, parentId) {
     return Promise.all([currentUser(), myProfile()]).then(function (both) {
       var myId = both[0] && both[0].id;
@@ -564,6 +596,22 @@
 
   function adminWaitlist(status) {
     return adminRpc("admin_waitlist", { p_status: status || "pending" });
+  }
+
+  /* 0025 lifecycle closures. Revoke access is approved-row ergonomics; the
+     blocklist trio is the moderation lifecycle. All four carry the adm:
+     budget server-side, so no client pacing is needed. */
+  function adminRevokeGrant(email) {
+    return adminRpc("admin_revoke_grant", { p_email: email });
+  }
+  function adminBlockTerm(term) {
+    return adminRpc("admin_block_term", { p_term: term });
+  }
+  function adminUnblockTerm(term) {
+    return adminRpc("admin_unblock_term", { p_term: term });
+  }
+  function adminBlockedTerms() {
+    return adminRpc("admin_blocked_terms");
   }
 
   function adminRoster() {

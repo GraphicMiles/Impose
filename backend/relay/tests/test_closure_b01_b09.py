@@ -30,6 +30,7 @@ class FakeClient:
     notifications = []
     audits = []
     logouts = []
+    grant_deletes = []
 
     def __init__(self, *a, **kw):
         pass
@@ -46,6 +47,12 @@ class FakeClient:
             return Resp(200, {"users": [{"id": "member-1",
                                          "email": "member@example.test"}]})
         raise AssertionError(f"unexpected {method} {url}")
+
+    async def delete(self, url, headers=None, params=None):
+        if "/rest/v1/workspace_grants" in url:
+            FakeClient.grant_deletes.append((params or {}).get("user_id", ""))
+            return Resp(200, [{"user_id": "member-1"}])
+        raise AssertionError(f"unexpected DELETE {url}")
 
     async def get(self, url, headers=None, params=None):
         if "/auth/v1/user" in url:
@@ -81,6 +88,7 @@ def fake_httpx(monkeypatch):
     FakeClient.notifications = []
     FakeClient.audits = []
     FakeClient.logouts = []
+    FakeClient.grant_deletes = []
     server._MEMBER_CACHE.clear()
     server._RATE_BUCKETS.clear()
     monkeypatch.setattr(supabase_admin.httpx, "AsyncClient", FakeClient)
@@ -175,3 +183,30 @@ def test_revoke_sessions_endpoint_needs_key_and_writes_audit():
     assert r.json()["sessions"] == "revoked"
     assert FakeClient.logouts
     assert FakeClient.audits and FakeClient.audits[-1]["action"] == "account.revoke_sessions"
+
+
+def test_revoke_grant_endpoint_needs_key_and_audits():
+    """0025 lifecycle closure: CONTROL_KEY revoke mirrors admin_revoke_grant
+    semantics — no session touching, immediate server-side denial on the
+    next save, inbox notice, audit row."""
+    client = TestClient(server.app)
+    r = client.post("/admin/revoke_grant", json={"email": "member@example.test"})
+    assert r.status_code in (401, 403)
+
+    r = client.post(
+        "/admin/revoke_grant",
+        json={"email": "member@example.test"},
+        headers={"Authorization": "Bearer test123"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "revoked"
+    assert FakeClient.grant_deletes == ["eq.member-1"]
+    kinds = [n["kind"] for n in FakeClient.notifications]
+    assert "workspace_revoked" in kinds
+    assert FakeClient.audits and FakeClient.audits[-1]["action"] == "workspace.revoke"
+
+
+def test_revoke_workspace_grant_helper_reports_true_and_paramshape():
+    deleted = asyncio.run(supabase_admin.revoke_workspace_grant("member-1"))
+    assert deleted is True
+    assert FakeClient.grant_deletes[-1] == "eq.member-1"

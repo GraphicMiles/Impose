@@ -557,6 +557,49 @@
     sendReport("comment", c.id);
   }
 
+  /* 0025: inline prompt editing. The editor lives inside the card so the
+     surrounding context (response, lineage, counts) never dismounts; on
+     save the whole card repaints from the server's returned row. The
+     response text is deliberately not editable — see the RPC's comment. */
+  function startPromptEdit(gen, card) {
+    if (gen.pending) { notify("Wait for the post to send first."); return; }
+    var body = card && card.querySelector(".gen-prompt");
+    if (!body || body.querySelector("textarea")) return;
+    var original = gen.prompt;
+    body.innerHTML =
+      '<textarea class="gen-edit-input" rows="3" maxlength="4000" aria-label="Edit prompt">' + esc(original) + "</textarea>" +
+      '<div class="gen-edit-bar">' +
+        '<button class="btn small gen-edit-save" type="button"><i data-lucide="check"></i><span>Save</span></button>' +
+        '<button class="btn small gen-edit-cancel" type="button"><i data-lucide="x"></i><span>Cancel</span></button>' +
+      "</div>";
+    refreshIcons();
+    var input = body.querySelector("textarea");
+    input.value = original;
+    input.focus();
+    body.querySelector(".gen-edit-cancel").addEventListener("click", function () {
+      replaceCard(gen);
+    });
+    var save = body.querySelector(".gen-edit-save");
+    save.addEventListener("click", function () {
+      var next = input.value.trim();
+      if (!next) { notify("A prompt cannot be empty."); input.focus(); return; }
+      if (next === original) { replaceCard(gen); return; }
+      save.disabled = true;
+      BotoData.editGeneration(gen.id, next).then(function (out) {
+        save.disabled = false;
+        if (out.ok) {
+          gen.prompt = out.data ? out.data.prompt : next;
+          persist();
+          replaceCard(gen);
+          notify("Post updated.");
+        } else {
+          replaceCard(gen);
+          notify(out.error);
+        }
+      });
+    });
+  }
+
   function deleteGeneration(id) {
     var gen = genById(id);
     if (!canDelete(gen)) return;
@@ -3068,9 +3111,10 @@
 
     if (act === "menu") {
       var items = gen.own
-        ? [{ act: "delete", label: "Delete post", icon: "trash-2", danger: true }]
+        ? [{ act: "edit", label: "Edit prompt", icon: "pencil" }, { act: "delete", label: "Delete post", icon: "trash-2", danger: true }]
         : [{ act: "report", label: "Report post", icon: "flag" }];
       openKebabMenu(btn, "g:" + gen.id, items, function (picked) {
+        if (picked === "edit") startPromptEdit(gen, card);
         if (picked === "delete") deleteGeneration(gen.id);
         if (picked === "report") reportPost(gen);
       });

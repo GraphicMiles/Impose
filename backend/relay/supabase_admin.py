@@ -573,3 +573,71 @@ async def has_workspace_grant(user_id: str) -> bool:
     except ValueError:
         rows = []
     return bool(rows) if isinstance(rows, list) else False
+
+
+async def revoke_workspace_grant(user_id: str) -> bool:
+    """Delete one member's workspace access row. Returns True when a row
+    actually went away — the HTTP surface reports 'no_grant' otherwise,
+    matching the admin_revoke_grant RPC's idempotent status semantics.
+
+    The RPC exists for the panel (capabilities + audit_log inside SQL);
+    this REST path is for CONTROL_KEY operators, who audit via
+    audit_event() at the call site exactly like the grant path does. The
+    two surfaces converge on the same guarantee: the very next
+    save_workspace attempt fails server-side.
+    """
+    url = (_url() + "/rest/v1/workspace_grants")
+    headers = _postgrest_headers()
+    headers["Prefer"] = "return=representation"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.delete(url, headers=headers,
+                                           params={"user_id": f"eq.{user_id}"})
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "The grant could not be revoked. Try again shortly.",
+            f"grant delete transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "The grant could not be revoked. Try again shortly.",
+            f"grant delete -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )
+    try:
+        return bool(response.json())
+    except ValueError:
+        return False
+
+
+async def notify_access_revoked(user_id: str) -> None:
+    """Inbox notice for a revoked grant, mirroring notify_waitlist_approved.
+    Revocation without notice reads as a bug to the member the moment
+    their next save fails. Attributed to the owner for the same reason the
+    grant notice is: the CONTROL_KEY is the owner's tool."""
+    owners = await list_admin_owners()
+    if not owners:
+        print("[admin] revoke notice skipped: no owner admin to attribute", flush=True)
+        return
+    url = _url() + "/rest/v1/notifications"
+    headers = _postgrest_headers()
+    headers["Prefer"] = "return=minimal"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(
+                url,
+                headers=headers,
+                json={"user_id": user_id, "actor_id": owners[0],
+                      "kind": "workspace_revoked"},
+            )
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "The notice could not be delivered.",
+            f"revoke notice transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "The notice could not be delivered.",
+            f"revoke notice -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )

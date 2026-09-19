@@ -2753,3 +2753,8 @@ button, input, textarea, select {
 .composer-dock {
   padding-bottom: max(25px, calc(env(safe-area-inset-bottom) + 17px));
 }
+
+/* 0025: inline prompt editor */
+.gen-edit-input{width:100%;resize:vertical;min-height:70px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg-2);color:var(--text);font:inherit;line-height:1.5}
+.gen-edit-input:focus{outline:none;border-color:var(--accent)}
+.gen-edit-bar{display:flex;gap:8px;margin-top:8px}
