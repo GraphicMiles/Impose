@@ -3076,7 +3076,12 @@
     }
     if (act === "remix" || act === "challenge") {
       if (!requireSignIn(act)) return;
-      if (gen.locked) return;
+      /* The action row only disables remix/challenge for another user's
+         locked post. Owners can still work from their own locked post, so
+         the handler must use the same ownership rule as the rendered
+         disabled state. Previously the UI showed the button as enabled for
+         the owner while this guard silently discarded the click. */
+      if (gen.locked && !gen.own) return;
       navigateRoute("/");
       setContext(act, gen);
       return;
