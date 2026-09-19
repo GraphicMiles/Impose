@@ -5223,6 +5223,7 @@ try {
   <button class="pop-item" id="acctAbout" role="menuitem"><i data-lucide="file-text"></i><span>About &amp; privacy</span></button>
   <button class="pop-item" id="acctInstall" role="menuitem" hidden><i data-lucide="arrow-down-to-line"></i><span>Install app</span></button>
   <button class="pop-item danger" id="acctWipe" role="menuitem"><i data-lucide="trash-2"></i><span>Delete all chats</span></button>
+  <button class="pop-item danger" id="acctDelete" role="menuitem" hidden><i data-lucide="user-x"></i><span>Delete account</span></button>
 </div>
 
 <div class="overlay" id="palette" hidden>
@@ -10005,6 +10006,18 @@ window.BotoConfig = {
       }, function () { return null; });
   }
 
+  /* Closure audit B-08: rate_limited, payload_too_large and offline used
+     to end the retry loop silently, which reads as "synced" until the tab
+     closes and the work is gone. Push outcomes are now announced: null on
+     success (clear the surface), the error on failure. The app owns the
+     presentation; this layer owns never being silent. */
+  var onPushState = null;
+  function setOnPushState(fn) { onPushState = (typeof fn === "function") ? fn : null; }
+  function reportPush(err) {
+    if (!onPushState) return;
+    try { onPushState(err || null); } catch (e) { /* advisory hook */ }
+  }
+
   function push(uid, payloadObj, force) {
     var c = client();
     if (!c) return Promise.resolve(null);
@@ -10043,6 +10056,7 @@ window.BotoConfig = {
           }
         } catch (e) { /* cache rev drift is cosmetic */ }
       }
+      reportPush(null);
       return rev || null;
     });
   }
@@ -10056,7 +10070,10 @@ window.BotoConfig = {
       if (onConflict) {
         try {
           onConflict(remote, function keepMine() {
-            return push(uid, payload, true).catch(function () { return null; });
+            return push(uid, payload, true).catch(function (err) {
+              reportPush(err);
+              return null;
+            });
           });
         } catch (e) { /* the handler is advisory */ }
         return null;
@@ -10064,7 +10081,10 @@ window.BotoConfig = {
       /* No handler registered: adopt the server's rev and re-push this
          payload as the newer write. Last-write-wins, but at a known rev
          instead of blind. */
-      return push(uid, payload, true).catch(function () { return null; });
+      return push(uid, payload, true).catch(function (err) {
+        reportPush(err);
+        return null;
+      });
     });
   }
 
@@ -10083,8 +10103,9 @@ window.BotoConfig = {
       pushing = true;
       push(uid, payload).catch(function (err) {
         if (isStale(err)) return handleStale(uid, payload);
-        /* Offline or transient failure: the payload stays in the local
-           cache and the next save pushes it. */
+        /* The payload stays in the local cache and the next save pushes
+           it — but "stays local" must never look like "synced" (B-08). */
+        reportPush(err);
       }).then(function () { pushing = false; });
     }, PUSH_DEBOUNCE_MS);
   }
@@ -10097,6 +10118,7 @@ window.BotoConfig = {
     if (payload && uid) {
       return push(uid, payload).catch(function (err) {
         if (isStale(err)) return handleStale(uid, payload);
+        reportPush(err);
         return null;
       });
     }
@@ -10254,6 +10276,7 @@ window.BotoConfig = {
     persist: persist,
     flushNow: flushNow,
     setConflictHandler: setConflictHandler,
+    setOnPushState: setOnPushState,
     adoptRemote: adoptRemote,
     unlockProviders: unlockProviders,
     unlockWithPassphrase: unlockWithPassphrase,
@@ -11525,9 +11548,15 @@ window.BotoConfig = {
     var editing = $("providerModal") && $("providerModal").classList.contains("open") && !$("providerForm").hidden;
     var url = editing ? ($("pfRelayUrl").value || "").trim() : "";
     var key = editing ? ($("pfRelayKey").value || "").trim() : "";
+    /* Closure audit B-01: the relay control key also unlocked /admin/*, so
+       it could never be handed to a member's browser. Chat now proves
+       membership with the caller's own Supabase session instead; the
+       control key stays for operator tooling (and the provider editor,
+       where the owner is explicitly testing the key itself). */
+    var sessionKey = (!editing && window.BotoAuth && BotoAuth.sessionToken) ? BotoAuth.sessionToken() : "";
     return {
       url: url || (state.settings.relayUrl || "").trim(),
-      key: key || (state.settings.relayKey || "").trim()
+      key: sessionKey || key || (state.settings.relayKey || "").trim()
     };
   }
 
@@ -16456,7 +16485,11 @@ window.BotoConfig = {
       ? '<i data-lucide="log-out"></i><span>Sign out</span>'
       : '<i data-lucide="log-in"></i><span>Sign in</span>';
     $("acctSub").textContent = session && session.email ? session.email : "Local profile";
+    /* Closure audit B-07: leaving for good is only offered to a signed-in
+       session; a local profile has no account row to delete. */
+    $("acctDelete").hidden = !session;
     disarmWipe();
+    disarmDelete();
     refreshIcons();
   }
 
@@ -16837,6 +16870,68 @@ window.BotoConfig = {
     disarmWipe();
     hidePop(true);
     wipeAll();
+  });
+
+  /* Closure audit B-07: delete_my_account removes the auth.users row and
+     every owned row with it (cascades), so after it lands the session is
+     already dead — the local cleanup runs regardless of what signOut can
+     still reach, exactly like the admin sign-out path. */
+  var deleteArmed = false;
+  var deleteTimer = null;
+  function disarmDelete() {
+    deleteArmed = false;
+    if (deleteTimer) { clearTimeout(deleteTimer); deleteTimer = null; }
+    var b = $("acctDelete");
+    if (!b) return;
+    b.classList.remove("armed");
+    var s = b.querySelector("span");
+    if (s) s.textContent = "Delete account";
+  }
+  $("acctDelete").addEventListener("click", function () {
+    if (!deleteArmed) {
+      deleteArmed = true;
+      var b = $("acctDelete");
+      b.classList.add("armed");
+      b.querySelector("span").textContent = "Tap again to delete your account";
+      deleteTimer = setTimeout(disarmDelete, 3000);
+      return;
+    }
+    disarmDelete();
+    hidePop(true);
+    var client = window.BotoData && BotoData.db ? BotoData.db() : null;
+    if (!client) { toast("Account deletion needs a connection. Try again in a moment."); return; }
+    client.rpc("delete_my_account").then(function (res) {
+      if (res && res.error) {
+        var msg = String(res.error.message || "");
+        if (/owner_protected/i.test(msg)) toast("The owner account cannot be deleted.", null, null, 4200, "warn");
+        else if (/last_admin/i.test(msg)) toast("You are the last admin. Add another admin first.", null, null, 4200, "warn");
+        else if (/rate_limited/i.test(msg)) toast("Too many attempts. Try again later.", null, null, 4200, "warn");
+        else toast("The account could not be deleted. Try again in a moment.", null, null, 4200, "error");
+        return;
+      }
+      toast("Your account and everything attached to it is deleted.", null, null, 3200, "success");
+      var uidBefore = window.WSync ? WSync.userId() : null;
+      var done = function () {
+        localStorage.removeItem("impose.auth.v1");
+        try {
+          localStorage.removeItem(STORE_KEY);
+          localStorage.removeItem(LEGACY_STORE_KEY);
+        } catch (e) {}
+        if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+        if (window.WSync) WSync.signOutReset(uidBefore);
+        resetWorkspaceForSignOut();
+        if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+        if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+        window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
+      };
+      if (window.BotoAuth && BotoAuth.signOut) {
+        BotoAuth.signOut().then(done, done);
+      } else {
+        done();
+      }
+    }, function () {
+      toast("The account could not be deleted. Try again in a moment.", null, null, 4200, "error");
+    });
   });
 
   var filePicker = $("filePicker");
@@ -19514,6 +19609,30 @@ window.BotoConfig = {
            vanishes. "Load newest" adopts the other device's copy and
            reboots from it; the action button keeps this device's work
            as an informed overwrite. */
+        if (WSync.setOnPushState) {
+          /* Closure audit B-08: the autosave push used to end rate_limited,
+             payload_too_large and offline silently, which looked identical
+             to "synced" until the tab closed and the work was gone. The
+             stick here is the terminal state: it stays until a push
+             succeeds or the person retries by hand. */
+          var syncFailVisible = false;
+          WSync.setOnPushState(function (err) {
+            if (!err) {
+              if (syncFailVisible) {
+                syncFailVisible = false;
+                toast("Workspace is synced again.", null, null, 3200, "success");
+              }
+              return;
+            }
+            if (syncFailVisible) return;
+            syncFailVisible = true;
+            var msg = "Workspace changes are not syncing — your work is still on this device.";
+            if (/payload_too_large/i.test(String(err && err.message || err))) {
+              msg = "This workspace is too large to sync — remove some images. Your work is still on this device.";
+            }
+            toast(msg, "Retry", function () { WSync.flushNow(); }, 15000, "error");
+          });
+        }
         if (WSync.setConflictHandler) {
           WSync.setConflictHandler(function (remote, keepMine) {
             toast("This workspace changed on another device. Load its copy, or keep this one.",
@@ -19982,6 +20101,28 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   initAuthWatcher();
 
+  /* The access token for the session GoTrue already persists, read the
+     same place the SDK wrote it. Synchronous on purpose: relay calls build
+     their headers without awaiting, and the token refresh lifecycle stays
+     where it belongs (the SDK auto-refreshes; a token inside its last 30
+     seconds is treated as absent rather than handed out mid-stream).
+     Closure audit B-01: chat authenticates with this, not with the relay
+     control key. */
+  function sessionToken() {
+    if (!configured()) return "";
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k || k.indexOf("sb-") !== 0 || k.indexOf("-auth-token") === -1) continue;
+        var parsed = JSON.parse(localStorage.getItem(k) || "{}");
+        var tok = parsed.access_token || (parsed.session && parsed.session.access_token) || "";
+        var exp = parsed.expires_at || (parsed.session && parsed.session.expires_at) || 0;
+        if (tok && (!exp || exp * 1000 > Date.now() + 30000)) return tok;
+      }
+    } catch (e) {}
+    return "";
+  }
+
   window.BotoAuth = {
     configured: configured,
     humanize: humanize,
@@ -19997,6 +20138,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     currentUser: currentUser,
     cacheSession: cacheSession,
     onAuthStateChange: onAuthStateChange,
+    sessionToken: sessionToken,
     SESSION_KEY: SESSION_KEY
   };
 })();
@@ -20669,30 +20811,37 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   function loadOutbox() {
-    /* Writes are sent to Supabase immediately; no browser outbox is a
-       source of Community data. */
-    outbox = [];
-    return outbox;
+    /* Closure audit B-05: durable jobs survive the tab closing, exactly as
+       the header above promises. A job becomes durable the first time a
+       retryable failure proves the network, not the request, is in the
+       way; from then on the idempotency key and the payload must outlive
+       the tab, or a reload either loses the write or re-posts it under a
+       new key and duplicates it. Results (inline callbacks) still settle
+       live jobs only; a job still running when the tab dies becomes
+       durable so its outcome can reconcile after reboot. */
     try {
       var raw = localStorage.getItem(OUTBOX_KEY);
-      outbox = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(outbox)) outbox = [];
+      var stored = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(stored)) stored = [];
+      outbox = stored;
     } catch (e) { outbox = []; }
     return outbox;
   }
 
   function saveOutbox() {
-    /* No local persistence. Supabase is the only durable source. */
-    if (onChange) { try { onChange(outbox.slice()); } catch (e) {} }
-    return;
+    /* Only durable jobs are written, and only their data. Inline callbacks
+       would serialise to nothing and give a false impression the job is
+       complete; those jobs settle in-page or become durable on a
+       retryable failure first. */
     try {
-      /* Store the data, never the closures: they would serialise to
-         nothing and give a false impression that the job is complete. */
-      localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox.map(function (j) {
+      localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox.filter(function (j) {
+        return j.durable;
+      }).map(function (j) {
         return {
           type: j.type, key: j.key, fields: j.fields, genId: j.genId,
           body: j.body, parentId: j.parentId, localId: j.localId,
-          queuedAt: j.queuedAt, attempts: j.attempts, error: j.error
+          queuedAt: j.queuedAt, attempts: j.attempts, error: j.error,
+          durable: true
         };
       })));
     } catch (e) {}
@@ -20770,6 +20919,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
            caller is told, the card shows why, and the queue moves on
            rather than the whole outbox dying behind one poisoned item. */
         job.error = out.error;
+        /* A retryable failure is the moment a job must become durable: the
+           network, not the request, is in the way, and a tab that dies now
+           would otherwise take the idempotency key with it (B-05). */
+        job.durable = true;
         if (job.attempts >= MAX_ATTEMPTS) {
           dropJob(job.key);
           settle(job, "fail", {

@@ -1251,9 +1251,15 @@
     var editing = $("providerModal") && $("providerModal").classList.contains("open") && !$("providerForm").hidden;
     var url = editing ? ($("pfRelayUrl").value || "").trim() : "";
     var key = editing ? ($("pfRelayKey").value || "").trim() : "";
+    /* Closure audit B-01: the relay control key also unlocked /admin/*, so
+       it could never be handed to a member's browser. Chat now proves
+       membership with the caller's own Supabase session instead; the
+       control key stays for operator tooling (and the provider editor,
+       where the owner is explicitly testing the key itself). */
+    var sessionKey = (!editing && window.BotoAuth && BotoAuth.sessionToken) ? BotoAuth.sessionToken() : "";
     return {
       url: url || (state.settings.relayUrl || "").trim(),
-      key: key || (state.settings.relayKey || "").trim()
+      key: sessionKey || key || (state.settings.relayKey || "").trim()
     };
   }
 
@@ -6182,7 +6188,11 @@
       ? '<i data-lucide="log-out"></i><span>Sign out</span>'
       : '<i data-lucide="log-in"></i><span>Sign in</span>';
     $("acctSub").textContent = session && session.email ? session.email : "Local profile";
+    /* Closure audit B-07: leaving for good is only offered to a signed-in
+       session; a local profile has no account row to delete. */
+    $("acctDelete").hidden = !session;
     disarmWipe();
+    disarmDelete();
     refreshIcons();
   }
 
@@ -6563,6 +6573,68 @@
     disarmWipe();
     hidePop(true);
     wipeAll();
+  });
+
+  /* Closure audit B-07: delete_my_account removes the auth.users row and
+     every owned row with it (cascades), so after it lands the session is
+     already dead — the local cleanup runs regardless of what signOut can
+     still reach, exactly like the admin sign-out path. */
+  var deleteArmed = false;
+  var deleteTimer = null;
+  function disarmDelete() {
+    deleteArmed = false;
+    if (deleteTimer) { clearTimeout(deleteTimer); deleteTimer = null; }
+    var b = $("acctDelete");
+    if (!b) return;
+    b.classList.remove("armed");
+    var s = b.querySelector("span");
+    if (s) s.textContent = "Delete account";
+  }
+  $("acctDelete").addEventListener("click", function () {
+    if (!deleteArmed) {
+      deleteArmed = true;
+      var b = $("acctDelete");
+      b.classList.add("armed");
+      b.querySelector("span").textContent = "Tap again to delete your account";
+      deleteTimer = setTimeout(disarmDelete, 3000);
+      return;
+    }
+    disarmDelete();
+    hidePop(true);
+    var client = window.BotoData && BotoData.db ? BotoData.db() : null;
+    if (!client) { toast("Account deletion needs a connection. Try again in a moment."); return; }
+    client.rpc("delete_my_account").then(function (res) {
+      if (res && res.error) {
+        var msg = String(res.error.message || "");
+        if (/owner_protected/i.test(msg)) toast("The owner account cannot be deleted.", null, null, 4200, "warn");
+        else if (/last_admin/i.test(msg)) toast("You are the last admin. Add another admin first.", null, null, 4200, "warn");
+        else if (/rate_limited/i.test(msg)) toast("Too many attempts. Try again later.", null, null, 4200, "warn");
+        else toast("The account could not be deleted. Try again in a moment.", null, null, 4200, "error");
+        return;
+      }
+      toast("Your account and everything attached to it is deleted.", null, null, 3200, "success");
+      var uidBefore = window.WSync ? WSync.userId() : null;
+      var done = function () {
+        localStorage.removeItem("impose.auth.v1");
+        try {
+          localStorage.removeItem(STORE_KEY);
+          localStorage.removeItem(LEGACY_STORE_KEY);
+        } catch (e) {}
+        if (window.BotoData && BotoData.forgetUser) BotoData.forgetUser();
+        if (window.WSync) WSync.signOutReset(uidBefore);
+        resetWorkspaceForSignOut();
+        if (window.BotoAccess && BotoAccess.resetForSignOut) BotoAccess.resetForSignOut();
+        if (window.BotoCommunity && BotoCommunity.signOutReset) BotoCommunity.signOutReset();
+        window.location.href = window.location.protocol === "file:" ? "./auth.html#sign-in" : "./sign-in";
+      };
+      if (window.BotoAuth && BotoAuth.signOut) {
+        BotoAuth.signOut().then(done, done);
+      } else {
+        done();
+      }
+    }, function () {
+      toast("The account could not be deleted. Try again in a moment.", null, null, 4200, "error");
+    });
   });
 
   var filePicker = $("filePicker");
@@ -9240,6 +9312,30 @@
            vanishes. "Load newest" adopts the other device's copy and
            reboots from it; the action button keeps this device's work
            as an informed overwrite. */
+        if (WSync.setOnPushState) {
+          /* Closure audit B-08: the autosave push used to end rate_limited,
+             payload_too_large and offline silently, which looked identical
+             to "synced" until the tab closed and the work was gone. The
+             stick here is the terminal state: it stays until a push
+             succeeds or the person retries by hand. */
+          var syncFailVisible = false;
+          WSync.setOnPushState(function (err) {
+            if (!err) {
+              if (syncFailVisible) {
+                syncFailVisible = false;
+                toast("Workspace is synced again.", null, null, 3200, "success");
+              }
+              return;
+            }
+            if (syncFailVisible) return;
+            syncFailVisible = true;
+            var msg = "Workspace changes are not syncing — your work is still on this device.";
+            if (/payload_too_large/i.test(String(err && err.message || err))) {
+              msg = "This workspace is too large to sync — remove some images. Your work is still on this device.";
+            }
+            toast(msg, "Retry", function () { WSync.flushNow(); }, 15000, "error");
+          });
+        }
         if (WSync.setConflictHandler) {
           WSync.setConflictHandler(function (remote, keepMine) {
             toast("This workspace changed on another device. Load its copy, or keep this one.",

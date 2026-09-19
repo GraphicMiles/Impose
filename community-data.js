@@ -664,30 +664,37 @@
   }
 
   function loadOutbox() {
-    /* Writes are sent to Supabase immediately; no browser outbox is a
-       source of Community data. */
-    outbox = [];
-    return outbox;
+    /* Closure audit B-05: durable jobs survive the tab closing, exactly as
+       the header above promises. A job becomes durable the first time a
+       retryable failure proves the network, not the request, is in the
+       way; from then on the idempotency key and the payload must outlive
+       the tab, or a reload either loses the write or re-posts it under a
+       new key and duplicates it. Results (inline callbacks) still settle
+       live jobs only; a job still running when the tab dies becomes
+       durable so its outcome can reconcile after reboot. */
     try {
       var raw = localStorage.getItem(OUTBOX_KEY);
-      outbox = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(outbox)) outbox = [];
+      var stored = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(stored)) stored = [];
+      outbox = stored;
     } catch (e) { outbox = []; }
     return outbox;
   }
 
   function saveOutbox() {
-    /* No local persistence. Supabase is the only durable source. */
-    if (onChange) { try { onChange(outbox.slice()); } catch (e) {} }
-    return;
+    /* Only durable jobs are written, and only their data. Inline callbacks
+       would serialise to nothing and give a false impression the job is
+       complete; those jobs settle in-page or become durable on a
+       retryable failure first. */
     try {
-      /* Store the data, never the closures: they would serialise to
-         nothing and give a false impression that the job is complete. */
-      localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox.map(function (j) {
+      localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox.filter(function (j) {
+        return j.durable;
+      }).map(function (j) {
         return {
           type: j.type, key: j.key, fields: j.fields, genId: j.genId,
           body: j.body, parentId: j.parentId, localId: j.localId,
-          queuedAt: j.queuedAt, attempts: j.attempts, error: j.error
+          queuedAt: j.queuedAt, attempts: j.attempts, error: j.error,
+          durable: true
         };
       })));
     } catch (e) {}
@@ -765,6 +772,10 @@
            caller is told, the card shows why, and the queue moves on
            rather than the whole outbox dying behind one poisoned item. */
         job.error = out.error;
+        /* A retryable failure is the moment a job must become durable: the
+           network, not the request, is in the way, and a tab that dies now
+           would otherwise take the idempotency key with it (B-05). */
+        job.durable = true;
         if (job.attempts >= MAX_ATTEMPTS) {
           dropJob(job.key);
           settle(job, "fail", {

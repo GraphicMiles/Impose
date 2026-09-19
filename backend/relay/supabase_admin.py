@@ -419,6 +419,79 @@ async def session_can(access_token: str, action: str) -> bool:
         return False
 
 
+async def notify_waitlist_approved(user_id: str) -> None:
+    """In-app notice for a fresh grant, mirroring the admin_grant RPC.
+
+    Closure audit B-09: the panel's RPC path inserts
+    notifications(kind='waitlist_approved'); the relay's /admin/grant path
+    silently recorded the grant and sent nothing, so a member granted from
+    the operator console got a working account with no inbox notice. This
+    restores parity between the two write surfaces.
+
+    actor_id is NOT NULL -> profiles, and the CONTROL_KEY carries no admin
+    identity, so the notice is attributed to the owner admin — the control
+    key is the owner's tool, which makes that attribution true. With no
+    owner row (pre-bootstrap) the note is skipped rather than forged.
+    """
+    owners = await list_admin_owners()
+    if not owners:
+        print("[admin] inbox notice skipped: no owner admin to attribute", flush=True)
+        return
+    url = _url() + "/rest/v1/notifications"
+    headers = _postgrest_headers()
+    headers["Prefer"] = "return=minimal"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(
+                url,
+                headers=headers,
+                json={"user_id": user_id, "actor_id": owners[0],
+                      "kind": "waitlist_approved"},
+            )
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "The grant is recorded but the inbox notice could not be written.",
+            f"notification insert transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "The grant is recorded but the inbox notice could not be written.",
+            f"notification insert -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )
+
+
+async def list_admin_owners() -> list:
+    """User ids of owner admins, service role only. The table has no client
+    policies; this read exists to attribute operator actions taken with the
+    CONTROL_KEY to the owner, exactly as the RPC attributes panel actions
+    to auth.uid()."""
+    url = _url() + "/rest/v1/admins"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.get(
+                url,
+                headers=_postgrest_headers(),
+                params={"owner": "is.true", "select": "user_id", "limit": "5"},
+            )
+    except httpx.HTTPError as exc:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"owner read transport error: {exc}",
+        ) from exc
+    if response.status_code >= 400:
+        raise AdminError(
+            "Could not reach the accounts service. Try again shortly.",
+            f"owner read -> {response.status_code} {response.text[:400]}",
+            status=502,
+        )
+    try:
+        rows = response.json()
+    except ValueError:
+        rows = []
+    return [r["user_id"] for r in rows if isinstance(r, dict) and r.get("user_id")]
+
+
 async def has_workspace_grant(user_id: str) -> bool:
     """Whether the workspace grant row exists. Service role only; the table
     has no client policies, and this read is what lets /notify/grant refuse

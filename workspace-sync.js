@@ -333,6 +333,18 @@
       }, function () { return null; });
   }
 
+  /* Closure audit B-08: rate_limited, payload_too_large and offline used
+     to end the retry loop silently, which reads as "synced" until the tab
+     closes and the work is gone. Push outcomes are now announced: null on
+     success (clear the surface), the error on failure. The app owns the
+     presentation; this layer owns never being silent. */
+  var onPushState = null;
+  function setOnPushState(fn) { onPushState = (typeof fn === "function") ? fn : null; }
+  function reportPush(err) {
+    if (!onPushState) return;
+    try { onPushState(err || null); } catch (e) { /* advisory hook */ }
+  }
+
   function push(uid, payloadObj, force) {
     var c = client();
     if (!c) return Promise.resolve(null);
@@ -371,6 +383,7 @@
           }
         } catch (e) { /* cache rev drift is cosmetic */ }
       }
+      reportPush(null);
       return rev || null;
     });
   }
@@ -384,7 +397,10 @@
       if (onConflict) {
         try {
           onConflict(remote, function keepMine() {
-            return push(uid, payload, true).catch(function () { return null; });
+            return push(uid, payload, true).catch(function (err) {
+              reportPush(err);
+              return null;
+            });
           });
         } catch (e) { /* the handler is advisory */ }
         return null;
@@ -392,7 +408,10 @@
       /* No handler registered: adopt the server's rev and re-push this
          payload as the newer write. Last-write-wins, but at a known rev
          instead of blind. */
-      return push(uid, payload, true).catch(function () { return null; });
+      return push(uid, payload, true).catch(function (err) {
+        reportPush(err);
+        return null;
+      });
     });
   }
 
@@ -411,8 +430,9 @@
       pushing = true;
       push(uid, payload).catch(function (err) {
         if (isStale(err)) return handleStale(uid, payload);
-        /* Offline or transient failure: the payload stays in the local
-           cache and the next save pushes it. */
+        /* The payload stays in the local cache and the next save pushes
+           it — but "stays local" must never look like "synced" (B-08). */
+        reportPush(err);
       }).then(function () { pushing = false; });
     }, PUSH_DEBOUNCE_MS);
   }
@@ -425,6 +445,7 @@
     if (payload && uid) {
       return push(uid, payload).catch(function (err) {
         if (isStale(err)) return handleStale(uid, payload);
+        reportPush(err);
         return null;
       });
     }
@@ -582,6 +603,7 @@
     persist: persist,
     flushNow: flushNow,
     setConflictHandler: setConflictHandler,
+    setOnPushState: setOnPushState,
     adoptRemote: adoptRemote,
     unlockProviders: unlockProviders,
     unlockWithPassphrase: unlockWithPassphrase,

@@ -339,6 +339,28 @@
 
   initAuthWatcher();
 
+  /* The access token for the session GoTrue already persists, read the
+     same place the SDK wrote it. Synchronous on purpose: relay calls build
+     their headers without awaiting, and the token refresh lifecycle stays
+     where it belongs (the SDK auto-refreshes; a token inside its last 30
+     seconds is treated as absent rather than handed out mid-stream).
+     Closure audit B-01: chat authenticates with this, not with the relay
+     control key. */
+  function sessionToken() {
+    if (!configured()) return "";
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k || k.indexOf("sb-") !== 0 || k.indexOf("-auth-token") === -1) continue;
+        var parsed = JSON.parse(localStorage.getItem(k) || "{}");
+        var tok = parsed.access_token || (parsed.session && parsed.session.access_token) || "";
+        var exp = parsed.expires_at || (parsed.session && parsed.session.expires_at) || 0;
+        if (tok && (!exp || exp * 1000 > Date.now() + 30000)) return tok;
+      }
+    } catch (e) {}
+    return "";
+  }
+
   window.BotoAuth = {
     configured: configured,
     humanize: humanize,
@@ -354,6 +376,7 @@
     currentUser: currentUser,
     cacheSession: cacheSession,
     onAuthStateChange: onAuthStateChange,
+    sessionToken: sessionToken,
     SESSION_KEY: SESSION_KEY
   };
 })();
