@@ -446,3 +446,42 @@ workspace_sync_roundtrip, 100-user simulation).
 - **Database:** all of 0023 applied and verified above. Nothing to deploy.
 - **Relay + client + standalone:** committed locally; **`git push` deploys** (Render Blueprint). Until then, production chat still requires the CONTROL_KEY, and grant e-mail works but inbox notice (B-09) doesn't.
 - All tokens handed over in chat (GitHub PAT, Supabase `sbp_`, publishable) should be **rotated now that the engagement closes**.
+
+---
+
+# ADDENDUM 2 — ARCH-BRIEF $0 CLOSURES (2026-09-19, shipped as f57c401)
+
+Directive: implement all non-billing arch-brief roadmap items on $0 infra; billing/webhook/entitlement (A6) permanently out. Applied to production, verified, tested in 4 rounds, pushed to origin (GraphicMiles/Impose@f57c401).
+
+## Shipped (migration 0024 + relay + client)
+
+| Item | Artifact | Proof |
+|---|---|---|
+| Admin audit trail | `audit_events` (RLS, zero policies) + `audit_log()` + `admin_audit_events()`; `audit_event()`/`/admin/revoke_sessions` on relay; audit_log wired into all 6 admin RPCs + delete_my_account + relay /admin/grant | Prod: owner sees rows after resolve; stranger → `missing_capability`; anon REST → 401 |
+| Step-up auth ($0 MFA-alt) | `require_recent_auth(900)` fail-closed on admin_remove, admin_revoke_cap, delete_my_account | Stale iat → `recent_auth_required`; fresh iat proceeds |
+| Thread depth cap | `create_comment` hops-parent→root ≤ 2 → `thread_too_deep` | Depth-2 OK, depth-3 refused (prod) |
+| Content blocklist | `blocked_terms` table (SQL-owned); checks inside create_comment/create_generation → `content_blocked` | Fresh blocked call refused; pre-block replay still returns original row (retry-safety proven) |
+| Handle archive | `handle_history` + trigger on `profiles.handle` | Swap/restore wrote exactly 2 rows (prod) |
+| Self export | `export_my_data()` (3/hr) + "Export account data" menu item | All 9 sections return (prod) |
+| Retention | `purge_soft_deleted(90)` + weekly cron `41 4 * * 0` | Job scheduled; far-future call deletes 0 |
+| Query budgets | `statement_timeout 8s`, `lock_timeout 4s` on anon+authenticated | `rolconfig` verified |
+| Compromise lever | relay `POST /admin/revoke_sessions` → GoTrue global logout + audit row | Pytest: key-gated, logout+audit recorded |
+| Consistency | adm:30/60s budget added to admin_grant_cap/admin_revoke_cap (only two without it) | In prod bodies |
+| Backup ($0) | `.github/workflows/db-backup.yml` nightly pg_dump → 30-day artifact (needs `SUPABASE_DB_URL` secret) | Workflow on origin main |
+| CI | `.github/workflows/ci.yml` mirrors all local suites | Workflow on origin main |
+
+## Same-apply hotfix (caught by round-2 testing before push)
+
+1. **Overload ambiguity**: first apply declared `p_key text` / `p_email citext` where prod identities were `p_key uuid` / `p_email text` → CREATE OR REPLACE created *stray overloads*, which breaks PostgREST named-arg resolution on the live create_comment/create_generation/admin_add/admin_grant endpoints. Fixed in-file (uuid/citext identities + explicit drops); catalog now shows exactly one function per name; ACLs re-narrowed.
+2. **Ghost column**: `export_my_data` referenced `lineage_count` (doesn't exist); corrected to `remix_count`/`challenge_count` against the live schema.
+3. **Idempotency**: `create policy` made idempotent via drop-if-exists (second full apply of the whole migration now passes cleanly).
+4. **Ordering subtlety**: blocklist check moved AFTER the idempotency replay check in both create RPCs, so a term blocked *after* a post landed can never break a legitimate retry — proven live (replay returns original id; only fresh calls refuse).
+
+## Four test rounds (user-mandated)
+
+1. Full local: relay pytest 181 pass (2 pre-existing env-only SVG-converter failures, identical before/after), node suites clean, standalone parity, JS syntax. **PASS**
+2. Prod function-level (owner-claims impersonation): step-up stale/fresh, audit gating, depth cap, blocklist, export, handle history, purge no-op, cron/role budgets, ACL grants, full create-path regression; hotfix found+fixed+re-verified. **PASS**
+3. Retry-safety & REST: replay returns identical row; retroactive blocklist can't break replay; depth boundary exactly at 2; live anon REST matrix (11 probes) all-denied/correct. **PASS**
+4. Final gauntlet: full suites again + standalone rebuild + diff review (additive-only: +1354/−2). **PASS**
+
+No regressions introduced; all pre-existing behavior preserved (every change additive or guard-added). Token rotation reminder stands (GitHub PAT + Supabase access token both rotated-advised).
