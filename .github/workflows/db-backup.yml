@@ -2,7 +2,7 @@
 # Pro-plan features on Supabase). Runs pg_dump against the project's direct
 # connection string and keeps 30 days of artifacts. Restore drill: create a
 # scratch free-tier project, pg_restore this dump into it, run the parity
-# queries from docs/FINAL_CLOSURE_AUDIT_PRODUCTION_2026-09-19.md (I-1).
+# catalog queries from docs/DATABASE.md (golden rules + table digest).
 #
 # Required repo secret:
 #   SUPABASE_DB_URL — postgres://postgres.<ref>:<password>@aws-0-eu-west-2.pooler.supabase.com:5432/postgres
