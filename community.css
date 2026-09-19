@@ -1536,3 +1536,22 @@ body:not(.community-mode) .modebar { display: none; }
   align-items: center;
   justify-content: center;
 }
+
+/* The post-thread composer is the same shared composer object as the main
+   community composer, but its write target is the active post's comments. It
+   is viewport-anchored so it never floats in the detail layout. */
+.cm-scope .comment-box {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--keyboard-inset, 0px);
+  z-index: 70;
+  padding: 4px 16px max(10px, env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.cm-scope .cm-detail-view,
+.cm-scope .detail {
+  padding-bottom: 112px;
+}

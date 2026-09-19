@@ -26,6 +26,13 @@
     var height = vv && (!vv.scale || vv.scale === 1) ? vv.height + Math.max(0, vv.offsetTop || 0) : window.innerHeight;
     if (!height || !isFinite(height)) return;
     document.documentElement.style.setProperty("--app-height", Math.round(height) + "px");
+    /* Keep every composer above the visual viewport keyboard. Browsers that
+       resize the layout viewport produce zero here; browsers that do not
+       still get the exact keyboard inset. */
+    var inset = vv && (!vv.scale || vv.scale === 1)
+      ? Math.max(0, window.innerHeight - vv.height - Math.max(0, vv.offsetTop || 0))
+      : 0;
+    document.documentElement.style.setProperty("--keyboard-inset", Math.round(inset) + "px");
   }
 
   /* anime.js (vendored) drives JS motion; CSS owns hovers and reveals. */

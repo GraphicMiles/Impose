@@ -2728,3 +2728,17 @@ html.reduce-motion .access-done-status {
 button, input, textarea, select {
   box-shadow: none !important;
 }
+
+/* Shared composer environment contract. Both chat composers sit on the
+   visual viewport edge and follow the keyboard inset supplied by app.js. */
+.composer-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--keyboard-inset, 0px);
+  z-index: 70;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+#chatScroll {
+  padding-bottom: 112px;
+}
