@@ -19,7 +19,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install relay deps
-        run: pip install -r backend/relay/requirements.txt pytest httpx pillow fastapi
+        # cairosvg needs the system cairo libc; tests exercise real conversions.
+        run: |
+          sudo apt-get -yqq install libcairo2 libpangocairo-1.0-0 || true
+          pip install -r backend/relay/requirements.txt pytest httpx pillow fastapi cairosvg
       - name: Relay test suite
         working-directory: backend
         run: python -m pytest relay/tests/ -q
