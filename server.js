@@ -14,6 +14,8 @@ app.disable('x-powered-by');
 // canonical even when a legacy link is opened directly.
 app.get(['/index.html', '/index.html/'], (_req, res) => res.redirect(308, '/'));
 
+app.get('/workspace-sync.js', (_req, res) => res.sendFile(path.join(root, 'workspace-sync.js')));
+
 app.use(express.static(root, { extensions: ['html'], index: 'index.html' }));
 
 // Clean application entry points. The client loads the same shell and owns
