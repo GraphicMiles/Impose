@@ -433,4 +433,9 @@ delete_my_account. The OTP sign-in ceremony mints the fresh iat.
 5. After DDL touching API-visible functions: nothing to reload (PostgREST
    re-reads), but watch for overloads (step 2) before declaring done.
 6. Nightly backup dumps: .github/workflows/db-backup.yml (publishes artifact,
-   needs SUPABASE_DB_URL repo secret).
+   retention 30d). Runs as the DEDICATED ROLE `impose_backup` (created
+   2026-09-19): login, BYPASSRLS + `pg_read_all_data` for pg_dump, NO write,
+   no createdb/createrole. Its session-pooler DSN is stored write-only in
+   the repo secret `SUPABASE_DB_URL`. Rotate: `alter role impose_backup
+   with password '<new>';` then update the secret. Never store the
+   `postgres` owner role in CI.
