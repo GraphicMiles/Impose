@@ -2184,6 +2184,61 @@ async def notify_grant(request: Request):
     }
 
 
+@app.post("/admin/revoke_grant")
+async def admin_revoke_grant(request: Request):
+    """Take back workspace access for one account (0025 lifecycle closure).
+
+    CONTROL_KEY only — the panel-side half of the same operation lives in
+    the admin_revoke_grant RPC (capability gate + audit_log). Same
+    guarantee on both surfaces: the very next save_workspace call fails
+    server-side; the member finds the notice in their inbox; the operator
+    finds the audit row.
+    """
+    _authed(request)
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    email = _otp_email(data)
+
+    if not supabase_admin.configured():
+        raise HTTPException(status_code=503, detail="accounts are not configured on the server")
+
+    user = await supabase_admin.find_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=404, detail="no account uses that email yet")
+
+    if _rate_hit("grantrevoke", email, 6, 600.0):
+        raise HTTPException(status_code=429, detail="too many flips for this address; try again later")
+
+    try:
+        had = await supabase_admin.revoke_workspace_grant(user["id"])
+    except supabase_admin.AdminError as exc:
+        print(f"[admin] grant revoke failed for {email}: {exc.detail}")
+        raise HTTPException(status_code=exc.status, detail=exc.safe)
+
+    if had:
+        try:
+            await supabase_admin.notify_access_revoked(user["id"])
+        except supabase_admin.AdminError as nexc:
+            # The revocation is the guarantee; the notice is best-effort,
+            # exactly as /admin/grant treats its inbox row.
+            print(f"[admin] revoke notice failed for {email}: {nexc.detail}", flush=True)
+        try:
+            owners = await supabase_admin.list_admin_owners()
+            await supabase_admin.audit_event(
+                owners[0] if owners else None,
+                "workspace.revoke", "user", user["id"],
+                {"via": "relay"})
+        except supabase_admin.AdminError as aexc:
+            print(f"[admin] revoke audit failed for {email}: {aexc.detail}", flush=True)
+
+    return {"ok": True, "user_id": user["id"],
+            "status": "revoked" if had else "no_grant"}
+
+
 @app.post("/admin/revoke_sessions")
 async def admin_revoke_sessions(request: Request):
     """Kill every session an account holds, everywhere (brief A11).

@@ -617,6 +617,15 @@ try {
         <p class="admin-help">What readers flagged. Acting on a report is done by an operator; this view is read-only.</p>
         <div id="adminReports"></div>
       </section>
+      <section class="admin-card" id="adminSecBlocked" hidden>
+        <h2>Blocked terms</h2>
+        <p class="admin-help">Posts and comments containing any of these refuse to publish, server-side, however the caller reaches the API. The list is case-insensitive.</p>
+        <div id="adminBlocked"></div>
+        <div class="mem-add">
+          <input type="text" class="text-input" id="adminBlockTermInput" placeholder="Block a word or phrase" autocomplete="off" maxlength="100">
+          <button class="btn" id="adminBlockTermBtn" type="button"><i data-lucide="ban"></i><span>Block term</span></button>
+        </div>
+      </section>
     </div>
   </div>
 </div>
