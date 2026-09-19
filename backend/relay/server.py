@@ -320,6 +320,73 @@ PUB_FILE_BYTES_LIMIT = int(os.environ.get("PUB_FILE_BYTES_LIMIT", "20"))
 PUB_WINDOW = 60.0
 
 
+# --- member sessions, for endpoints members legitimately call --------------
+#
+# Closure audit B-01: the CONTROL_KEY alone used to stand between a chat
+# request and the LLM, which meant the chat credential and the /admin/*
+# credential were the same browser-held string. Chat now also accepts the
+# caller's own Supabase session, proven by GoTrue and gated by the same
+# workspace grant the database enforces. Verdicts are cached briefly per
+# token so a streaming chat does not pay two round trips per request;
+# revocation bites within the cache window, which is the documented
+# tradeoff (60 seconds, not the old forever).
+
+_MEMBER_CACHE: dict = {}
+_MEMBER_CACHE_TTL = 60.0
+
+
+def _member_cache_get(key: str):
+    entry = _MEMBER_CACHE.get(key)
+    if entry and entry[0] > time.monotonic():
+        return entry[1]
+    _MEMBER_CACHE.pop(key, None)
+    return None
+
+
+def _member_cache_put(key: str, value) -> None:
+    stale = [k for k, (at, _) in _MEMBER_CACHE.items()
+             if at <= time.monotonic() - _MEMBER_CACHE_TTL]
+    for k in stale:
+        _MEMBER_CACHE.pop(k, None)
+    if len(_MEMBER_CACHE) > 2048:
+        _MEMBER_CACHE.pop(next(iter(_MEMBER_CACHE)))
+    _MEMBER_CACHE[key] = (time.monotonic() + _MEMBER_CACHE_TTL, value)
+
+
+async def _authed_member(request: Request) -> dict:
+    """Chat is a member privilege, not an operator one.
+
+    Either the CONTROL_KEY (operator tooling, still accepted) or a valid
+    Supabase session whose account holds a workspace grant. Anything else
+    gets the same refusal, and wrong guesses count against the same failure
+    budget as _authed so this cannot become the softer brute-force path.
+    """
+    supplied = request.headers.get("Authorization", "")
+    if CONTROL_KEY and hmac.compare_digest(supplied, "Bearer " + CONTROL_KEY):
+        return {"role": "owner"}
+    ip = _client_ip(request)
+    if _rate_over("authfail", ip, 15, 60.0):
+        raise HTTPException(status_code=429, detail="too many attempts; wait a minute")
+    token = supplied[7:].strip() if supplied.lower().startswith("bearer ") else ""
+    if not token:
+        _rate_hit("authfail", ip, 15, 60.0)
+        raise HTTPException(status_code=401, detail="invalid or missing session")
+    cached = _member_cache_get("m:" + token)
+    if cached is None:
+        caller = await supabase_admin.verify_session(token)
+        granted = False
+        if caller and caller.get("id"):
+            granted = await supabase_admin.has_workspace_grant(caller["id"])
+        cached = {"user_id": caller.get("id"), "granted": bool(granted)} if caller else False
+        _member_cache_put("m:" + token, cached)
+    if not cached:
+        _rate_hit("authfail", ip, 15, 60.0)
+        raise HTTPException(status_code=401, detail="invalid or missing session")
+    if not cached.get("granted"):
+        raise HTTPException(status_code=403, detail="the workspace is not open to this account yet")
+    return {"role": "member", "user_id": cached.get("user_id")}
+
+
 def _is_owner(request: Request) -> bool:
     """True when the request carries the control key. Never raises."""
     if not CONTROL_KEY:
@@ -649,7 +716,10 @@ def models(request: Request):
 
 @app.post("/v1/chat/completions")
 async def chat(request: Request):
-    _authed(request)
+    # B-01: members authenticate with their own Supabase session (grant-
+    # checked server side), so the CONTROL_KEY never has to live in a
+    # member's browser. /admin/* keeps requiring the key itself.
+    await _authed_member(request)
     raw = await request.body()
     if len(raw) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="request body too large (max 10MB)")
@@ -1972,6 +2042,15 @@ async def admin_grant(request: Request):
         is_new = await supabase_admin.grant_workspace(user["id"])
         if is_new:
             await supabase_admin.approve_waitlist(email)
+            # B-09: parity with the admin_grant RPC — the granted member
+            # finds the notice in their in-app inbox, not only in email.
+            try:
+                await supabase_admin.notify_waitlist_approved(user["id"])
+            except supabase_admin.AdminError as nexc:
+                # The grant and the email are the guarantees; the inbox
+                # notice is best-effort and logged, never a reason to
+                # un-record a grant that already landed.
+                print(f"[admin] inbox notice failed for {email}: {nexc.detail}", flush=True)
     except supabase_admin.AdminError as exc:
         print(f"[admin] grant failed for {email}: {exc.detail}")
         raise HTTPException(status_code=exc.status, detail=exc.safe)
