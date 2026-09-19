@@ -3464,7 +3464,21 @@
       if (e.key && e.key !== LS_KEY) return;
       adoptExternalState();
     });
-        window.addEventListener("popstate", function () { window.__imposeRouteHash = null; route(); });
+    window.addEventListener("impose:profile-updated", function () {
+      /* Profile edits are server-authoritative. Re-fetch avatar/name data
+         immediately so existing posts, comments, remixes, challenges, and
+         the open profile view update without a reload. */
+      refreshLatestAvatars().then(function () {
+        if (currentMode() !== "community") return;
+        renderKnownFeed();
+        if (profileHandle) renderProfile(profileHandle);
+        if (routeHash().indexOf("/g/") === 0) {
+          var open = genById(routeHash().slice(3));
+          if (open) replaceCard(open);
+        }
+      });
+    });
+    window.addEventListener("popstate", function () { window.__imposeRouteHash = null; route(); });
     route();
     requestAnimationFrame(function () {
       moveGlide(currentMode() === "workspace" ? $("cmTabWorkspace") : $("cmTabCommunity"));

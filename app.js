@@ -6164,6 +6164,12 @@
     if (document.activeElement !== $("acctName")) $("acctName").value = name;
   }
 
+  window.addEventListener("impose:profile-updated", function () {
+    /* Community profile edits are server-authoritative. Repaint the shared
+       header immediately instead of waiting for a reload or workspace poll. */
+    syncAvatars();
+  });
+
   function authSession() {
     try { return JSON.parse(localStorage.getItem("impose.auth.v1") || "null"); }
     catch (err) { return null; }

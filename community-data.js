@@ -880,7 +880,10 @@
     return run(function () {
       return db().rpc("update_my_profile", { p_display_name: name, p_bio: bio });
     }).then(function (out) {
-      if (out.ok) cachedProfile = null; /* the header renders from this */
+      if (out.ok) {
+        cachedProfile = null;
+        window.dispatchEvent(new CustomEvent("impose:profile-updated"));
+      }
       return out;
     });
   }
@@ -894,7 +897,10 @@
         p_avatar: avatar || null
       });
     }).then(function (out) {
-      if (out.ok) cachedProfile = null;
+      if (out.ok) {
+        cachedProfile = null;
+        window.dispatchEvent(new CustomEvent("impose:profile-updated"));
+      }
       return out;
     });
   }

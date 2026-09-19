@@ -16434,6 +16434,12 @@ window.BotoConfig = {
     if (document.activeElement !== $("acctName")) $("acctName").value = name;
   }
 
+  window.addEventListener("impose:profile-updated", function () {
+    /* Community profile edits are server-authoritative. Repaint the shared
+       header immediately instead of waiting for a reload or workspace poll. */
+    syncAvatars();
+  });
+
   function authSession() {
     try { return JSON.parse(localStorage.getItem("impose.auth.v1") || "null"); }
     catch (err) { return null; }
@@ -20857,7 +20863,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return run(function () {
       return db().rpc("update_my_profile", { p_display_name: name, p_bio: bio });
     }).then(function (out) {
-      if (out.ok) cachedProfile = null; /* the header renders from this */
+      if (out.ok) {
+        cachedProfile = null;
+        window.dispatchEvent(new CustomEvent("impose:profile-updated"));
+      }
       return out;
     });
   }
@@ -20871,7 +20880,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         p_avatar: avatar || null
       });
     }).then(function (out) {
-      if (out.ok) cachedProfile = null;
+      if (out.ok) {
+        cachedProfile = null;
+        window.dispatchEvent(new CustomEvent("impose:profile-updated"));
+      }
       return out;
     });
   }
@@ -24552,7 +24564,21 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       if (e.key && e.key !== LS_KEY) return;
       adoptExternalState();
     });
-        window.addEventListener("popstate", function () { window.__imposeRouteHash = null; route(); });
+    window.addEventListener("impose:profile-updated", function () {
+      /* Profile edits are server-authoritative. Re-fetch avatar/name data
+         immediately so existing posts, comments, remixes, challenges, and
+         the open profile view update without a reload. */
+      refreshLatestAvatars().then(function () {
+        if (currentMode() !== "community") return;
+        renderKnownFeed();
+        if (profileHandle) renderProfile(profileHandle);
+        if (routeHash().indexOf("/g/") === 0) {
+          var open = genById(routeHash().slice(3));
+          if (open) replaceCard(open);
+        }
+      });
+    });
+    window.addEventListener("popstate", function () { window.__imposeRouteHash = null; route(); });
     route();
     requestAnimationFrame(function () {
       moveGlide(currentMode() === "workspace" ? $("cmTabWorkspace") : $("cmTabCommunity"));
