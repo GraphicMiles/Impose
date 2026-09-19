@@ -461,7 +461,7 @@
      never on "restored": if we must be wrong, be wrong in the direction
      the author actually asked for.
 
-     See docs/delete-flow-plan.md for the full semantics and the reasons
+     See docs/BLUEPRINT.md §2 "Community: post/comment" for the semantics and the reasons
      the alternatives were rejected. */
 
   var UNDO_MS = 6000;
