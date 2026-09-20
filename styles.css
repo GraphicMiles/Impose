@@ -2740,7 +2740,9 @@ button, input, textarea, select {
   padding-bottom: max(10px, env(safe-area-inset-bottom));
 }
 #chatScroll {
-  padding-bottom: 112px;
+  /* Fed by the dock ResizeObserver in app.js; 112px only survives until
+     the first measurement lands. */
+  padding-bottom: calc(var(--composer-h, 112px) + 8px);
 }
 
 /* Bottom safe-area breathing room: keep the composer clear of gesture bars

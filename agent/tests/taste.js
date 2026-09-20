@@ -297,6 +297,30 @@ test("pull-to-refresh never arms outside the community mode", function () {
     "the touchstart guard no longer gates on community mode (see the workspace scroll-up swallow)");
 });
 
+test("the chat scroller clears the REAL composer dock, not a guessed constant", function () {
+  /* The dock is position:fixed and grows (autogrow to 200px, attach
+     previews, wrapped disclaimer), so any hardcoded padding-bottom on
+     #chatScroll strands the bottom of the thread - reply action row
+     included - underneath the composer. app.js must keep feeding the
+     measured dock height into --composer-h. */
+  ok(read("styles.css").indexOf('padding-bottom: calc(var(--composer-h, 112px) + 8px)') > -1,
+    "#chatScroll no longer pads by the measured --composer-h");
+  ok(read("app.js").indexOf(".observe(composerDock)") > -1,
+    "the dock ResizeObserver that feeds --composer-h is gone");
+});
+
+test("the sidebar glide refuses to place itself against a layoutless sidebar", function () {
+  /* In community mode the sidebar is display:none, so row rects are 0
+     and any computed glide top freezes at the sheet's top edge - the
+     bar that then hangs above the "Today" label when the workspace
+     returns. placeGlide must bail on zero-height rows and wait for the
+     real mode switch. */
+  var js = read("app.js");
+  var i = js.indexOf("function placeGlide(");
+  ok(i > -1 && js.slice(i, i + 1600).indexOf("r.height === 0") > -1,
+    "placeGlide no longer guards against collapsed (community-mode) rects");
+});
+
 test("profile names have one contract: capped length, no emoji, some letters", function () {
   /* The header truncation keeps the layout but cannot make an emoji name
      sayable or searchable. The rule lives once in BotoUI.validProfileName,

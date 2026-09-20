@@ -2668,6 +2668,17 @@
       if (glideEl.parentNode !== groupsEl) groupsEl.appendChild(glideEl);
       var g = groupsEl.getBoundingClientRect();
       var r = row.getBoundingClientRect();
+      /* Zero-height rows mean the sidebar has no layout right now (in
+         community mode it is display:none). Any top computed from
+         collapsed rects freezes at the sheet's top edge, where it then
+         hangs above the "Today" label after the workspace returns -
+         stay hidden and let the mode observer below re-place us. */
+      if (r.height === 0) {
+        glideEl.style.display = "none";
+        glidePending = true;
+        return;
+      }
+      glidePending = false;
       var top = r.top - g.top + groupsEl.scrollTop + Math.max(0, (r.height - 24) / 2);
       if (window.anime && window.anime.remove) {
         try { window.anime.remove(glideEl); } catch (e) { /* noop */ }
@@ -2681,6 +2692,18 @@
     } catch (e) { /* decorative */ }
   }
 
+  /* community.css drops the sidebar's layout entirely in community mode
+     (display:none), so every glide placement computed there is garbage.
+     Re-place once the real mode switch restores layout. */
+  var glidePending = false;
+  try {
+    new MutationObserver(function () {
+      if (glidePending && !document.body.classList.contains("community-mode")) {
+        placeGlide(false);
+      }
+    }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  } catch (e) { /* old engines: glide just stays hidden until next render */ }
+
   /* ---------- messages ---------- */
 
   var messagesEl = $("messages");
@@ -2692,6 +2715,25 @@
   var dockSlot = $("dockSlot");
   var input = $("input");
   var sendBtn = $("sendBtn");
+
+  /* The composer dock is position:fixed, so it adds no scroll room of its
+     own: #chatScroll must pad itself by the dock's REAL height or the
+     tail of the thread (the reply action row included) gets trapped
+     under the composer. A fixed padding is wrong by construction - the
+     dock grows with the autogrowing textarea, attach previews and the
+     disclaimer's narrow-screen wrap - so measure it and expose the
+     height as --composer-h, which #chatScroll consumes. */
+  try {
+    new ResizeObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        var box = entries[i].borderBoxSize;
+        var h = box && box.length ? box[0].blockSize
+          : entries[i].target.getBoundingClientRect().height;
+        document.documentElement.style.setProperty(
+          "--composer-h", Math.ceil(h) + "px");
+      }
+    }).observe(composerDock);
+  } catch (e) { /* keep the stylesheet's fixed fallback */ }
 
   function isNearBottom() {
     return chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 140;
