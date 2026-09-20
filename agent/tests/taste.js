@@ -85,7 +85,15 @@ test("fonts.css is byte-identical to the face in styles.css", function () {
 test("every public page and the auth screens load the shared face", function () {
   PUBLIC_PAGES.concat(["auth.html"]).forEach(function (rel) {
     ok(exists(rel), rel + " is missing");
-    ok(read(rel).indexOf('href="./fonts.css"') > -1, rel + " does not link fonts.css");
+    var html = read(rel);
+    if (rel === "404.html") {
+      /* The 404 page is served at the offending URL, at any depth, so its
+         assets must be root-absolute; "./fonts.css" resolves one level
+         too deep under "/billing/index.html" and the page renders bare. */
+      ok(html.indexOf('href="/fonts.css"') > -1, rel + " does not link fonts.css root-absolute");
+    } else {
+      ok(html.indexOf('href="./fonts.css"') > -1, rel + " does not link fonts.css");
+    }
   });
 });
 
@@ -109,8 +117,14 @@ test("the 404 page exists, is routed, and is not indexed", function () {
   ok(exists("404.html"), "404.html is missing");
   var html = read("404.html");
   ok(html.indexOf('name="robots" content="noindex"') > -1, "404 is missing noindex");
-  ok(html.indexOf('href="./index.html"') > -1, "404 offers no route back into the app");
-  ok(read("render.yaml").indexOf("404.html") > -1, "404.html is not shipped by the Render build");
+  /* Root-absolute: the page is served at the offending URL, so a relative
+     link/picture/script would resolve below the bad path and 404 again. */
+  ok(html.indexOf('href="/index.html"') > -1, "404 offers no route back into the app");
+  ok(!/(?:href|src)="\.\//.test(html),
+    "404.html carries a relative reference; it is served at arbitrary depth, so every asset and link must be root-absolute");
+  /* The node server is the shipping mechanism: its catch-all serves this
+     file with a real 404 status at every unmatched path. */
+  ok(read("server.js").indexOf("404.html") > -1, "server.js no longer routes misses to 404.html");
 });
 
 /* ---------- flow.txt rule 3: no dead controls ---------- */
@@ -121,17 +135,17 @@ test("the 404 back control has a destination in both history states", function (
   ok(js.indexOf("window.history.back()") > -1, "back control does not use history");
   ok(js.indexOf("window.history.length > 1") > -1,
     "back control does not check for history, so it can render as a dead button");
-  ok(js.indexOf('window.location.href = "./about"') > -1,
-    "back control has no fallback destination when there is no history");
+  ok(js.indexOf('window.location.href = "/about"') > -1,
+    "back control has no root-absolute fallback when there is no history (a relative one re-404s, because public.js also runs on the 404 page)");
 });
 
 test("every 404 destination link resolves to a real route", function () {
-  var routes = read("render.yaml");
-  var hrefs = read("404.html").match(/href="\.\/([a-z0-9-]+)"/g) || [];
+  var routes = read("server.js");
+  var hrefs = read("404.html").match(/href="\/([a-z0-9-]+)"/g) || [];
   ok(hrefs.length > 0, "404 lists no destinations");
   hrefs.forEach(function (raw) {
-    var name = raw.slice(8, -1);
-    var routed = routes.indexOf("source: /" + name) > -1;
+    var name = raw.slice(7, -1);
+    var routed = routes.indexOf(name + ".html") > -1;
     ok(routed || exists(name + ".html"), "404 links /" + name + " which is not routed or built");
   });
 });

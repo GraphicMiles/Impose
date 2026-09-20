@@ -321,7 +321,10 @@ profile/posts/comments/grants/caps; audit row survives via SET NULL).
   - Render serves `index.html` for `/`, `/workspace`, `/g/:id`, `/u/:handle`,
     `/u/:handle/post/:id` (alias; routeHash normalizes it to the canonical
     `/g/<id>` detail), `/admin` (server.js); everything unmatched gets the
-    styled `404.html`.
+    styled `404.html` with a real 404 status — served AT the offending URL,
+    so every reference inside `404.html` (and the public.js back fallback)
+    is root-absolute; a relative one resolves below the bad path and the
+    page renders bare. taste.js gates both invariants.
 - Deploy relay: Render web service impose-relay (environment vars in Render
   dashboard; see relay files for names: CONTROL_KEY, SUPABASE_*,
   SENDLIB_* and the model gateway keys).

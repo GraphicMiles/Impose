@@ -17,11 +17,11 @@
    exactly this reason: the origin served the new files and the worker
    never asked for them. build_inline.py --check now fails when a
    precached file is newer than this line. */
-/* precache-fingerprint: 08b0f1cd51bd
+/* precache-fingerprint: 13c92a98629f
    A hash of the cached sources, checked by agent/tests/taste.js. If it
    disagrees, a cached file changed without a version bump and returning
    visitors would keep the old build. */
-var CACHE = "impose-shell-v70";
+var CACHE = "impose-shell-v71";
 var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
 var PUBLIC_ROUTE = {
   /* The admin console is index.html in admin mode. It is a real path

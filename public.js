@@ -39,7 +39,10 @@
     if (!canGoBack) {
       backBtn.innerHTML = '<i data-lucide="info"></i><span>Read about Impose</span>';
       if (window.lucide) window.lucide.createIcons();
-      backBtn.addEventListener("click", function () { window.location.href = "./about"; });
+      /* Root-absolute: public.js also runs on 404.html, which the server
+         serves at the offending URL, so "./about" would resolve relative
+         to the bad path and 404 again. */
+      backBtn.addEventListener("click", function () { window.location.href = "/about"; });
     } else {
       backBtn.addEventListener("click", function () { window.history.back(); });
     }

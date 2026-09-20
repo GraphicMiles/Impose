@@ -4276,16 +4276,16 @@ body:not(.community-mode) .modebar { display: none; }
 
 /* In the mode bar, so it is reachable from the feed and a thread alike. */
 .cm-scope .notif-btn {
-  /* Absolute, because the bar centres its capsule with justify-content and
-     a flex sibling would shove that capsule off-centre. */
-  position: absolute;
-  right: 12px;
-  top: max(10px, env(safe-area-inset-top));
+  /* A plain flex child inside .modebar-right (the cluster is the absolute
+     one, so the capsule stays centred). Positioning the button itself
+     absolute parked it over the avatar: it sat 4px off and one size up
+     against its neighbours. Relative, for the dot, not for placement. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--r-3);
   color: var(--text-2);
   transition: background-color 140ms ease, color 140ms ease;
