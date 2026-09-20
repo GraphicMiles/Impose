@@ -76,7 +76,9 @@ jobs:
           # claim from "the DDL ran": PostgREST caches the schema and a
           # migration applied behind its back stays invisible until it
           # reloads.
-          for table in profiles generations comments saves; do
+          # saves (community bookmarks) was dropped in 0021: asking REST for
+          # it can only fail, so it cannot confirm anything.
+          for table in profiles generations comments; do
             code="$(curl -s -o /tmp/body -w '%{http_code}' \
               "$URL/rest/v1/$table?select=count&limit=1" \
               -H "apikey: $KEY" -H "Authorization: Bearer $KEY")"
