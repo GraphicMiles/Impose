@@ -70,7 +70,15 @@ body.cm-detail-mode .modebar { display: none; }
 body.cm-detail-mode .cm-scope .cm-view,
 .cm-scope body.cm-detail-mode .cm-view { padding-top: 0; }
 
-.modebar .modeseg { grid-column: 2; pointer-events: auto; }
+.modebar .modeseg {
+  grid-column: 2;
+  pointer-events: auto;
+  /* The bar's ::before glass is absolutely positioned and therefore paints
+     above every in-flow (static) sibling. An unpositioned capsule renders
+     its pill surface UNDER that glass; positioned, it sits above it in DOM
+     order. */
+  position: relative;
+}
 /* The bar is pointer-events:none so the fade zone lets taps reach the feed
    beneath it. Anything interactive in there opts back in through its
    cluster, or it is visible and unclickable: the bell was, before it moved
@@ -83,6 +91,13 @@ body.cm-detail-mode .cm-scope .cm-view,
   grid-column: 3;
   justify-self: end;
   align-self: center;
+  /* must stay positioned: when it was a static (in-flow) grid item, the
+     bar's absolute ::before glass painted ON TOP of the cluster - the
+     avatar dimmed into the veil while the (already-positioned) bell and
+     tabs stayed crisp. That was the "avatar only flickers while pressed"
+     regression: :active's transform made the button paint above the
+     glass for the duration of the press. */
+  position: relative;
   /* Its track is minmax(0, 1fr): below ~372px the cluster is wider than
      its half of the leftover, so it quietly overhangs into the gap. The
      capsule stays dead-centre; the old absolute cluster sat the same
