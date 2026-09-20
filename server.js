@@ -23,6 +23,11 @@ app.use(express.static(root, { extensions: ['html'], index: 'index.html' }));
 app.get(['/workspace', '/workspace/'], (_req, res) => res.sendFile(path.join(root, 'index.html')));
 app.get(['/g/:id', '/g/:id/'], (_req, res) => res.sendFile(path.join(root, 'index.html')));
 app.get(['/u/:handle', '/u/:handle/'], (_req, res) => res.sendFile(path.join(root, 'index.html')));
+/* Profile-scoped post URLs are a first-class deep link: /u/@handle/post/<id>
+   names the same detail as /g/<id>. The handle is decorative, the id is
+   authoritative; routeHash() normalizes the long form to the short one.
+   Until this rule existed the alias 404'd on every cold load. */
+app.get(['/u/:handle/post/:id', '/u/:handle/post/:id/'], (_req, res) => res.sendFile(path.join(root, 'index.html')));
 app.get(['/admin', '/admin/'], (_req, res) => res.sendFile(path.join(root, 'index.html')));
 
 app.use((_req, res) => res.status(404).sendFile(path.join(root, '404.html')));
