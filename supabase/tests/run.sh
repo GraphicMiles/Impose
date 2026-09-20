@@ -83,6 +83,13 @@ create role service_role bypassrls;
 create publication supabase_realtime;
 grant usage on schema auth to anon, authenticated, service_role;
 grant execute on function auth.uid() to anon, authenticated, service_role;
+-- 0022 (the canonical reset) refuses to run without the owner identity it
+-- wires up, exactly as it should. Production has that auth user; the replay
+-- of history here needs the same seed or every later migration is verified
+-- nowhere. The id is fixed so it cannot collide with the suite's own
+-- gen_random_uuid() users.
+insert into auth.users (id, email) values
+  ('00000000-0000-4000-8000-0000000000aa'::uuid, 'rfarouq69@gmail.com');
 SQL
 
 # Every migration, in order. Testing only the first one would let a later
@@ -97,7 +104,8 @@ psql <<'SQL'
 grant usage on schema public to anon, authenticated;
 grant select on public.profiles, public.generations, public.comments to anon, authenticated;
 grant select, insert, update, delete on public.generations, public.comments to authenticated;
-grant select, insert, delete on public.saves to authenticated;
+/* public.saves (community bookmarks) was dropped for good in 0021; a grant
+   referencing it made the whole replay of history fail after 0025. */
 SQL
 
 # Run once, keep the real exit status, and show the output. Running it a

@@ -2,7 +2,7 @@
 
 Single source of truth for the database. Generated from the live catalog
 (Supabase project `xgqcvuzkeaferjsnpjjw`, eu-west-2, free tier) on
-2026-09-20 after migration 0001–0027. Migrations live in
+2026-09-20 after migration 0001–0028. Migrations live in
 `supabase/migrations/`; the live objects ARE the migrations applied in
 order — verified byte-identical bodies against the last-defining file.
 
@@ -64,7 +64,7 @@ RLS: enabled, **no policies = default deny** for API roles.
 API grants: none
 
 ### `workspace_state`
-THE whole workspace, one encrypted blob per user (rev-based CAS sync). Writers: save_workspace writes (grant-gated, 3 MiB cap, rev CAS); pull via direct SELECT under RLS (own row only).
+THE whole workspace, one encrypted blob per user (rev-based CAS sync). Writers: save_workspace writes (grant-gated, 3 MiB cap, rev CAS); pull via direct SELECT under RLS (own row only, grant-gated via my_workspace_access since 0028 — policy predicates must never read workspace_grants directly: they run at invoker privileges and clients hold no grant there).
 
 Columns:  
 `user_id uuid not null, data jsonb not null, rev bigint not null, updated_at timestamp with time zone not null`

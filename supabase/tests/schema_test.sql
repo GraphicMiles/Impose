@@ -30,24 +30,61 @@ begin
   raise exception 'FAIL  % : the statement was allowed', label;
 end $$;
 
+/* 0024 gave destructive admin RPCs a step-up: admin_remove,
+   admin_revoke_cap and delete_my_account refuse any session that cannot
+   prove it was minted recently (require_recent_auth reads
+   request.jwt.claims.iat, the stand-in only ever sets .sub). A signed-in
+   harness mints the claim pair fresh for the block the way a real OTP
+   sign-in would. Without this the step-up either blocks the suite's own
+   admin work, or worse, the denial it raises passes a test_denied that
+   was written to prove a different check. */
+create or replace function test_fresh_claims(p_sub uuid) returns void
+language plpgsql as $$
+begin
+  perform set_config('request.jwt.claims',
+    jsonb_build_object('sub', p_sub, 'iat', extract(epoch from now())::bigint)::text,
+    false);
+end $$;
+
 -- ---------------------------------------------------------------- setup
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'alice@test.com'),
   ('22222222-2222-2222-2222-222222222222', 'bob@test.com'),
   ('33333333-3333-3333-3333-333333333333', 'alice@other.com');
 
+/* Since 0023, save_workspace answers workspace_not_granted unless a grant
+   row exists. Production grants through the admin RPCs; the harness seeds
+   the two accounts the workspace section writes as, so the section keeps
+   testing the blob semantics. The gate itself is asserted separately. */
+insert into public.workspace_grants (user_id, granted_by, note) values
+  ('11111111-1111-1111-1111-111111111111', '00000000-0000-4000-8000-0000000000aa', 'harness: workspace section user');
+
+/* The replay of production history seeds the canonical owner (0022), so
+   the suite counts the rows the trigger made for ITS users, never global
+   totals: a global count would break for any history that seeds a row. */
 select test_ok('profiles are created for new users',
-  (select count(*) from public.profiles) = 3);
+  (select count(*) from public.profiles
+    where id in ('11111111-1111-1111-1111-111111111111',
+                 '22222222-2222-2222-2222-222222222222',
+                 '33333333-3333-3333-3333-333333333333')) = 3);
 
 select test_ok('handles are generated, never null',
-  (select count(*) from public.profiles where handle is null) = 0);
+  (select count(*) from public.profiles
+    where id in ('11111111-1111-1111-1111-111111111111',
+                 '22222222-2222-2222-2222-222222222222',
+                 '33333333-3333-3333-3333-333333333333')
+      and handle is null) = 0);
 
 select test_ok('colliding handles get a suffix rather than failing signup',
-  (select count(distinct handle) from public.profiles) = 3);
+  (select count(distinct handle) from public.profiles
+    where id in ('11111111-1111-1111-1111-111111111111',
+                 '22222222-2222-2222-2222-222222222222',
+                 '33333333-3333-3333-3333-333333333333')) = 3);
 
 -- ------------------------------------------------------- generations
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 -- A post that does not address @bot never gets a response. The original
 -- schema required one and would have rejected every plain post.
@@ -74,6 +111,7 @@ values ('a0000000-0000-0000-0000-000000000004',
 
 -- ------------------------------------------------- as a different user
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 
 select test_ok('a private post is invisible to everyone else',
   (select count(*) from public.generations
@@ -178,6 +216,7 @@ select test_ok('undo restores the comment and its count',
     where id = 'a0000000-0000-0000-0000-000000000001') = 2);
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_denied('deleting someone else''s comment is refused', $$
   select public.soft_delete_comment('c0000000-0000-0000-0000-000000000001')$$);
 
@@ -206,10 +245,20 @@ select test_ok('joining assigns a real queue position',
 select public.join_waitlist('second@company.com');
 select test_ok('the next joiner stands behind the first',
   (select position from public.waitlist where email = 'second@company.com') = 2);
+/* Positions are still assigned and stored; the API stopped disclosing
+   them in 0023 (anti-enumeration): every caller hears the same
+   null-position 'received', so the assertions look at the table, and at
+   what the RPC deliberately refuses to say. A re-join must not move the
+   stored row. */
+select public.join_waitlist('someone@company.com');
 select test_ok('re-joining keeps the same place in line',
-  (select w.waitlist_position from public.join_waitlist('someone@company.com') w) = 1);
-select test_ok('the RPC reports the position it assigned',
-  (select w.waitlist_position from public.join_waitlist('third@company.com') w) = 3);
+  (select position from public.waitlist where email = 'someone@company.com') = 1);
+select public.join_waitlist('third@company.com');
+select test_ok('the third joiner stands behind the second',
+  (select position from public.waitlist where email = 'third@company.com') = 3);
+select test_ok('the join RPC discloses neither position nor membership',
+  (select w.waitlist_position is null and w.status = 'received'
+     from public.join_waitlist('someone@company.com') w));
 
 
 -- ============ auth hardening (0003) ============
@@ -285,6 +334,7 @@ insert into auth.users (id, email) values
 
 set role authenticated;
 set request.jwt.claim.sub = '66666666-6666-6666-6666-666666666666';
+select test_fresh_claims('66666666-6666-6666-6666-666666666666');
 
 -- Idempotency. The same key replayed must not produce a second post.
 select test_ok('a post is created through the RPC',
@@ -363,6 +413,7 @@ select test_ok('the limit is capped server side, not by the caller',
 create temp table probe_mark as select now() as at;
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 create temp table probe_before as
   select public.feed_since((select at from probe_mark)) as n;
 
@@ -374,6 +425,7 @@ select test_ok('your own new post does not raise your own counter',
   public.feed_since((select at from probe_mark)) = (select n from probe_before));
 
 set request.jwt.claim.sub = '66666666-6666-6666-6666-666666666666';
+select test_fresh_claims('66666666-6666-6666-6666-666666666666');
 select test_ok('but another reader is told about it',
   public.feed_since((select at from probe_mark)) > 0);
 
@@ -478,6 +530,7 @@ select test_ok('published tables carry enough of the row for RLS to filter it',
 reset role;
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 insert into public.generations (id, author_id, prompt, response, locked)
 values ('cccccccc-0000-0000-0000-00000000000a',
@@ -487,6 +540,7 @@ values ('cccccccc-0000-0000-0000-00000000000b',
         '11111111-1111-1111-1111-111111111111', 'open parent', 'x');
 
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 
 select test_denied('the RPC refuses a remix of a locked post', $$
   select public.create_generation(gen_random_uuid(), 'steal', 'x', false, 'complete',
@@ -506,6 +560,7 @@ select test_denied('a remix must carry a parent, through the RPC', $$
 
 -- The author locked it against others, not against themselves.
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_ok('the author can still build on their own locked post',
   (select id from public.create_generation(gen_random_uuid(), 'mine', 'x', false,
     'complete', 'public', 'remix', 'cccccccc-0000-0000-0000-00000000000a')) is not null);
@@ -569,6 +624,7 @@ select test_ok('text_is_spammy passes ordinary names and addresses',
 -- --------------------------------------------------------- profile rules
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 select public.update_my_profile('Alice A.', 'hello');
 select test_ok('an ordinary name and bio are kept',
@@ -642,12 +698,14 @@ select test_denied('keyboard-mash local parts are refused at the waitlist', $$
 select test_denied('over-long addresses are refused at the waitlist', $$
   select public.join_waitlist(repeat('b', 250) || '@x.com')$$);
 
+select public.join_waitlist('fresh.person@gmail.com');
 select test_ok('an ordinary address still joins',
-  (select status from public.join_waitlist('fresh.person@gmail.com')) = 'pending');
+  (select status from public.waitlist where email = 'fresh.person@gmail.com') = 'pending');
 
 -- --------------------------------------------------- write-size guards
 set role authenticated;
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 
 select test_denied('the RPC names an oversized prompt', $$
   select public.create_generation(gen_random_uuid(), repeat('x', 4001), 'r')$$);
@@ -681,6 +739,7 @@ select test_ok('rate_hit counts inside one statement',
 -- ------------------------------------------------ the @bot cooldown
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 select test_ok('three addressed posts in a minute are fine',
   (select count(*) from (
@@ -718,6 +777,7 @@ select test_ok('an idempotent replay spends no budget',
 
 -- ------------------------------------------------- comment caps
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 
 select test_ok('five comments on one thread are fine',
   (select count(*) from (
@@ -753,12 +813,14 @@ select test_denied('the sixteenth comment in the minute is refused outright', $$
 
 -- --------------------------- deleted posts keep no readable discussion
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 insert into public.generations (id, author_id, prompt, response)
 values ('eeeeeeee-0000-0000-0000-000000000001',
         '11111111-1111-1111-1111-111111111111', 'soon deleted', 'x');
 
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 insert into public.comments (id, generation_id, author_id, body)
 values ('eeeeeeee-0000-0000-0000-000000000002',
         'eeeeeeee-0000-0000-0000-000000000001',
@@ -769,10 +831,12 @@ select test_ok('the comment is readable while the post lives',
     where generation_id = 'eeeeeeee-0000-0000-0000-000000000001') = 1);
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 update public.generations set deleted_at = now()
  where id = 'eeeeeeee-0000-0000-0000-000000000001';
 
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 select test_ok('a soft-deleted post hides its comments from the API',
   (select count(*) from public.comments
     where generation_id = 'eeeeeeee-0000-0000-0000-000000000001') = 0);
@@ -788,6 +852,7 @@ reset role;
 -- unable to confirm the existence of content the reporter cannot see.
 set role authenticated;
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 
 select test_ok('a visible post can be reported',
   public.report_content('post', 'a0000000-0000-0000-0000-000000000001')
@@ -842,6 +907,7 @@ select test_denied('anon cannot read the workspace table', $$
 -- Owner writes: first save creates the row, the next one bumps rev.
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 -- \gset forces ordering: the save runs first, the assertions read its
 -- result. An AND across a function call and a subquery would not
@@ -869,6 +935,7 @@ select test_ok('a legacy save with no claim still lands (old clients degrade, no
 
 -- A second account cannot see, overwrite or delete it.
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 
 select test_ok('another account sees no foreign workspace rows',
   (select count(*) from public.workspace_state) = 0);
@@ -890,6 +957,16 @@ select test_ok('a foreign delete matches nothing', :foreign_deletes = 0);
 select test_denied('inserting a row under a foreign id is refused', $$
   insert into public.workspace_state (user_id, data)
   values ('11111111-1111-1111-1111-111111111111', '{}'::jsonb)$$);
+
+-- The second account writes its own workspace, so it needs the same
+-- entitlement seed alice got (0023 makes save_workspace grant-gated).
+-- Clients hold no grant on workspace_grants by design, so the seed must
+-- run as owner, not as the authenticated role this section plays in.
+reset role;
+insert into public.workspace_grants (user_id, granted_by, note) values
+  ('33333333-3333-3333-3333-333333333333', '00000000-0000-4000-8000-0000000000aa', 'harness: second workspace account');
+set role authenticated;
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
 
 -- Under RLS the second account still sees exactly one row: its own.
 select public.save_workspace('{"chats":[]}'::jsonb) ->> 'rev' as rev_c \gset
@@ -935,6 +1012,7 @@ select test_denied('anon cannot read the admins table', $$
 
 set role authenticated;
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 
 select test_ok('an ordinary account is not an admin',
   public.is_admin() = false);
@@ -952,23 +1030,30 @@ select test_denied('a non-admin cannot read the admins table', $$
   select * from public.admins$$);
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 select test_ok('the seeded admin is an admin', public.is_admin());
 select test_ok('the queue shows who is waiting and whether they signed up',
   (select count(*) from public.admin_waitlist() w
     where w.email = 'waiter@company.com' and w.has_account = false) = 1);
+/* History seeds the canonical owner (0022) and the harness seeds alice,
+   so the roster carries two owners; the assertion names them rather than
+   counting to one. */
 select test_ok('the roster lists the owner',
-  (select count(*) from public.admin_roster() r where r.owner) = 1);
+  (select count(*) from public.admin_roster() r
+    where r.owner and r.email in ('rfarouq69@gmail.com', 'alice@test.com')) = 2);
 
 select test_ok('an admin can be added by email',
   public.admin_add('bob@test.com') ->> 'status' = 'added');
 
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 select test_ok('the new admin takes effect immediately',
   public.is_admin() and (select count(*) from public.admin_waitlist() w
     where w.email = 'waiter@company.com') = 1);
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_ok('adding the same admin again is idempotent',
   public.admin_add('bob@test.com') ->> 'status' = 'already');
 select test_denied('adding an address with no account is refused', $$
@@ -980,9 +1065,11 @@ select test_ok('a co-admin can be removed',
   public.admin_remove('22222222-2222-2222-2222-222222222222') ->> 'status' = 'removed');
 
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 select test_ok('removal strips the role immediately', public.is_admin() = false);
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_denied('the owner cannot be removed', $$
   select public.admin_remove('11111111-1111-1111-1111-111111111111')$$);
 
@@ -1002,6 +1089,7 @@ select test_ok('the grant row exists and the waitlist row is untouched',
 
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_ok('reports are readable in-product, newest first, reporter embedded',
   jsonb_array_length(public.admin_reports()) >= 1
   and (public.admin_reports() -> 0) ? 'reporter');
@@ -1017,6 +1105,7 @@ reset role;
 select r.id as report_id from public.reports r where r.status = 'pending' limit 1 \gset
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_ok('an admin closes a pending report',
   public.admin_resolve_report(:'report_id', 'dismissed') ->> 'status' = 'dismissed');
 select test_ok('closing it again reports it already settled',
@@ -1026,15 +1115,18 @@ select test_ok('the first decision stands',
   (select status from public.reports where id = :'report_id') = 'dismissed');
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_ok('a vanished report reads gone',
   public.admin_resolve_report('99999999-9999-9999-9999-999999999999', 'dismissed') ->> 'status' = 'gone');
 select test_denied('a made-up terminal status is refused', $$
   select public.admin_resolve_report('99999999-9999-9999-9999-999999999999', 'vaporized')$$);
 
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 select test_denied('a non-admin cannot resolve a report', $$
   select public.admin_resolve_report('99999999-9999-9999-9999-999999999999', 'dismissed')$$);
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 reset role;
 
@@ -1056,16 +1148,19 @@ select test_denied('anon cannot claim the bootstrap', $$
 
 set role authenticated;
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select test_fresh_claims('22222222-2222-2222-2222-222222222222');
 select test_ok('bob is still nobody''s admin after the anon block', public.is_admin() = false);
 
 select test_ok('an ordinary account may ask the status, and learns four facts and nothing else',
   (select count(*) from jsonb_object_keys(public.admin_bootstrap_status())) = 4
-  and (public.admin_bootstrap_status() ->> 'pending')::boolean
+  and (public.admin_bootstrap_status() ->> 'claimed')::boolean
+  and not (public.admin_bootstrap_status() ->> 'pending')::boolean
   and public.admin_bootstrap_status() -> 'caps' = '[]'::jsonb);
 select test_denied('an ordinary account cannot claim the bootstrap', $$
   select public.admin_bootstrap_claim()$$);
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 -- Counted through admin_caps_for rather than the raw table: authenticated
 -- has no grant on admin_caps, and adding one to peek would weaken the
@@ -1089,8 +1184,11 @@ select test_ok('the owner holds the whole catalog implicitly, no rows needed',
 select test_denied('an action nobody declared a capability for is refused, even for the owner', $$
   select public.require_cap('not_a_real_action')$$);
 
-select test_ok('the owner claims the bootstrap once',
-  public.admin_bootstrap_claim('first login') ->> 'status' = 'claimed');
+/* The replayed history claims the bootstrap in 0022, before this suite
+   runs; what remains provable here is the one-time guarantee itself:
+   nobody, not even an owner, can claim it again. */
+select test_denied('a claimed bootstrap cannot be claimed again, even by an owner', $$
+  select public.admin_bootstrap_claim('first login')$$);
 select test_denied('the bootstrap cannot be replayed, even by its claimer', $$
   select public.admin_bootstrap_claim('again')$$);
 select test_ok('the ledger flips and keeps no identity of its own',
@@ -1101,6 +1199,7 @@ select test_ok('the owner adds a co-admin',
   public.admin_add('carol@company.com') ->> 'status' = 'added');
 
 set request.jwt.claim.sub = '77777777-7777-7777-7777-777777777777';
+select test_fresh_claims('77777777-7777-7777-7777-777777777777');
 
 select test_ok('the co-admin starts with the queue rights and nothing sensitive',
   public.has_cap('waitlist.manage') and public.has_cap('moderation.manage')
@@ -1117,6 +1216,7 @@ select test_ok('the co-admin can still read reports',
   jsonb_typeof(public.admin_reports()) = 'array');
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 
 select test_denied('a capability not in the catalog cannot be granted', $$
   select public.admin_grant_cap('77777777-7777-7777-7777-777777777777', 'billing.secret')$$);
@@ -1126,9 +1226,11 @@ select test_ok('the owner grants a capability',
   public.admin_grant_cap('77777777-7777-7777-7777-777777777777', 'users.read') ->> 'status' = 'granted');
 
 set request.jwt.claim.sub = '77777777-7777-7777-7777-777777777777';
+select test_fresh_claims('77777777-7777-7777-7777-777777777777');
 select test_ok('the grant takes effect on the next call', public.has_cap('users.read'));
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_ok('a revocation is reported with what remains',
   public.admin_revoke_cap('77777777-7777-7777-7777-777777777777', 'users.read') ->> 'remaining' = '2');
 select test_ok('down to one is still allowed, it is zero that is guarded',
@@ -1143,6 +1245,7 @@ select test_ok('the refused revocation changed nothing: the one grant stands',
     where user_id = '77777777-7777-7777-7777-777777777777') = 'moderation.manage');
 set role authenticated;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select test_fresh_claims('11111111-1111-1111-1111-111111111111');
 select test_denied('the owner cannot be stripped of anything', $$
   select public.admin_revoke_cap('11111111-1111-1111-1111-111111111111', 'waitlist.manage')$$);
 select test_ok('the catalog and one admin grants come back for the roster editor',
@@ -1156,6 +1259,7 @@ select test_ok('the roster carries caps per row: eight for the owner, one for th
     where r.user_id = '77777777-7777-7777-7777-777777777777'));
 
 set request.jwt.claim.sub = '77777777-7777-7777-7777-777777777777';
+select test_fresh_claims('77777777-7777-7777-7777-777777777777');
 select test_denied('the co-admin lost the right to grant seats at the moment the cap was revoked', $$
   select public.admin_grant('waiter@company.com')$$);
 select test_ok('a revoked capability reads false rather than raising',
