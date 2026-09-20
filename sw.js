@@ -17,11 +17,11 @@
    exactly this reason: the origin served the new files and the worker
    never asked for them. build_inline.py --check now fails when a
    precached file is newer than this line. */
-/* precache-fingerprint: 30bea3e2b5f6
+/* precache-fingerprint: 514b8504c6e0
    A hash of the cached sources, checked by agent/tests/taste.js. If it
    disagrees, a cached file changed without a version bump and returning
    visitors would keep the old build. */
-var CACHE = "impose-shell-v68";
+var CACHE = "impose-shell-v69";
 var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
 var PUBLIC_ROUTE = {
   /* The admin console is index.html in admin mode. It is a real path
@@ -63,7 +63,13 @@ var CORE = [
   "./agent/orchestrator.js",
   "./agent/harness.js",
   "./agent/features.js",
-  "./community.js"
+  "./community.js",
+  /* community.js is network-first but its stylesheet and data layer were
+     not, so one load after every deploy could run the new router against a
+     stale community.css/community-data.js. Version-coupled pairs must
+     share the strategy. */
+  "./community-data.js",
+  "./community.css"
 ];
 
 /* The full precache list: core files plus the assets that rarely change. */

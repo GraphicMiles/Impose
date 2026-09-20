@@ -1,12 +1,15 @@
 # Static-host custom headers mirror. The CSP reduces the impact of XSS bugs:
-# scripts only from this origin plus the analytics beacon, and the two
-# first-paint inline scripts in index.html by exact content hash. If you
-# edit those inline scripts, recompute their hashes:
-#   python3 -c "import base64,hashlib,re;print(['sha256-'+base64.b64encode(hashlib.sha256(b).digest()).decode() for b in re.findall(rb'<script>(.*?)</script>', open('index.html','rb').read(), re.S)])"
-# Render does not read this Netlify-style file; the same rules are declared
-# in render.yaml for the deployed static site.
+# scripts only from this origin plus the analytics beacon, and the
+# first-paint inline scripts (index.html paints the product mode and the
+# sidebar drawer; auth.html paints the route's own view) by exact content
+# hash. If you edit any inline script, recompute its hash:
+#   python3 -c "import base64,hashlib,re;print(['sha256-'+base64.b64encode(hashlib.sha256(b).digest()).decode() for f in ('index.html','auth.html') for b in re.findall(rb'<script>(.*?)</script>', open(f,'rb').read(), re.S)])"
+# agent/tests/taste.js recomputes them the same way and fails on a mismatch,
+# so a stale entry is caught in CI rather than as a dead boot script in
+# production. Render does not read this Netlify-style file; the same rules
+# are declared in render.yaml for the deployed site.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-jK07h4AyclQXrogD0NbnWLIjoXOg5ND8AaLOucyiTw8=' 'sha256-Fj0RQn2PeQP+pQvRPrc9chapGMwZdZ9O+cZ2Ge/SnHQ=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; frame-src https://www.youtube-nocookie.com https://player.twitch.tv https://clips.twitch.tv; object-src 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-jK07h4AyclQXrogD0NbnWLIjoXOg5ND8AaLOucyiTw8=' 'sha256-jbeQ+/vfSzdLzMyoUfvMDjYtcD5CbCAPEpbDmWy8UHw=' 'sha256-ryo/0Bl/B+E09nfxS+5rb/6yi2HPjhMeqCDJey1ZkQw=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; frame-src https://www.youtube-nocookie.com https://player.twitch.tv https://clips.twitch.tv; object-src 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(self), geolocation=()

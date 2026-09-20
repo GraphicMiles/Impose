@@ -90,6 +90,18 @@ i[data-lucide] { display: inline-flex; width: 20px; height: 20px; flex: none; }
   padding: 36px 20px 56px;
 }
 .auth-view { width: 100%; max-width: 410px; }
+/* First paint is owned by <html data-auth-view>, set by the boot script
+   in auth.html before any app script runs: only the route's own view
+   shows, so a deep link never flashes the sign-in form. These rules win
+   over the [hidden] user-agent styles on purpose. auth.js removes the
+   attribute at startup; after that the hidden attributes alone decide. */
+html[data-auth-view] .auth-view { display: none; }
+html[data-auth-view="sign-in"] .auth-view[data-view="sign-in"],
+html[data-auth-view="sign-up"] .auth-view[data-view="sign-up"],
+html[data-auth-view="forgot-password"] .auth-view[data-view="forgot-password"],
+html[data-auth-view="otp"] .auth-view[data-view="otp"],
+html[data-auth-view="reset-password"] .auth-view[data-view="reset-password"],
+html[data-auth-view="success"] .auth-view[data-view="success"] { display: block; }
 .view-heading { margin-bottom: 28px; text-align: center; }
 .view-heading.align-left { text-align: left; }
 .view-heading h1 { margin: 0; color: var(--text); font-size: 30px; line-height: 1.15; letter-spacing: -.035em; font-weight: 600; }

@@ -136,6 +136,74 @@ test("every 404 destination link resolves to a real route", function () {
   });
 });
 
+/* ---------- first paint: the shell arrives decided ---------- */
+
+test("the boot script paints the community shell before any app script parses", function () {
+  /* Every community route used to paint the workspace sidebar and topbar
+     over empty content, then re-dress itself when community.js ran. The
+     mode is decidable from the URL alone, so index.html decides it
+     inline, before first paint. */
+  var html = read("index.html");
+  var script = html.match(/<script>\n([\s\S]*?)<\/script>/);
+  ok(!!script, "index.html has no inline boot script");
+  ok(script[1].indexOf('"community-mode"') > -1,
+    "the boot script no longer sets the community chrome before first paint");
+  ok(script[1].indexOf("/workspace") > -1 && script[1].indexOf("/admin") > -1,
+    "the boot script lost the route rule that keeps /workspace and /admin out of community chrome");
+  ok(script[1].indexOf("nav-open") > -1,
+    "the boot script lost the sidebar drawer decision (the original flash it existed to kill)");
+});
+
+test("auth deep links paint their own view, not the sign-in form", function () {
+  /* Every auth view except sign-in ships hidden, so /sign-up and friends
+     painted the sign-in form first and re-dressed themselves once auth.js
+     parsed. The boot script names the route on <html data-auth-view> and
+     CSS owns visibility until auth.js hands it to the hidden attributes. */
+  ok(read("auth.html").indexOf("data-auth-view") > -1,
+    "auth.html boot script no longer names the initial view");
+  ok(/html\[data-auth-view="sign-up"\] \.auth-view\[data-view="sign-up"\]/.test(read("auth.css")),
+    "auth.css no longer shows the named view before auth.js runs");
+  ok(read("auth.js").indexOf('removeAttribute("data-auth-view")') > -1,
+    "auth.js must return visibility to the hidden attributes once it owns routing");
+});
+
+test("every inline boot script is hashed into the CSP in render.yaml", function () {
+  /* script-src allows no unsafe-inline: an unhashed inline script is a
+     dead boot script: the page paints wrong in production while looking
+     fine locally. Compute the hash the way the browser does, over the
+     exact bytes between the script tags, so this fails at review time
+     instead of at deploy time. */
+  var crypto = require("crypto");
+  var csp = read("render.yaml");
+  ["index.html", "auth.html"].forEach(function (rel) {
+    var html = read(rel), i = 0, found = 0;
+    while (true) {
+      var a = html.indexOf("<script>", i);
+      if (a < 0) break;
+      var b = html.indexOf("</script>", a);
+      var hash = "sha256-" + crypto.createHash("sha256").update(html.slice(a + 8, b)).digest("base64");
+      ok(csp.indexOf(hash) > -1,
+        rel + " has an inline script whose hash is missing from the CSP (recompute: " + hash + ")");
+      found++;
+      i = b + 9;
+    }
+    ok(found > 0, rel + " lost its inline boot script");
+  });
+});
+
+test("community code and its styles move through the same network-first lane", function () {
+  /* community.js was network-first while its stylesheet and data layer
+     were stale-while-revalidate, so one load after every deploy could run
+     the new router against old styles. It is the same class of mixed-version
+     load that once shipped an unstyled composer layer. Version-coupled
+     files share a strategy. */
+  var sw = read("sw.js");
+  var core = sw.slice(sw.indexOf("var CORE = ["), sw.indexOf("];", sw.indexOf("var CORE = [")));
+  ["./community.js", "./community-data.js", "./community.css"].forEach(function (f) {
+    ok(core.indexOf('"' + f + '"') > -1, f + " fell out of the network-first CORE list");
+  });
+});
+
 /* ---------- redesign-skill: navigation state ---------- */
 
 test("the table of contents marks the section in view without a scroll listener", function () {

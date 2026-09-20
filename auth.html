@@ -10,6 +10,22 @@
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="stylesheet" href="./fonts.css">
 <link rel="stylesheet" href="./auth.css">
+<script>
+/* Deep links must paint their own view. Every view except sign-in ships
+   hidden, so /sign-up, /forgot-password, /otp and /reset-password all
+   painted the sign-in form first and re-dressed themselves when auth.js
+   parsed. This names the route on <html data-auth-view> (mirroring
+   routeName() in auth.js) and auth.css keys first paint on it; auth.js
+   removes the attribute the moment it takes over routing. Its CSP hash
+   lives in render.yaml and _headers, re-verified by agent/tests/taste.js. */
+try {
+  var authHash = location.hash.replace(/^#\/?/, "").split("?")[0];
+  var authPath = location.pathname.replace(/\/+$/, "").split("/").pop();
+  var authKnown = /^(sign-in|sign-up|forgot-password|otp|reset-password|success)$/;
+  var authView = authKnown.test(authHash) ? authHash : (authKnown.test(authPath) ? authPath : "");
+  if (authView) document.documentElement.setAttribute("data-auth-view", authView);
+} catch (err) { /* auth.js renders the route below */ }
+</script>
 </head>
 <body>
 <header class="auth-header">

@@ -41,6 +41,20 @@ only). On any restore, re-applying migrations recreates every cron job.
 - `index.html` — the shell: all views (chat, community, map, profile, inbox),
   account menu popover (Export chats, **Export account data** `acctExportData`,
   Delete account `acctDelete`, theme…). Icons via lucide, embedded SVGs.
+  **First-paint contract:** one inline boot script at the top of `<body>`
+  decides everything the URL and viewport already decide — the product mode
+  (`body.community-mode` for every route except `/workspace` and `/admin`)
+  and the sidebar drawer (`nav-open` above 768px). The app must never paint
+  the wrong chrome and re-dress itself; community.js `showMode()` then
+  re-derives the same fact from the same rule. Every inline script is
+  CSP-hashed in `render.yaml`/`_headers`; edit one and recompute the
+  sha256 (taste.js recomputes and fails on drift, recipe in `_headers`).
+- `auth.html` + `auth.css` — same contract for the auth views: only the
+  sign-in view ships visible, so a boot script names the route on
+  `<html data-auth-view>`, CSS (`html[data-auth-view=…]` rules) paints that
+  view immediately, and `auth.js` removes the attribute once it owns
+  routing. A deep link (`/sign-up`, `/otp`, …) never flashes the sign-in
+  form first.
 - `app.js` — THE app shell controller: session boot (`initSession`), local
   state, chat views, palettes, menus, toasts, export/deletion handlers,
   error surfacing incl. `recent_auth_required` / `rate_limited` mapping.
@@ -292,6 +306,13 @@ profile/posts/comments/grants/caps; audit row survives via SET NULL).
 
 - Deploy client: push to main — Render (Impose-web static site) auto-deploys
   `index.html` + `*.js`. Standalone: CI `--check` gate.
+  - Any shipped change to a precached file: bump `CACHE` in `sw.js` AND the
+    `precache-fingerprint` comment (taste.js recomputes both; CI gates it).
+  - Version-coupled files stay in the network-first `CORE` lane
+    (`community.js` + `community-data.js` + `community.css` travel together);
+    only vendored/stable assets may be stale-while-revalidate.
+  - Render serves `index.html` for `/`, `/workspace`, `/g/:id`, `/u/:handle`,
+    `/admin` (server.js); everything unmatched gets the styled `404.html`.
 - Deploy relay: Render web service impose-relay (environment vars in Render
   dashboard; see relay files for names: CONTROL_KEY, SUPABASE_*,
   SENDLIB_* and the model gateway keys).

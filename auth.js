@@ -3,6 +3,10 @@
 
   var AUTH_KEY = "impose.auth.v1";
   document.documentElement.setAttribute("data-theme", "dark");
+  /* First paint was owned by <html data-auth-view> (set by the boot script
+     in auth.html so deep links paint their own view). Routing belongs to
+     the hidden attributes from here on. */
+  document.documentElement.removeAttribute("data-auth-view");
   var pendingEmail = sessionStorage.getItem("impose.auth.pendingEmail") || "";
   /* Held in memory only, for the seconds between requesting a code and
      entering it. Deliberately not sessionStorage: a password that outlives

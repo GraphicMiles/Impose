@@ -11,7 +11,7 @@ services:
     headers:
       - path: /*
         name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self' 'sha256-jK07h4AyclQXrogD0NbnWLIjoXOg5ND8AaLOucyiTw8=' 'sha256-Fj0RQn2PeQP+pQvRPrc9chapGMwZdZ9O+cZ2Ge/SnHQ=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; frame-src https://www.youtube-nocookie.com https://player.twitch.tv https://clips.twitch.tv; object-src 'none'; base-uri 'self'; form-action 'self'"
+        value: "default-src 'self'; script-src 'self' 'sha256-jK07h4AyclQXrogD0NbnWLIjoXOg5ND8AaLOucyiTw8=' 'sha256-jbeQ+/vfSzdLzMyoUfvMDjYtcD5CbCAPEpbDmWy8UHw=' 'sha256-ryo/0Bl/B+E09nfxS+5rb/6yi2HPjhMeqCDJey1ZkQw=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; frame-src https://www.youtube-nocookie.com https://player.twitch.tv https://clips.twitch.tv; object-src 'none'; base-uri 'self'; form-action 'self'"
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
