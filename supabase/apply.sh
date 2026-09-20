@@ -25,6 +25,23 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MIGRATION_ARG="${1:-}"
 if [ -n "$MIGRATION_ARG" ] && [ -f "$MIGRATION_ARG" ]; then
   FILES=("$MIGRATION_ARG")
+elif [ -n "$MIGRATION_ARG" ]; then
+  # Incremental mode: an existing database already carries the early
+  # migrations, and 0001/0007/0022 are data-destructive on re-run, so a
+  # full replay is never the right answer for it. List every file at or
+  # after the one named; they apply in order and ON_ERROR_STOP halts on
+  # the first failure, so nothing later can land half-verified. The
+  # caller must name the first migration the database does not yet
+  # carry; bump the anchor in the workflow after each apply.
+  if [ ! -f "$ROOT/supabase/migrations/$MIGRATION_ARG" ]; then
+    echo "unknown start migration: $MIGRATION_ARG" >&2; exit 2
+  fi
+  FILES=()
+  take=0
+  for f in $(ls "$ROOT/supabase/migrations/"*.sql | sort); do
+    [ "$(basename "$f")" = "$MIGRATION_ARG" ] && take=1
+    [ $take -eq 1 ] && FILES+=("$f")
+  done
 else
   FILES=( $(ls "$ROOT/supabase/migrations/"*.sql | sort) )
 fi
@@ -124,7 +141,6 @@ PY
   done
   echo "all migrations applied successfully"
   exit 0
-fi
 fi
 
 cat >&2 <<'MSG'
