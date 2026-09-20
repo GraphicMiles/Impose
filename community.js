@@ -2335,12 +2335,12 @@
     var comments = commentsFor(gen.id);
     var section = document.createElement("div");
     section.className = "comments";
-    /* With no discussion yet there is no thread to title: a "DISCUSSION · 0"
-       heading over an empty box announces an absence. The empty state below
-       carries the invitation instead. */
-    section.innerHTML = comments.length
-      ? '<div class="comments-title">DISCUSSION · ' + comments.length + "</div>"
-      : "";
+    /* The discussion is part of the generation's lifecycle, so its header
+       always shows, even at zero: "DISCUSSION · 0" names the section the
+       same way a full one is named, and the compact empty state below
+       carries the invitation. Count and header never disagree because
+       updateDiscussionTitle is the only writer after this. */
+    section.innerHTML = '<div class="comments-title">DISCUSSION · ' + comments.length + "</div>";
     var listEl = document.createElement("div");
     listEl.id = "cmCommentList";
     section.appendChild(listEl);
@@ -2527,6 +2527,9 @@
     replyTargetLost = !!lost;
     var bar = $("cmCommentCtx");
     if (bar) bar.hidden = true;
+    var input = $("cmCommentInput");
+    /* The box reverts to its top-level voice with the target. */
+    if (input) input.setAttribute("placeholder", "Add a comment...");
   }
 
   function commentRow(c, row, onPath) {
@@ -2704,14 +2707,16 @@
     var comments = commentsFor(gen.id);
     listEl.innerHTML = "";
     if (comments.length === 0) {
-      /* Zero comments is not an empty list, it is an invitation. The reader
-         gets one clear action; the composer stays out of the way until they
-         take it, so an unanswered post does not open with a blinking box
-         demanding input. */
+      /* Zero comments is not an empty list, it is an invitation - but a
+         compact one. The reader already showed intent by opening the
+         thread, so the next action sits one row under the header, in the
+         same row-grammar Reply control a comment would own, not a
+         centered hero button floating in dead space. The composer stays
+         out of the way until they take it. */
       listEl.innerHTML =
         '<div class="comments-empty">' +
-          "<p>No replies yet. The sharpest take usually goes first.</p>" +
-          '<button class="btn primary comments-empty-cta" data-first-reply="1">' +
+          '<p class="comments-empty-lede">Be the first to respond.</p>' +
+          '<button class="comment-reply-btn comments-empty-cta" data-first-reply="1" type="button">' +
             '<i data-lucide="corner-down-right"></i><span>Reply</span>' +
           "</button>" +
         "</div>";
@@ -2885,6 +2890,9 @@
         ctxLabel.innerHTML = "<strong>Replying to " + esc(target.creator.handle) + "</strong> · " + esc(target.text);
         ctxBar.hidden = false;
       }
+      /* The ctx bar names the target; the field itself should sound like
+         the act of answering it, not like starting a new comment. */
+      input.setAttribute("placeholder", "Write a reply...");
       openComposer();
       renderThread(gen, listEl); /* repaints the branch highlight */
     }
@@ -3020,9 +3028,7 @@
          destroyed, but we do not pretend it was saved. */
       persist();
       input.value = "";
-      replyingTo = null;
-      replyTargetLost = false;
-      if (ctxBar) ctxBar.hidden = true;
+      clearReplyTarget(false);
       sync();
       renderThread(gen, listEl);
       replaceCard(gen);
@@ -3069,18 +3075,14 @@
     return parts.join("%");
   }
 
-  /* The heading only exists while there is a discussion, so going 0 -> 1 has
-     to create it and 1 -> 0 has to remove it. Only rewriting an existing node
-     left the first comment with no heading until a full page render. */
+  /* The heading exists from the first paint (even at zero), so all this
+     ever does is refresh the count; the create-if-missing branch covers
+     pruned DOM, nothing more. */
   function updateDiscussionTitle(gen) {
     var section = document.querySelector(".comments");
     if (!section) return;
     var title = section.querySelector(".comments-title");
     var n = commentsFor(gen.id).length;
-    if (!n) {
-      if (title) title.remove();
-      return;
-    }
     if (!title) {
       title = document.createElement("div");
       title.className = "comments-title";

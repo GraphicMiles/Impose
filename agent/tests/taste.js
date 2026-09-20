@@ -250,19 +250,21 @@ test("post and comment identities live on one line that truncates, never wraps",
     "a badge can be squeezed off the header line");
 });
 
-test("feed and thread action rows share the row in even slices", function () {
-  /* Three count buttons hugged the left while lock and kebab were exiled
-     to the right edge by a flex spacer, so the same row read two ways.
-     Both rows now distribute with space-evenly and the spacer is inert. */
+test("feed actions spread, thread actions cluster - different rows, different grammars", function () {
+  /* A post's action row is five peers, so it distributes evenly (and the
+     old spacer stays inert). A comment's ops row is two intents plus a
+     kebab: spread into even slices, Reply and "5 replies" read as
+     unrelated controls, so the thread row clusters at the text edge and
+     only the kebab anchors the far side. */
   var css = read("community.css");
   ok(cssBlock(css, ".cm-scope .gen-actions").indexOf("justify-content: space-evenly") > -1,
     "the feed action row lost its even distribution");
-  ok(cssBlock(css, ".cm-scope .comment-ops").indexOf("justify-content: space-evenly") > -1,
-    "the thread action row lost its even distribution");
   ok(cssBlock(css, ".cm-scope .gen-act-spacer").indexOf("display: none") > -1,
     "the spacer still fights space-evenly for the row's free space");
-  ok(cssBlock(css, ".cm-scope .comment-ops-end").indexOf("margin-left: auto") === -1,
-    "the comment ops end-cluster still pulls to the right edge");
+  ok(cssBlock(css, ".cm-scope .comment-ops").indexOf("justify-content: flex-start") > -1,
+    "the thread ops row must cluster its two intents");
+  ok(cssBlock(css, ".cm-scope .comment-ops-end").indexOf("margin-left: auto") > -1,
+    "the kebab belongs anchored to the far edge of the thread row");
 });
 
 test("bar-level chrome is not scoped to a root it is outside of", function () {
@@ -1305,8 +1307,14 @@ test("action rows sit on one centre line", function () {
   ok(communityCss.indexOf(":has(.act-cnt)") === -1,
     ":has() is not safe to rely on for layout here; use the explicit class");
   var r = communityCss.indexOf(".cm-scope .comment-reply-btn {");
-  ok(communityCss.slice(r, r + 420).indexOf("min-height: 34px") !== -1,
-    "the comment row shares one height across Reply, the toggle and the kebab");
+  ok(communityCss.slice(r, r + 420).indexOf("min-height: 38px") !== -1,
+    "Reply carries the row's top intent: headline-weight text on a 38px target");
+  var k = communityCss.indexOf(".cm-scope .comment-kebab {");
+  ok(communityCss.slice(k, k + 400).indexOf("height: 38px") !== -1,
+    "the comment row shares one 38px centre line across Reply, the toggle and the kebab");
+  var t = communityCss.indexOf(".cm-scope .comment-thread-toggle {");
+  ok(communityCss.slice(t, t + 400).indexOf("min-height: 38px") !== -1,
+    "the thread toggle stands on the same 38px line");
   ok(/\.comment-kebab i\[data-lucide\] \{ width: 14px/.test(communityCss),
     "the kebab icon matches the 14px icons beside it, not the 16px post scale");
 });
@@ -1414,24 +1422,40 @@ test("the community top fade has no hard edge", function () {
     "Safari needs both prefixed properties or the bar turns into a solid slab");
 });
 
-test("an unanswered post invites, it does not show an empty thread", function () {
-  /* X-style: zero comments is not a list with nothing in it. No heading
-     counting to zero, no composer sitting open demanding input. */
-  /* Anchored on the thread section rather than on renderDetail: helpers
-     were later added between the two and a fixed-size window from the
-     function name stopped reaching the markup it was meant to check. A
-     slice that silently drifts off its target passes for the wrong
-     reason, which is worse than failing. */
-  var r = communityJs.indexOf("section.innerHTML = comments.length");
-  var body = communityJs.slice(r - 600, r + 2400);
-  ok(body.indexOf("comments.length\n      ? '<div class=\"comments-title\">") !== -1 ||
-     /comments\.length[\s\S]{0,40}comments-title/.test(body),
-    "the DISCUSSION heading is conditional on there being a discussion");
-  ok(body.indexOf('"comment-box" + (comments.length ? "" : " comment-box--closed")') !== -1,
-    "the composer starts closed when there is nothing to reply to");
+test("an unanswered post gets a compact invitation under its own header", function () {
+  /* The discussion is part of the generation's lifecycle, so the header
+     always shows (a thread at zero is still the thread), the empty state
+     is one compact left-aligned invitation rather than a centered arena,
+     and the composer stays closed until the reader takes the Reply row. */
+  var r = communityJs.indexOf("section.innerHTML = '<div class=\"comments-title\">");
+  ok(r !== -1, "the DISCUSSION header renders unconditionally, even at zero");
+  ok(communityJs.indexOf("Be the first to respond.") !== -1,
+    "the compact lede replaced the centered two-line empty state");
   ok(communityJs.indexOf("data-first-reply") !== -1, "the empty state owns a Reply action");
+  var b = communityJs.indexOf('"comment-box" + (comments.length ? "" : " comment-box--closed")');
+  ok(b !== -1, "the composer starts closed when there is nothing to reply to");
   ok(communityCss.indexOf(".cm-scope .comment-box--closed { display: none; }") !== -1,
     "and the closed composer is actually hidden");
+});
+
+test("a comment's ops row clusters its two intents and parks the kebab", function () {
+  /* Reply and "5 replies" are the comment's two intents - say something,
+     see what's been said - so they cluster at the text edge with real
+     weight and real targets. Spread evenly across the row they read as
+     unrelated controls; a footnote-grey Reply hid the main action of a
+     discussion product. */
+  var css = communityCss;
+  var i = css.indexOf(".cm-scope .comment-ops {");
+  var ops = css.slice(i, css.indexOf("}", i));
+  ok(ops.indexOf("justify-content: flex-start") !== -1 && ops.indexOf("space-evenly") === -1,
+    "Reply and the thread toggle must cluster, not spread into equal slices");
+  var j = css.indexOf(".cm-scope .comment-reply-btn {");
+  var reply = css.slice(j, css.indexOf("}", j));
+  ok(reply.indexOf("font-weight: 600") !== -1 && reply.indexOf("min-height: 38px") !== -1,
+    "Reply lost its headline weight or its touch target");
+  var k = css.indexOf(".cm-scope .comment-ops-end");
+  ok(css.slice(k, css.indexOf("}", k)).indexOf("margin-left: auto") !== -1,
+    "the kebab belongs anchored to the far edge");
 });
 
 test("the three comment actions stay three different actions", function () {
@@ -1440,10 +1464,12 @@ test("the three comment actions stay three different actions", function () {
   var cta = communityJs.slice(h, h + 260);
   ok(cta.indexOf("clearReplyTarget(false)") !== -1 && cta.indexOf("openComposer()") !== -1,
     "first reply opens the composer with NO parent: it is a new top-level comment");
-  /* The post-level action routes to the thread and nothing else. */
+  /* The post-level action routes to the thread and nothing else. (Aged
+     pin repaired: routing moved from location.hash to navigateRoute and
+     the old string had silently stopped matching the branch.) */
   var d = communityJs.indexOf('if (act === "discuss")');
   var disc = communityJs.slice(d, d + 160);
-  ok(disc.indexOf('location.hash = "#/g/"') !== -1 && disc.indexOf("startReply") === -1,
+  ok(disc.indexOf('navigateRoute("/g/"') !== -1 && disc.indexOf("startReply") === -1,
     "the post's comment button opens the thread, it never aims the composer");
 });
 
@@ -1478,12 +1504,18 @@ test("comment counts are derived at every write, never incremented", function ()
   ok(post.indexOf("syncCommentCount(gen.id)") !== -1, "derive it from the live comments");
 });
 
-test("the discussion heading can appear and disappear with the thread", function () {
+test("the discussion heading persists and only its count moves", function () {
+  /* The discussion is part of the generation's lifecycle: its header is
+     section furniture, present from the first paint even at zero, so the
+     only thing that changes with the thread is the number. */
   var u = communityJs.indexOf("function updateDiscussionTitle");
   var body = communityJs.slice(u, u + 700);
+  ok(body.indexOf("title.remove()") === -1,
+    "going back to 0 must not un-name the section");
   ok(body.indexOf("createElement") !== -1,
-    "0 -> 1 must create the heading, not wait for a full page render");
-  ok(body.indexOf("title.remove()") !== -1, "1 -> 0 must remove it");
+    "a pruned DOM still self-heals the heading without a full render");
+  ok(body.indexOf('textContent = "DISCUSSION · " + n') !== -1,
+    "the count is the only moving part");
 });
 
 test("an external comment does not rebuild the page under the reader", function () {

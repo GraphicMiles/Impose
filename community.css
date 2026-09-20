@@ -774,10 +774,15 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .comment {
   display: flex;
   gap: 10px;
-  padding: 12px 16px;
+  /* Discussion rows scan in a stack, so they are denser than feed cards:
+     hierarchy comes from indentation and the connector rails, not from
+     each comment renting its own vertical arena. */
+  padding: 10px 16px;
   min-width: 0;
   flex: 1 1 auto;
 }
+
+.cm-scope .comment--reply { padding-top: 8px; padding-bottom: 8px; }
 
 .cm-scope .comment-main { min-width: 0; flex: 1 1 auto; }
 
@@ -807,34 +812,28 @@ body:not(.community-mode) .modebar { display: none; }
 }
 
 .cm-scope .comments-empty {
-  padding: 28px 16px 32px;
+  /* Compact invitation, hugging the header: opening a thread is already
+     intent, so the next action sits one row away instead of floating in
+     a padded arena. */
+  padding: 6px 16px 14px;
   color: var(--text-3);
   font-size: 14px;
-  text-align: center;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
+  align-items: flex-start;
+  gap: 4px;
 }
 
-.cm-scope .comments-empty p { margin: 0; }
+.cm-scope .comments-empty-lede { margin: 0; }
 
-/* The one action on an unanswered post. It is the primary thing to do here,
-   so it is the only filled control on the page. */
-.cm-scope .comments-empty-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  /* Comfortably past the 44px touch floor. */
-  min-height: 44px;
-  padding: 0 20px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 600;
-}
+/* The one action on an unanswered post is the same quiet Reply control a
+   comment owns (it is the first comment, after all) - a row-grammar
+   control, not a hero button. Nudged left so its glyph starts at the text
+   edge like every other row. */
+.cm-scope .comments-empty-cta { margin-left: -10px; }
 
 .cm-scope .comments-empty-cta .lucide,
-.cm-scope .comments-empty-cta i[data-lucide] { width: 15px; height: 15px; }
+.cm-scope .comments-empty-cta i[data-lucide] { width: 14px; height: 14px; }
 
 /* A composer with nothing to answer yet stays out of the way. Hidden from
    assistive tech too, not just visually: an empty thread should not offer a
@@ -844,7 +843,7 @@ body:not(.community-mode) .modebar { display: none; }
 /* comment composer: the same object, sized down */
 
 .cm-scope .comment-box {
-  padding: 12px 16px;
+  padding: 8px 16px 12px;
 }
 
 .cm-scope .comment-box .composer { border-radius: var(--r-6); padding: 8px 8px 6px 16px; }
@@ -996,11 +995,15 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .comment-ops {
   display: flex;
-  gap: 2px;
-  margin-top: 6px;
-  /* Threads follow the same row grammar as the feed: equal slices, no
-     controls hugging one edge. */
-  justify-content: space-evenly;
+  gap: 14px;
+  margin-top: 4px;
+  margin-left: -10px;
+  /* Reply and the thread disclosure belong to the comment above them and
+     to each other: they cluster at the text edge, with only the kebab
+     pushed to the far side. Spreading them into equal slices made them
+     read as unrelated controls. */
+  justify-content: flex-start;
+  align-items: center;
 }
 
 .cm-scope .comment-reply-btn {
@@ -1009,12 +1012,15 @@ body:not(.community-mode) .modebar { display: none; }
   justify-content: center;
   gap: 5px;
   /* Shares the row's single control height with the thread toggle and the
-     kebab, so all three sit on one centre line. */
-  min-height: 34px;
-  padding: 0 8px;
+     kebab, so all three sit on one centre line. Reply carries the row's
+     top intent in a discussion product, so it gets headline weight and a
+     generous target, not footnote styling. */
+  min-height: 38px;
+  padding: 0 10px;
   border-radius: var(--r-2);
   font-size: 13px;
-  color: var(--text-3);
+  font-weight: 600;
+  color: var(--text-2);
   transition: transform 160ms var(--ease-out), background-color 140ms ease, color 140ms ease;
 }
 
@@ -1026,20 +1032,21 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .comment-reply-btn:active { transform: scale(0.95); background: var(--press); }
 
-/* The sub-thread disclosure. Deliberately NOT a second button-looking
-   control next to Reply: no icon, no chip, just a quiet link-weight toggle
-   that names its own state, so the row has one obvious action (Reply) and
-   one obvious disclosure. */
+/* The sub-thread disclosure is the thread affordance itself: "5 replies"
+   names what hangs below this comment and opens it. It shares Reply's
+   weight and target so the pair reads as one grammar - say something /
+   see what's been said - never a button and a footnote. No icon: the
+   connector rails below it already draw what it means. */
 
 .cm-scope .comment-thread-toggle {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
-  padding: 4px 8px;
+  min-height: 38px;
+  padding: 4px 10px;
   border-radius: var(--r-2);
   font-size: 13px;
-  font-weight: 500;
-  color: var(--text-3);
+  font-weight: 600;
+  color: var(--text-2);
   transition: background-color 140ms ease, color 140ms ease, transform 160ms var(--ease-out);
 }
 
@@ -1049,20 +1056,19 @@ body:not(.community-mode) .modebar { display: none; }
   .cm-scope .comment-thread-toggle:hover { background: var(--hover); color: var(--text); }
 }
 
-.cm-scope .comment-thread-toggle[aria-expanded="true"] { color: var(--text-2); }
+.cm-scope .comment-thread-toggle[aria-expanded="true"] { color: var(--text); }
 
-/* Pushes the kebab to the far edge, away from the actions the user taps to
-   read. */
-/* space-evenly already positions this cluster; a margin would break the
-   equal slices. */
-.cm-scope .comment-ops-end { display: inline-flex; align-items: center; gap: 6px; }
+/* The kebab anchors the far edge, away from the two controls cluster. */
+.cm-scope .comment-ops-end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
 
 .cm-scope .comment-kebab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  /* One centre line for the whole ops row: Reply, the thread toggle and
+     the kebab all stand 38px tall. */
+  width: 38px;
+  height: 38px;
   border-radius: var(--r-2);
   color: var(--text-3);
   transition: background-color 140ms ease, color 140ms ease;
