@@ -340,5 +340,7 @@ profile/posts/comments/grants/caps; audit row survives via SET NULL).
   identity-arg rule, drop-policy idempotence, overload check after.
 - Backup: nightly artifact (needs `SUPABASE_DB_URL` secret); restore = fresh
   project + pg_restore + re-apply migrations 0001–0024 (all re-runnable).
-- Zero-repo-docs policy: this file + DATABASE.md are the ONLY docs. Update
-  both in the same commit that changes the system.
+- Zero-repo-docs policy: this file + DATABASE.md + AGENTS.md are the ONLY
+  docs (AGENTS.md = the operating manual for agents: causal graph, deploy
+  and test contracts, incident ledger). Update them in the same commit that
+  changes the system.
