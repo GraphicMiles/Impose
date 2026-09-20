@@ -388,6 +388,16 @@ already own - do not relearn them.
     code - if behavior matters someday, investigate dashboard rewrite/CSP
     settings rather than changing server.js blindly.
 
+21. **Gesture handlers scoped by a hidden ancestor (2026-09-20, fixed in
+    f3b0a60).** Document-level touch handlers must never test
+    `el.hidden`: an ancestor can be the hidden one while the element's
+    own property stays false, and its scrollTop silently stays 0 - so
+    the feed's pull-to-refresh armed inside the workspace chat and its
+    touchmove preventDefault ate every scroll-up swipe. Gate global
+    gesture machinery on the real world state (the body mode class), and
+    verify gestures with synthetic cancellable touch events in a live
+    runtime, not by reading the handler.
+
 ## 8. Failure modes that are BY DESIGN (never "fix" these)
 
 - Waitlist constant-shape responses (anti-probe); handle-quota errors
