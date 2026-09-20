@@ -265,6 +265,23 @@ test("feed and thread action rows share the row in even slices", function () {
     "the comment ops end-cluster still pulls to the right edge");
 });
 
+test("bar-level chrome is not scoped to a root it is outside of", function () {
+  /* index.html mounts the modebar and the notification sheet NEXT TO
+     #cmMain, not inside it. A .cm-scope prefix on their selectors made
+     them dead CSS: the bell rendered as an unstyled native button and
+     read as "imbalanced" beside the avatar. Scope these to where the
+     elements actually live, and same for the point that a dead selector
+     is a silent one: nothing warns, the skin just never lands. */
+  var css = read("community.css");
+  ok(css.indexOf(".cm-scope .notif-btn") === -1, "bell rule is dead CSS: the button is outside .cm-scope");
+  ok(css.indexOf(".cm-scope .notif-dot") === -1, "unread dot rule is dead CSS under .cm-scope");
+  ok(css.indexOf(".cm-scope .notif-sheet") === -1, "sheet skin is dead CSS under .cm-scope");
+  ok(css.indexOf(".cm-scope .modeseg-tab") === -1, "mode-tab rules are dead CSS under .cm-scope");
+  var block = cssBlock(css, ".modebar .notif-btn");
+  ok(block.indexOf("width: 34px") > -1 && block.indexOf("height: 34px") > -1,
+    "the bell must match the avatar's 34px square so the cluster reads level");
+});
+
 test("profile names have one contract: capped length, no emoji, some letters", function () {
   /* The header truncation keeps the layout but cannot make an emoji name
      sayable or searchable. The rule lives once in BotoUI.validProfileName,
