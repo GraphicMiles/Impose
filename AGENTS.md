@@ -370,7 +370,17 @@ already own - do not relearn them.
     dead-centre), and the cluster `align-self: center`s on the shared row
     line. Verified at 340-412px in a real browser: bell/dot/avatar/capsule
     share one center line; capsule centered at every width.
-18. **Render edge serving soft-404s (observed 2026-09-20, NOT fixed).**
+19. **Layout change that de-positions an element veils it under the bar
+    glass (2026-09-20, fixed in 7370f22).** Converting modebar-right to an
+    in-flow grid item let the absolutely-positioned ::before glass paint
+    on top of it: the avatar read as invisible. Signature to recognize
+    next time: the element is visible only while pressed, because an
+    :active transform makes it paint above the glass; neighbouring
+    elements that were already positioned stay crisp. Rule: children of a
+    container with an absolute ::before must be positioned themselves;
+    verify with a real-browser screenshot, not computed geometry alone -
+    the box was correct the whole time; the paint order was not.
+20. **Render edge serving soft-404s (observed 2026-09-20, NOT fixed).**
     Deep extensionless fake paths return the styled 404 body with HTTP 200
     through Render's Cloudflare edge (`s-maxage=300`), while the node
     server natively returns 404 and extension-bearing paths get a true 404
