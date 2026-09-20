@@ -64,8 +64,12 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'xgqcvuzkeaferjsnpjjw' }}
         run: |
+          # The live project already carries history; a full replay is
+          # destructive (0001/0007/0022 wipe business tables). Incremental
+          # mode applies only what the database does not have. Keep the
+          # anchor at the oldest migration not yet applied to production.
           chmod +x supabase/apply.sh
-          ./supabase/apply.sh
+          ./supabase/apply.sh 0027_display_names_no_emoji.sql
 
       - name: Confirm the tables are live
         env:
