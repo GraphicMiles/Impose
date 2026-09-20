@@ -36,10 +36,22 @@
 </head>
 <body>
 <script>
-/* Drawer state before first paint, so the sidebar never flashes. */
+/* First-paint shell, decided before any app script can run. Both facts
+   the shell needs are already knowable here: the viewport width decides
+   the sidebar drawer, and the URL decides the product mode; the same
+   rule community.js route()/showMode() applies (anything that is not
+   /workspace or /admin is Community). Until this ran inline, every
+   community route painted the workspace sidebar/topbar over empty
+   content, then re-dressed itself when community.js parsed. The CSP
+   hash for this script lives in render.yaml and _headers and is
+   re-verified by agent/tests/taste.js. */
 try {
   if (window.innerWidth > 768) document.body.classList.add("nav-open");
-} catch (err) { /* init in app.js re-decides below */ }
+  var bootPath = location.pathname.replace(/\/+$/, "") || "/";
+  if (bootPath !== "/workspace" && bootPath.indexOf("/admin") !== 0) {
+    document.body.classList.add("community-mode");
+  }
+} catch (err) { /* init in app.js/community.js re-decides below */ }
 </script>
 
 <div class="app" id="app">
