@@ -161,17 +161,24 @@ try {
 
       <div class="cm-view" id="cmFeedView">
         <div class="feed" id="cmFeed">
+          <!-- Initial-load skeleton: shown ONLY while the very first page
+               one is unresolved (feedPhase === "initial"). It owns the feed
+               space alone — real cards and this skeleton never coexist, so
+               the reader sees exactly one interpretation of "loading"
+               (phase model: initial skeleton -> verified row set). -->
+          <div class="feed-skel" id="cmFeedSkel" hidden role="status" aria-label="Loading the Community feed">
+            <div class="skel-card" aria-hidden="true"><span class="skel-ava"></span><span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w90"></span><span class="skel-line w60"></span></span></div>
+            <div class="skel-card" aria-hidden="true"><span class="skel-ava"></span><span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w90"></span><span class="skel-line w60"></span></span></div>
+            <div class="skel-card" aria-hidden="true"><span class="skel-ava"></span><span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w90"></span><span class="skel-line w60"></span></span></div>
+            <div class="skel-card" aria-hidden="true"><span class="skel-ava"></span><span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w90"></span><span class="skel-line w60"></span></span></div>
+          </div>
           <div id="cmFeedList"></div>
           <div id="cmFeedSentinel" aria-hidden="true"></div>
+          <!-- Pagination indicator: a compact pill, never ghost cards.
+               Real content above must never compete with skeletons, so the
+               pagination loader looks like a status, not a preview. -->
           <div class="feed-loader" id="cmFeedLoader" hidden role="status" aria-label="Loading more generations">
-            <div class="skel-card" aria-hidden="true">
-              <span class="skel-ava"></span>
-              <span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w90"></span><span class="skel-line w60"></span></span>
-            </div>
-            <div class="skel-card" aria-hidden="true">
-              <span class="skel-ava"></span>
-              <span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w90"></span><span class="skel-line w60"></span></span>
-            </div>
+            <span class="loadpill"><span class="spinner"></span><span>Loading more…</span></span>
           </div>
           <div class="feed-end" id="cmFeedEnd" hidden>You are all caught up.</div>
           <div class="feed-empty" id="cmFeedEmpty" hidden>
