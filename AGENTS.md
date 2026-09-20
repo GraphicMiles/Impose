@@ -351,7 +351,26 @@ already own - do not relearn them.
     Fix in `52a0cd9`: assert post-claim truth, re-claim becomes a negative
     test. Keep the harness replaying REAL history - it exists to catch
     sequelae of production state, not a clean-room world.
-15. **Render edge serving soft-404s (observed 2026-09-20, NOT fixed).**
+16. **Dead CSS from a scope mismatch (2026-09-20).** The notification bell
+    rendered as an unstyled native button - its rule was `.cm-scope`
+    prefixed, but index.html mounts the modebar OUTSIDE `#cmMain`.
+    Dead selectors fail silently: no warning, the skin just never lands.
+    The same class killed the unread dot, the whole `#cmNotifSheet` skin,
+    and the mobile tab-shrink. Detector method: walk each element the CSS
+    targets to its nearest `.cm-scope` ancestor (jsdom), or load the markup
+    in headless Chrome and read `getBoundingClientRect`/`getComputedStyle`
+    (the probe lives in the incident notes under /home/user). Fixed by
+    scoping selectors to where elements actually live, plus a taste
+    tripwire asserting the prefix can never return.
+17. **Top-aligned siblings of different heights read as broken
+    (2026-09-20).** An absolutely-parked side cluster can only top-align
+    against a taller centered capsule; the modebar is a symmetric grid
+    (`minmax(0,1fr) auto minmax(0,1fr)` - side tracks MUST be minmax-0 or
+    the wider cluster inflates its track and the capsule stops being
+    dead-centre), and the cluster `align-self: center`s on the shared row
+    line. Verified at 340-412px in a real browser: bell/dot/avatar/capsule
+    share one center line; capsule centered at every width.
+18. **Render edge serving soft-404s (observed 2026-09-20, NOT fixed).**
     Deep extensionless fake paths return the styled 404 body with HTTP 200
     through Render's Cloudflare edge (`s-maxage=300`), while the node
     server natively returns 404 and extension-bearing paths get a true 404
