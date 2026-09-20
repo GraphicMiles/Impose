@@ -1121,9 +1121,47 @@
      comments are kept: they are not on the server yet and dropping them
      would make a queued reply vanish while it waits to send. */
   function hydrateThread(genId) {
-    if (!liveOnline()) return;
+    if (!liveOnline()) {
+      threadState[genId] = "failed";
+      threadState[genId + ":error"] = "You appear to be offline.";
+      if (routeHash() === "/g/" + genId) {
+        var le = $("cmCommentList");
+        var g = genById(genId);
+        if (le && g && !commentsFor(genId).length) renderThreadFailed(genId, le, "You appear to be offline.");
+      }
+      return;
+    }
+    /* SWR discipline: a thread that is already proven never flashes a
+       skeleton again — it refreshes beside its own content. */
+    var prior = threadStatus(genId);
+    if (prior !== "ready") {
+      threadState[genId] = "loading";
+      if (routeHash() === "/g/" + genId) {
+        var el0 = $("cmCommentList");
+        var g0 = genById(genId);
+        if (el0 && g0 && !commentsFor(genId).length && !el0.querySelector(".skel-crow")) {
+          renderThreadSkeleton(el0);
+        }
+      }
+    }
     BotoData.thread(genId).then(function (out) {
-      if (!out.ok) return;
+      if (!out.ok) {
+        /* Only the initially-unproven load reports a filled failure; a
+           failed background refresh keeps the proven thread visible. */
+        if (prior !== "ready") {
+          threadState[genId] = "failed";
+          threadState[genId + ":error"] = out.error;
+          if (routeHash() === "/g/" + genId) {
+            var el1 = $("cmCommentList");
+            var g1 = genById(genId);
+            if (el1 && g1 && !commentsFor(genId).length) {
+              renderThreadFailed(genId, el1, out.error);
+            }
+          }
+        }
+        return;
+      }
+      threadState[genId] = "ready";
       if (routeHash() !== "/g/" + genId) return;
       /* Change detection BEFORE the merge: a realtime arrival that
          describes the thread exactly as rendered (an echo of our own
@@ -1137,7 +1175,19 @@
       state.comments = keep.concat(out.data.filter(function (row) {
         return !keep.some(function (c) { return c.id === row.id; });
       }));
-      if (threadSignature(genId) === signatureBefore) return;
+      /* A settled first load must repaint even when the answer equals the
+         (pre-hydrate trivially-empty) thread — otherwise the skeleton
+         would sit forever over a confirmed-empty discussion. The SWR
+         no-op win applies only to threads that were already proven. */
+      if (prior === "ready" && threadSignature(genId) === signatureBefore) return;
+      {
+        var g2 = genById(genId);
+        if (g2 && routeHash() === "/g/" + genId && $("cmCommentList") &&
+            !commentsFor(genId).length &&
+            $("cmCommentList").querySelector(".skel-crow")) {
+          renderThread(g2, $("cmCommentList"));
+        }
+      }
       syncCommentCount(genId);
       persist();
       var gen = genById(genId);
@@ -1573,7 +1623,7 @@
           ? '<span class="gen-failed">' + esc(gen.errorText) +
             (gen.errorCode === "auth"
               ? ' <button class="gen-failed-auth" data-act="signin">Sign in</button>'
-              : "") +
+              : ' <button class="gen-failed-retry" data-act="retry_post">Retry</button>') +
             "</span>" : "") +
         actionRow(gen, detail) +
       "</div>";
@@ -1809,6 +1859,46 @@
   var feedLoading = false;
   var feedFailed = false;
 
+  /* ---------- feed loading phases ----------
+
+     Only TWO phases exist, so two interpretations of "loaded" can never
+     compete on screen:
+
+       "initial"  — nothing trusted yet. The skeleton owns the feed space
+                    ALONE. No real card may paint in this phase (§5 hard
+                    rule: never skeleton + content at the same time).
+
+       "ready"    — a page-1 answer (or a terminal failure) has been
+                    reconciled. From here, all loading is incremental: a
+                    compact "Loading more…" pill for pagination, retained
+                    content + pull indicator for refresh. Skeletons are
+                    permanently retired for the session.
+
+     The 400ms dwell is perception stability, not artificial slowness: a
+     sub-frame request still lets the reader register a deliberate loading
+     beat rather than a one-frame flicker, while slow networks never see a
+     delayed reveal. */
+  var feedPhase = "initial";
+  var SKEL_MIN_DWELL = 400;
+  var skelShownAt = 0;
+
+  function skelShow() {
+    var el = $("cmFeedSkel");
+    if (el) el.hidden = false;
+    skelShownAt = Date.now();
+  }
+  /* Resolves after the dwell, hides the skeleton, flips the phase. All
+     first-page outcomes (success, failure, offline) funnel through it so
+     the swap skeleton->content happens at exactly one place. */
+  function skelSettle() {
+    var wait = Math.max(0, SKEL_MIN_DWELL - (Date.now() - skelShownAt));
+    return new Promise(function (r) { setTimeout(r, wait); }).then(function () {
+      var el = $("cmFeedSkel");
+      if (el) el.hidden = true;
+      feedPhase = "ready";
+    });
+  }
+
   function liveOnline() {
     return !!(window.BotoData && BotoData.configured());
   }
@@ -1845,8 +1935,11 @@
   function syncFeedTail() {
     var end = $("cmFeedEnd");
     var shown = $("cmFeedList").children.length;
-    $("cmFeedLoader").hidden = !feedLoading;
-    end.hidden = !(feedDone && shown > PAGE_SIZE);
+    var initial = feedPhase === "initial";
+    /* The pagination pill only exists under a real feed; during the
+       initial phase the skeleton is the entire loading surface. */
+    $("cmFeedLoader").hidden = initial || !feedLoading;
+    end.hidden = initial || !(feedDone && shown > PAGE_SIZE);
   }
 
   /* One place decides which of the four states the feed is in, so two of
@@ -1854,8 +1947,12 @@
      failed and populated are different answers and each needs its own. */
   function syncFeedState() {
     var shown = $("cmFeedList").children.length;
+    var initial = feedPhase === "initial";
     $("cmFeedError").hidden = !(feedFailed && shown === 0);
-    $("cmFeedEmpty").hidden = !(!feedFailed && !feedLoading && feedDone && shown === 0);
+    /* "Nothing here yet" is forbidden while anything is still unresolved:
+       initial phase, in-flight page, or refresh — only a settled, ready,
+       zero-row feed may announce emptiness. */
+    $("cmFeedEmpty").hidden = !(initial ? false : (!feedFailed && !feedLoading && feedDone && shown === 0));
     syncFeedTail();
   }
 
@@ -2009,6 +2106,10 @@
   }
 
   function loadMoreFeed() {
+    /* Pagination never runs the initial phase: page one is owned by
+       reloadFeed + the skeleton contract, and sentinel-driven fetches must
+       not fire while the feed is still unproven. */
+    if (feedPhase !== "ready") return;
     if (feedLoading || feedDone || !liveOnline()) return;
     feedLoading = true;
     feedFailed = false;
@@ -2063,24 +2164,74 @@
      the server answers. On failure the old order is restored and the
      feed keeps working with last-known rows plus an error surface. */
   function reloadFeed() {
-    if (!liveOnline()) { notify("You appear to be offline."); return Promise.resolve(); }
+    if (feedPhase === "initial") return reloadFeedInitial();
+    return reloadFeedRefresh();
+  }
+
+  /* FIRST page one. The skeleton owns this window end to end: it appears
+     when the request starts and leaves exactly once — after the dwell AND
+     after the answer — for the ready phase to begin. */
+  function reloadFeedInitial() {
+    if (feedLoading) return Promise.resolve(false);
+    feedFailed = false;
+    if (!liveOnline()) {
+      skelSettle().then(function () {
+        feedFailed = true;
+        feedLoading = false;
+        feedDone = true;
+        $("cmFeedErrorMsg").textContent = "You appear to be offline.";
+        $("cmFeedRetry").hidden = false;
+        syncFeedState();
+      });
+      skelShow();
+      feedLoading = true;
+      return Promise.resolve(false);
+    }
+    skelShow();
+    feedLoading = true;
+    syncFeedState();
+    return BotoData.feedPage(null).then(function (out) {
+      var failures = !out.ok;
+      return skelSettle().then(function () {
+        feedLoading = false;
+        if (failures) {
+          feedFailed = true;
+          $("cmFeedErrorMsg").textContent = out.error;
+          $("cmFeedRetry").hidden = !out.retryable;
+          syncFeedState();
+          return false;
+        }
+        absorb(out.data.items);
+        feedOrder = out.data.items.map(function (r) { return r.id; });
+        feedCursor = out.data.cursor;
+        feedDone = out.data.done;
+        persist();
+        renderKnownFeed();
+        fillViewport();
+        refreshLatestAvatars().then(function (changed) {
+          if (changed && currentMode() === "community") renderKnownFeed();
+        });
+        return true;
+      });
+    });
+  }
+
+  /* Refresh of a proven feed. ATOMICITY: the pre-refresh page stays
+     visible while the request is in flight; failure keeps the old order
+     and surfaces the error alongside retained content. */
+  function reloadFeedRefresh() {
+    if (!liveOnline()) { notify("You appear to be offline."); return Promise.resolve(false); }
+    if (feedLoading) return Promise.resolve(false);
     return new Promise(function (resolve) {
       var savedOrder = feedOrder;
       var savedCursor = feedCursor;
       var savedDone = feedDone;
       feedFailed = false;
-
-      /* The request is a fresh page-one fetch sequenced after LOADS guard,
-         so we suspend the pagination flags instead of clobbering state. */
-      var wasLoading = feedLoading;
-      if (wasLoading) { resolve(); return; }
       feedLoading = true;
       syncFeedState();
       BotoData.feedPage(null).then(function (out) {
         feedLoading = false;
         if (!out.ok) {
-          /* Failure: nothing is discarded. The reader sees the same feed
-             and the error surface says the refresh failed. */
           feedOrder = savedOrder;
           feedCursor = savedCursor;
           feedDone = savedDone;
@@ -2090,9 +2241,6 @@
           resolve(false);
           return;
         }
-        /* Success: atomically swap. absorb() merges by id first so cards
-           that exist in both updates patch in place through the sig, and
-           the brand-new head rows get exactly one entrance each. */
         absorb(out.data.items);
         feedOrder = out.data.items.map(function (r) { return r.id; }).concat(
           savedOrder.filter(function (id) {
@@ -2101,7 +2249,6 @@
         );
         feedCursor = out.data.cursor;
         feedDone = out.data.done;
-        /* The atomic swap: content appears now, faces patch after. */
         persist();
         renderKnownFeed();
         fillViewport();
@@ -2126,6 +2273,41 @@
   }
 
   /* ---------- detail ---------- */
+
+  /* ---------- thread loading state ----------
+     One state per generation: the thread is UNPROVEN until its first
+     hydrate returns. Rendering "No replies yet" or "0 comments" before
+     that answer is lying in two directions at once, so the state machine
+     below is the only source of truth:
+
+       (absent) -> loading -> ready     initial open, skeleton visible
+       (absent) -> loading -> failed    error box with a real Retry
+       ready    -> ready                SWR: keep rows, patch on change
+
+     Stale-thread leakage is impossible by construction: merges and
+     repaints are gated on the *currently routed* gen (§11), so a late
+     answer from post A cannot overwrite the open thread of post B. */
+  var threadState = Object.create(null);
+
+  function threadStatus(genId) { return threadState[genId] || "idle"; }
+
+  function renderThreadSkeleton(listEl) {
+    listEl.innerHTML =
+      '<div class="skel-crow"><span class="skel-cava"></span>' +
+        '<span class="skel-lines"><span class="skel-line w60"></span><span class="skel-line w90"></span></span></div>' +
+      '<div class="skel-crow"><span class="skel-cava"></span>' +
+        '<span class="skel-lines"><span class="skel-line w40"></span><span class="skel-line w60"></span></span></div>' +
+      '<div class="skel-crow"><span class="skel-cava"></span>' +
+        '<span class="skel-lines"><span class="skel-line w60"></span><span class="skel-line w90"></span></span></div>';
+  }
+
+  function renderThreadFailed(genId, listEl, message) {
+    listEl.innerHTML =
+      '<div class="comments-failed"><p>' + esc(message || "Comments could not be loaded.") + "</p>" +
+      '<button class="btn" data-cthread-retry="' + esc(genId) + '" type="button">' +
+        "Try again</button></div>";
+    refreshIcons(listEl);
+  }
 
   function renderDetail(gen) {
     var detail = $("cmDetail");
@@ -2154,7 +2336,19 @@
     var listEl = document.createElement("div");
     listEl.id = "cmCommentList";
     section.appendChild(listEl);
-    renderThread(gen, listEl);
+    /* The thread box paints exactly one interpretation: skeleton while
+       the thread is unproven, the failure surface on a settled failure,
+       real comments only when the server actually answered "what is
+       there" (any local optimistic/pending rows of our own count as
+       known and render immediately). */
+    var tstatus = threadState[gen.id] || "idle";
+    if (tstatus === "ready" || commentsFor(gen.id).length) {
+      renderThread(gen, listEl);
+    } else if (tstatus === "failed") {
+      renderThreadFailed(gen.id, listEl, threadState[gen.id + ":error"]);
+    } else {
+      renderThreadSkeleton(listEl);
+    }
 
     var box = document.createElement("div");
     /* The composer is a response to an intent, not permanent furniture. On a
@@ -2366,10 +2560,26 @@
       return el;
     }
 
+    /* Pending and failed rows state themselves honestly: a queued write
+       says Sending (dimmed, no false permanence), a permanently failed
+       one shows the reason with Retry / Dismiss instead of pretending it
+       landed or silently vanishing. */
+    var cStateClass = c.pending ? " comment--pending" : (c.failed ? " comment--failed" : "");
+    var statusHtml = c.pending
+      ? '<span class="comment-status"><i data-lucide="clock"></i>Sending</span>'
+      : "";
+    var failedHtml = c.failed
+      ? '<span class="comment-failed-actions">' +
+          '<button class="btn small" data-cretry="' + c.id + '" type="button">Retry</button>' +
+          '<button class="btn small" data-cdismiss="' + c.id + '" type="button">Dismiss</button>' +
+        "</span>" +
+        '<span class="comment-status">' + esc(c.errorText || "Could not send") + "</span>"
+      : "";
+
     el.innerHTML =
       rails + elbow +
       '<div class="trow-main">' +
-        '<div class="comment' + (row.depth > 0 ? " comment--reply" : "") + '" data-reply-id="' + c.id + '">' +
+        '<div class="comment' + (row.depth > 0 ? " comment--reply" : "") + cStateClass + '" data-reply-id="' + c.id + '">' +
           avatar(c.creator, "avatar-sm") +
           '<div class="comment-main">' +
             '<div class="comment-id">' +
@@ -2407,7 +2617,7 @@
                     "</span>" +
                   "</button>"
                 : "") +
-              '<span class="comment-ops-end">' +
+              '<span class="comment-ops-end">' + statusHtml + failedHtml +
                 '<button class="comment-kebab" data-cmenu="' + c.id +
                   '" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">' +
                   '<i data-lucide="ellipsis"></i>' +
@@ -2624,6 +2834,16 @@
         openComposer();
         return;
       }
+      var retryBtn = e.target.closest("[data-cretry]");
+      if (retryBtn) {
+        retryFailedComment(retryBtn.getAttribute("data-cretry"));
+        return;
+      }
+      var dismissBtn = e.target.closest("[data-cdismiss]");
+      if (dismissBtn) {
+        dismissFailedComment(dismissBtn.getAttribute("data-cdismiss"));
+        return;
+      }
       var replyBtn = e.target.closest("[data-reply]");
       if (replyBtn) {
         var wantId = replyBtn.getAttribute("data-reply");
@@ -2755,10 +2975,14 @@
         createdAt: Date.now()
       };
       state.comments.push(optimistic);
-      BotoData.queue({
+      var cjob = {
         type: "comment", key: ckey, localId: ckey,
         genId: gen.id, body: text, parentId: parentId,
-        onDone: function (row) { adoptServerComment(ckey, row); },
+        onDone: function (row) {
+          adoptServerComment(ckey, row);
+          if (!cjob.durable &&
+              routeHash() === "/g/" + row.genId) notify("Comment added.");
+        },
         onFail: function (out) {
           var local = commentById(ckey);
           if (local) { local.pending = false; local.failed = true; local.errorText = out.error; local.errorCode = out.code || null; }
@@ -2767,7 +2991,8 @@
           if (out.code === "auth") notify(out.error, "Sign in", goSignIn);
           else notify(out.error);
         }
-      });
+      };
+      BotoData.queue(cjob);
       BotoData.drain();
       /* A fresh reply must be visible: reveal every ancestor in its chain
          (each level gates its own children), plus the reply target itself. */
@@ -3022,6 +3247,59 @@
     pill.hidden = false;
   }
 
+  /* A failed comment is rebuilt into its exact original job: same
+     idempotency key, so the write the server may never have seen is
+     retried as itself, not as a second comment. */
+  function retryFailedComment(id) {
+    var c = commentById(id);
+    if (!c || !c.failed) return;
+    c.pending = true;
+    c.failed = false;
+    c.errorText = null;
+    BotoData.queue({
+      type: "comment",
+      key: id,
+      localId: id,
+      genId: c.genId, body: c.text, parentId: c.parentId,
+      onDone: function (row) { adoptServerComment(id, row); notify("Comment added."); },
+      onFail: function (out) {
+        var local = commentById(id);
+        if (local) { local.pending = false; local.failed = true; local.errorText = out.error; local.errorCode = out.code || null; }
+        persist();
+        refreshThreadOnly(local.genId);
+        if (out.code === "auth") notify(out.error, "Sign in", goSignIn);
+        else notify(out.error);
+      }
+    });
+    BotoData.drain();
+    refreshThreadOnly(c.genId);
+    syncOutboxChrome();
+  }
+
+  /* Dismiss deletes the failed draft locally: the server never saw it. */
+  function dismissFailedComment(id) {
+    var c = commentById(id);
+    if (!c || !c.failed) return;
+    retire(id);
+    state.comments = state.comments.filter(function (x) { return x.id !== id; });
+    syncCommentCount(c.genId);
+    persist();
+    refreshThreadOnly(c.genId);
+  }
+
+  function initThreadRetry() {
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-cthread-retry]");
+      if (!btn) return;
+      var genId = btn.getAttribute("data-cthread-retry");
+      /* Back to unproven: skeleton again, then a real answer. */
+      threadState[genId] = "idle";
+      var le = $("cmCommentList");
+      if (le && routeHash() === "/g/" + genId) renderThreadSkeleton(le);
+      hydrateThread(genId);
+    });
+  }
+
   function initFeedRetry() {
     $("cmFeedRetry").addEventListener("click", function () {
       /* A deliberate retry also restarts the poll: the reader is telling
@@ -3266,7 +3544,7 @@
   /* Hands a finished post to the outbox and reconciles the optimistic card
      with whatever the server says it is. */
   function publishGeneration(gen, key) {
-    BotoData.queue({
+    var job = {
       type: "generation",
       key: key,
       localId: gen.id,
@@ -3287,9 +3565,14 @@
         adoptServerRow(key, row);
         /* The parent's derived counts moved when this child landed. */
         if (row.parentId) refreshOne(row.parentId);
+        /* Success is announced only when the person is still watching:
+           a job that outlived the tab (durable) settles silently into
+           reconciliation instead of surprising the returning reader. */
+        if (!job.durable && cardById(row.id)) notify("Posted.");
       },
       onFail: function (out) { markFailed(key, out.error, out.code); }
-    });
+    };
+    BotoData.queue(job);
     BotoData.drain();
     syncOutboxChrome();
   }
@@ -3601,6 +3884,18 @@
     }
     if (act === "retry") {
       retryGeneration(gen);
+      return;
+    }
+    /* A plain post the server never stored is re-queued with its original
+       idempotency key (gen.id): the retry lands as the same write, never
+       as a second post. */
+    if (act === "retry_post" && !isAddressed(gen) && gen.status === "failed") {
+      gen.status = "complete";
+      gen.pending = true;
+      gen.errorText = null;
+      gen.errorCode = null;
+      replaceCard(gen);
+      publishGeneration(gen, gen.id);
       return;
     }
   }
@@ -3918,6 +4213,7 @@
     initPill();
     initNotifications();
     initFeedRetry();
+    initThreadRetry();
     initPullRefresh();
     schedulePoll();
     var sentinel = $("cmFeedSentinel");
@@ -4000,6 +4296,11 @@
       state = load() || seed();
       notifLastHTML = null;   /* an inbox belongs to its account */
       feedSig = new Map();    /* signatures belong to this identity's rows */
+      feedOrder = [];
+      feedCursor = null;
+      feedDone = false;
+      feedPhase = "initial";  /* the next identity starts unproven */
+      threadState = Object.create(null); /* so do its threads */
       composeCtx = null;
       var ctx = $("cmRemixCtx");
       if (ctx) ctx.hidden = true;

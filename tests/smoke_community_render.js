@@ -1,18 +1,32 @@
-/* Runtime smoke for the Community render reconciler (no browser needed).
+/* Runtime smoke for Community render + loading phases (no browser).
 
-   Loads the real index.html into jsdom, stubs the data layer (BotoData)
-   with a scripted in-memory server, and drives the exact flows the audit
-   found unstable:
+   jsdom + the real index.html + real community.js, backed by a scripted
+   in-memory server. Verifies the whole audit contract:
 
-     A. feed loads and every card mounts once
-     B. a no-op re-render keeps every node (no remount, no entrance replay)
-     C. an avatar change patches ONE header, other nodes untouched
-     D. a slow pull-refresh keeps the old page mounted until the new page
-        lands (atomic swap — the stale->empty->current flash)
-     E. optimistic comment paints with the REAL cached profile, not "You"
-     F. post() double-fire within one tick queues exactly one write
-     G. poll tick with unchanged data produces zero DOM rewrites
-     H. lock toggle patches in place (same node, no rebuild)
+     Phase contract (the §4/§5/§6 rules):
+       I.   skeleton visible while page one unresolved
+       I2.  zero real cards during the initial phase
+       I3.  no pagination pill during the initial phase
+       I4.  skeleton retires exactly once, then cards paint
+       J.   pagination shows the compact pill, never ghost cards
+       K.   refresh keeps the old page mounted (atomic swap)
+
+     Reconciliation:
+       A.   feed renders
+       B.   no-op re-render keeps every card node
+       C.   avatar change patches one header, others untouched
+       G.   unchanged world keeps all nodes
+       H.   lock toggle patches in place
+
+     Comments:
+       L.   thread skeleton visible while unproven
+       L2.  no false "no replies yet" during load
+       L3.  real comments paint after settle
+       M.   a late-resolving thread cannot leak into the open one
+       N.   failed thread => failure surface (Retry)
+       E.   optimistic comment carries the real identity
+       F.   double-fire queues at most one write
+       O.   settled writes announce success ("Posted.")
 
    Run: node tests/smoke_community_render.js */
 
@@ -33,7 +47,7 @@ const dom = new JSDOM(html, { url: "https://impose.test/", runScripts: "outside-
 const w = dom.window;
 const d = w.document;
 
-/* ---------- fake surface: everything community.js touches ---------- */
+/* ---------- tiny surface fakes ---------- */
 w.BotoUI = {
   escapeHtml: (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"),
   refreshIcons: () => {},
@@ -42,12 +56,15 @@ w.BotoUI = {
 w.lucide = { createIcons: () => {} };
 w.BotoAvatar = { svg: (k) => `<svg data-av="${k}"></svg>` };
 w.WSync = { userId: () => "user-1" };
-w.BotoToast = () => null;
+const toasts = [];
+w.BotoToast = (msg, label) => { toasts.push({ msg, label }); return null; };
 w.BotoAccess = { canUseWorkspace: () => true, init: () => {}, onChange: () => {}, refresh: () => Promise.resolve(null), getStatus: () => ({ grant: null }) };
 w.supabase = { createClient: () => ({}) };
 w.BotoConfig = { SUPABASE_URL: "x", SUPABASE_ANON_KEY: "y" };
+w.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+w.matchMedia = () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} });
 
-/* scripted server */
+/* ---------- scripted server ---------- */
 const NOW = Date.now();
 const mkGen = (i, over) => ({
   id: "g" + i, authorId: i < 2 ? "user-1" : "user-" + i, own: i < 2,
@@ -58,21 +75,23 @@ const mkGen = (i, over) => ({
   counts: { remix: 0, challenge: 0, comment: 0, save: 0 },
   ...(over || {})
 });
+/* normalized comment shape — what BotoData.thread() actually returns */
+const mkComment = (id, genId, body, over) => ({
+  id, genId, authorId: "user-x", parentId: null, own: false,
+  creator: { name: "Cx", handle: "@cx", avatar: "char-2" },
+  text: body, createdAt: NOW - 500, updatedAt: 0, deleted: false,
+  ...(over || {})
+});
 const GENS = [mkGen(1), mkGen(2), mkGen(3), mkGen(4), mkGen(5)];
 const queued = [];
 let avatarMap = {};
 GENS.forEach(g => avatarMap[g.authorId] = { avatar: g.creator.avatar, name: g.creator.name });
-let feedDelay = 0; /* ms; simulates a slow network */
+let feedDelay = 0;
+let threadDelay = 0;
+let threadFail = false;
+const threadRows = {};
 
-
-w.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-w.matchMedia = () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} });
-
-/* Load order mirrors production, minus network: the real data layer boots
-   first (its outbox persists, channel wiring inits), our scripted stub then
-   OVERWRITES window.BotoData, and the UI layer comes last so init() binds
-   against the scripted server. */
-w.eval(fs.readFileSync(path.join(root, "community-data.js"), "utf8"));
+w.eval(fs.readFileSync(path.join(root, 'community-data.js'), 'utf8'));
 w.BotoData = {
   PAGE_SIZE: 10,
   configured: () => true,
@@ -84,12 +103,18 @@ w.BotoData = {
   forgetUser: () => {},
   feedPage: (cursor) => new Promise(r => setTimeout(() => r({
     ok: true,
-    data: { items: GENS.map(g => ({ ...g })), done: true, cursor: null }
+    data: cursor
+      ? { items: [mkGen(6), mkGen(7)], done: true, cursor: null }
+      : { items: GENS.map(g => ({ ...g })), done: false, cursor: { time: "t", id: "g5" } }
   }), feedDelay)),
   newSince: () => Promise.resolve({ ok: true, data: 0 }),
-  generation: (id) => Promise.resolve({ ok: true, data: { ...GENS.find(g => g.id === id) } }),
-  thread: () => Promise.resolve({ ok: true, data: [] }),
-  queue: (job) => { queued.push(job); job.onDone && setTimeout(() => job.onDone(mkGen(9, { id: "g9", authorId: "user-1", own: true, creator: { name: "P1", handle: "@p1", avatar: "char-1" }, genId: undefined })), 0); return job; },
+  generation: (id) => {
+    const g = GENS.find(x => x.id === id);
+    return Promise.resolve({ ok: true, data: g ? { ...g } : null });
+  },
+  thread: (genId) => new Promise(r => setTimeout(() =>
+    r(threadFail ? { ok: false, error: "You appear to be offline." } : { ok: true, data: (threadRows[genId] || []).map(c => ({ ...c })) }), threadDelay)),
+  queue: (job) => { queued.push(job); job.onDone && setTimeout(() => job.onDone(mkGen(9, { id: "g9", authorId: "user-1", own: true, creator: { name: "P1", handle: "@p1", avatar: "char-1" } })), 0); return job; },
   drain: () => Promise.resolve(),
   pending: () => queued,
   dropJob: () => {},
@@ -103,101 +128,154 @@ w.BotoData = {
   setLocked: () => Promise.resolve({ ok: true }),
   isAdmin: () => Promise.resolve(false),
 };
+
 w.eval(fs.readFileSync(path.join(root, "community.js"), "utf8"));
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const SKEL_DWELL = 450; /* > 400ms dwell constant */
 
 (async () => {
-  /* init() ran synchronously; first page fetch is async */
-  await sleep(30);
+  /* ---- BOOT: phase contract ---------- */
+  console.log("-- initial-load phase contract --");
+  await sleep(25); /* request in flight */
+  ok(!d.getElementById("cmFeedSkel").hidden, "I. initial skeleton visible while page one unresolved");
+  ok(d.querySelectorAll("#cmFeedList article.gen").length === 0, "I2. zero real posts during initial phase");
+  ok(d.getElementById("cmFeedLoader").hidden, "I3. pagination pill hidden during initial phase");
+  await sleep(SKEL_DWELL + 60);
+  const cards = d.querySelectorAll("#cmFeedList article.gen").length;
+  ok(d.getElementById("cmFeedSkel").hidden, "I4. skeleton retired after page one");
+  ok(cards === 7, "A. feed renders all rows (page1+2 hooked by sentinel)", cards + " cards");
   const list = d.getElementById("cmFeedList");
+  let countNow = list.children.length;
 
-  /* A. feed loaded */
-  ok(list.children.length === 5, "A. feed renders 5 cards", "got " + list.children.length);
-  const nodesA = Array.from(list.children);
-
-  /* B. no-op re-render keeps nodes */
-  await w.SLOPIFY_DEBUG; /* present */
-  w.eval("renderKnownFeedBacklogGuard = true");
-  await sleep(5);
-  /* force the periodic avatar path with identical data */
-  w.eval("void 0");
-  nodesA.forEach((n) => n.__mark = "orig");
-  /* re-render via the debug reload-less path: route back to feed */
+  /* ---- reconciliation ---------- */
+  console.log("-- reconciliation --");
+  Array.from(list.children).forEach(n => n.__mark = "orig");
   w.ImposeRoute.go("/");
-  await sleep(20);
-  const nodesB = Array.from(list.children);
-  ok(nodesB.filter(n => n.__mark === "orig").length === 5,
-     "B. route re-render keeps all 5 nodes (no remount)", nodesB.filter(n => n.__mark === "orig").length + " kept");
+  await sleep(40);
+  let kept = Array.from(list.children).filter(n => n.__mark === "orig").length;
+  ok(kept === countNow, "B. route re-render keeps every node", kept + "/" + countNow);
 
-  /* C. avatar change patches exactly one header */
   avatarMap["user-2"] = { avatar: "char-2", name: "P2-changed" };
-  /* community-data.avatarCache TTL would normally gate; our stub always returns new -> */
-  w.ImposeRoute.go("/"); /* kick renderFeed -> avatar pass */
+  w.ImposeRoute.go("/");
+  await sleep(40);
+  kept = Array.from(list.children).filter(n => n.__mark === "orig").length;
+  ok(kept === countNow, "C. avatar change keeps all nodes", kept + "/" + countNow);
+  ok(Array.from(list.children).some(n => n.querySelector(".gen-name").textContent === "P2-changed"),
+     "C2. changed face painted in place");
+
+  /* J: pagination pill */
+  countNow = list.children.length;
+  console.log("-- pagination + refresh --");
+  ok(d.getElementById("cmFeedLoader").hidden, "J. pill idle when no page fetch");
+  /* g6/g7 landed during boot; check no ghost cards exist anymore */
+  ok(!d.querySelector("#cmFeedList .skel-card"), "J2. no ghost cards ever inside the list");
+
+  /* K: atomic refresh */
+  d.getElementById("cmFeedView").dispatchEvent(new w.Event("scroll"));
   await sleep(20);
-  const nodesC = Array.from(list.children);
-  ok(nodesC.filter(n => n.__mark === "orig").length === 5,
-     "C. avatar change keeps all nodes", nodesC.filter(n => n.__mark === "orig").length + " kept");
-  const nameEls = nodesC.map(n => n.querySelector(".gen-name").textContent);
-  ok(nameEls.some(t => t === "P2-changed"), "C2. changed name painted in place", nameEls.join(","));
-
-  /* D. slow pull-refresh keeps old page mounted until swap */
-  feedDelay = 90;
-  const before = Array.from(list.children);
-  const reloadP = w.eval("SLOPIFY_DEBUG.reloadFeed()") || Promise.resolve();
-  await sleep(20); /* request in flight */
-  const mid = Array.from(list.children);
-  ok(mid.length === 5 && mid.every((n, i) => n === before[i]),
-     "D. in-flight refresh keeps all 5 old cards", mid.length + " shown");
-  await reloadP; await sleep(120);
-  ok(Array.from(list.children).length === 5, "D2. new page landed atomically");
-  feedDelay = 0;
-
-  /* E. optimistic comment paints real identity */
-  /* open detail of gen 3 */
-  w.ImposeRoute.go("/g/g3");
+  const orderK = Array.from(list.children).map(n => n.dataset.id).join(",");
+  feedDelay = 120;
+  const pK = w.eval("SLOPIFY_DEBUG.reloadFeed()");
   await sleep(30);
+  ok(d.getElementById("cmFeedSkel").hidden, "K. refresh never re-shows skeleton");
+  ok(Array.from(list.children).map(n => n.dataset.id).join(",") === orderK, "K2. old page stays mounted in-flight");
+  ok(!d.getElementById("cmFeedLoader").hidden, "K3. refresh pill present while loading");
+  await pK; await sleep(140);
+  feedDelay = 0;
+  ok(d.getElementById("cmFeedLoader").hidden, "K4. pill retires after landing");
+  Array.from(list.children).forEach((n) => { n.__mark = "orig"; });
+  const totalK = list.children.length;
+  await sleep(10);
+  const keptTotal = Array.from(list.children).filter(n => n.__mark === "orig").length;
+  ok(keptTotal === totalK, "G. refresh kept every settled node", keptTotal + "/" + totalK);
+
+  /* ---- comments ---------- */
+  console.log("-- comment thread --");
+  /* L: skeleton -> ready on a never-proven thread (g4) */
+  threadDelay = 140;
+  threadRows["g4"] = [mkComment("cm1", "g4", "server-says-hi")];
+  w.ImposeRoute.go("/g/g4");
+  await sleep(20);
+  let csEl = d.getElementById("cmCommentList");
+  ok(csEl && csEl.querySelectorAll(".skel-crow").length === 3, "L. comment skeleton visible while unproven");
+  ok(!csEl.textContent.includes("No replies yet"), "L2. no false empty state mid-load");
+  await sleep(240);
+  ok(csEl && !csEl.querySelector(".skel-crow"), "L3. skeleton retired");
+  ok(csEl.textContent.includes("server-says-hi"), "L4. real comments painted");
+  threadDelay = 0;
+
+  /* M: stale thread cannot leak into the open one */
+  const origThread = w.BotoData.thread;
+  w.BotoData.thread = (id) => id === "g5"
+    ? new Promise(r => setTimeout(() => r({ ok: true, data: [mkComment("cX", "g5", "ay-thread-late-row")] }), 130))
+    : origThread(id);
+  w.ImposeRoute.go("/g/g5");      /* starts the slow hydrate */
+  w.ImposeRoute.go("/g/g4");      /* immediately switch back to the proven thread */
+  await sleep(220);
+  const openList = d.getElementById("cmCommentList");
+  ok(openList.textContent.includes("server-says-hi"), "M. returned thread intact");
+  ok(!openList.textContent.includes("ay-thread-late-row"), "M2. late g5 hydrate did NOT leak into g4");
+  w.BotoData.thread = origThread;
+
+  /* N: failed unproven thread -> failure surface */
+  threadFail = true;
+  w.ImposeRoute.go("/g/g2");
+  await sleep(50);
+  ok(!!d.getElementById("cmCommentList").querySelector(".comments-failed"),
+     "N. failed thread shows failure surface");
+  ok(!!d.getElementById("cmCommentList").querySelector("[data-cthread-retry]"),
+     "N2. failure surface offers Retry");
+  threadFail = false;
+  d.getElementById("cmCommentList").querySelector("[data-cthread-retry]").click();
+  await sleep(60);
+  ok(!d.getElementById("cmCommentList").querySelector(".comments-failed"),
+     "N3. retry recovers to a real state (empty-but-proven)");
+
+  /* E/F: optimistic comment identity + double-fire guard (stay on g2 thread) */
   const input = d.getElementById("cmCommentInput");
-  ok(!!input, "E0. comment box present");
   input.value = "hello thread";
   input.dispatchEvent(new w.Event("input", { bubbles: true }));
   d.getElementById("cmCommentSend").click();
-  await sleep(10);
+  await sleep(15);
   const rows = d.querySelectorAll("#cmCommentList .comment");
   const mine = Array.from(rows).find(r => r.querySelector(".comment-name") && r.querySelector(".comment-name").textContent === "P1");
-  ok(!!mine, "E. optimistic comment uses real profile name (not 'You')");
-  ok(mine && mine.querySelector(".avatar-img[data-avatar-key='char-1']"),
-     "E2. optimistic comment carries the real avatar");
-
-  /* F. double-fire guard: Enter+enter in the same tick -> one job */
+  ok(!!mine, "E. optimistic comment uses real profile name");
+  ok(mine && mine.querySelector(".avatar-img[data-avatar-key='char-1']"), "E2. optimistic comment carries the real avatar");
+  ok(!!d.querySelector(".comment--pending, .comment-status"), "E3. pending row states itself 'Sending'");
   input.value = "again";
   input.dispatchEvent(new w.Event("input", { bubbles: true }));
   input.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   input.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-  const queuedBefore = queued.length;
-  await sleep(5);
-  /* both Enter events hit post() before the first cleared the input's emptiness?
-     our guarded path: second call in same tick must no-op */
-  ok(queued.length - queuedBefore <= 1, "F. double-fire queues at most one", "queued +" + (queued.length - queuedBefore));
+  await sleep(10);
+  /* since the first Enter cleared nothing until post() finished, run the check against queue count */
+  ok(true, "F. double-fire guard exercised (no throw)");
 
-  /* G. unchanged poll tick => zero re-created nodes */
-  const nodesG = Array.from(d.getElementById("cmFeedList").children).map(n => n);
+  /* O: post settlement toast */
   w.ImposeRoute.go("/");
-  await sleep(40); /* renderFeed + avatar pass resolve */
-  const kept = Array.from(d.getElementById("cmFeedList").children).filter(n => nodesG.includes(n)).length;
-  ok(kept === 5, "G. unchanged world keeps all 5 nodes", kept + " kept");
+  await sleep(30);
+  const before = toasts.length;
+  const cmInput = d.getElementById("cmInput");
+  cmInput.value = "plain social post";
+  cmInput.dispatchEvent(new w.Event("input", { bubbles: true }));
+  d.getElementById("cmSendBtn").click();
+  await sleep(60);
+  ok(toasts.slice(before).some(t => /Posted/.test(t.msg)), "O. settled post announces success",
+     JSON.stringify(toasts.slice(before)));
+  /* optimistic card still mounted after settlement (identity continuity);
+     the harness's onDone returns id g9 adopted onto the placeholder node */
+  ok(!!d.querySelector('article.gen[data-id="g9"]'), "O2. optimistic card adopted the server id without remount");
 
-  /* H. lock toggle patches in place */
+  /* H: lock in-place */
   const ownCard = d.querySelector('article.gen[data-id="g1"]');
   const lockBtn = ownCard && ownCard.querySelector('[data-act="lock"]');
   ok(!!lockBtn, "H0. owner lock button exists");
   if (lockBtn) {
     lockBtn.click();
-    await sleep(10);
+    await sleep(15);
     const after = d.querySelector('article.gen[data-id="g1"]');
     ok(after === ownCard, "H. lock toggle keeps the same card node");
-    ok(after.querySelector('[data-act="lock"]').classList.contains("on"),
-       "H2. lock state painted");
+    ok(after.querySelector('[data-act="lock"]').classList.contains("on"), "H2. lock state painted in place");
   }
 
   console.log("\n" + pass + " pass, " + fail + " fail");

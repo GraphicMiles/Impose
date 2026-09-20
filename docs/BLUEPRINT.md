@@ -177,6 +177,21 @@ server-fed display cache never written to disk. Every render path follows
   Poll ticks and avatar refreshes repaint only rows whose identity moved.
 - Profile page + notification sheet render cached content instantly on
   revisit and merge fresher data over it (soft reload).
+- Feed loading has exactly two phases: "initial" (nothing trusted — the
+   4-card skeleton owns the feed space alone, minimum 400ms dwell, retired
+   once) and "ready" (page one verified — loaders are incremental: compact
+   "Loading more…" pill for pagination, retained content + pull indicator
+   for refresh; ghost cards never appear beneath real content).
+- Comment threads mirror the same contract per generation: unproven
+  threads show a 3-row comment skeleton (avatar-sm + two lines geometry),
+  never a false "No replies yet"; settled failures render an error box
+  with Retry; proven threads refresh in place.
+- Pending/failed rows state themselves: queued comments render "Sending";
+  permanently-failed comments render the reason + Retry (re-queued with
+  the same idempotency key) + Dismiss; failed plain posts get a Retry in
+  the card chip (same key, never a duplicate write).
+- Settlement toasts ("Posted.", "Comment added.") fire for in-session,
+  visible writes only; jobs that outlived the tab reconcile silently.
 - Threads: hydrateThread merges server rows and repaints only when the
   visible-thread signature changed; comments themselves are relativized
   rows without entrance animation, so thread repaints are continuous.

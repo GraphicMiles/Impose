@@ -329,11 +329,20 @@ body:not(.community-mode) .modebar { display: none; }
    high-contrast ring runs at the bottom of the list so the fetch is felt,
    not inferred. */
 
-/* Pagination skeleton: two ghost cards in the shape of the gen cards
-   they become, breathing softly. A ring tells nothing about what is
-   coming; the skeleton previews it. */
+/* The initial-load skeleton: a full-viewport stand-in that exists while
+   the feed has no trusted page yet. It owns the feed space alone — the
+   reconciler never paints real cards beside it, and the minimum-dwell
+   rule in community.js means a fast network never flashes it. */
+.cm-scope .feed-skel { display: grid; }
+
+/* Pagination indicator: a compact status pill, deliberately NOT ghost
+   cards, so a background page fetch is visibly distinct from "no data
+   yet". Fixed height so its appearance never shifts the cards above. */
 .cm-scope .feed-loader {
-  display: grid;
+  display: flex;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
   gap: 14px;
   width: 100%;
   padding: 4px 0 8px;
@@ -352,6 +361,37 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .skel-line.w90 { width: 90%; }
 .cm-scope .skel-line.w40 { width: 40%; }
 @keyframes skel-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+.cm-scope .feed-loader[hidden] { display: none; }
+.cm-scope .feed-skel[hidden] { display: none; }
+.cm-scope .loadpill {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12.5px; font-weight: 600; color: var(--text-3);
+  border: 1px solid var(--border-soft); border-radius: 999px;
+  padding: 6px 12px; background: var(--chrome);
+}
+.cm-scope .loadpill .spinner { position: static; width: 13px; height: 13px; animation: feed-spin 750ms linear infinite !important; border-width: 2px; display: inline-block; }
+
+/* Comment-thread skeleton: mirrors the real comment row geometry
+   (avatar-sm 24px + two text lines) so nothing jumps when rows arrive. */
+.cm-scope .skel-crow { display: flex; gap: 10px; padding: 12px 16px 4px; animation: skel-breathe 1.4s ease-in-out infinite; }
+.cm-scope .skel-crow:nth-child(2n) { animation-delay: 180ms; }
+.cm-scope .skel-cava { width: 24px; height: 24px; border-radius: 50%; flex: none; background: var(--hover); }
+.cm-scope .skel-crow .skel-lines { gap: 7px; padding-top: 2px; }
+
+.cm-scope .comments-failed { padding: 18px 16px; text-align: center; color: var(--text-3); font-size: 13.5px; }
+.cm-scope .comments-failed .btn { margin-top: 10px; }
+
+.cm-scope .comment--pending .comment-text, .cm-scope .comment--pending .comment-id { opacity: 0.55; }
+.cm-scope .comment-status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 600; color: var(--text-3);
+  margin-left: 8px;
+}
+.cm-scope .comment-status .lucide { width: 12px; height: 12px; }
+.cm-scope .comment--failed { border-left: 2px solid var(--warn, #e0a63f); padding-left: 8px; }
+.cm-scope .comment-failed-actions { display: inline-flex; gap: 8px; margin-left: 8px; }
+.cm-scope .comment-failed-actions .btn { padding: 4px 10px; font-size: 12px; }
 @media (prefers-reduced-motion: reduce) {
   .cm-scope .skel-card { animation: none; opacity: 0.6; }
 }
