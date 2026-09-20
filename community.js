@@ -3346,6 +3346,14 @@
     }
 
     document.addEventListener("touchstart", function (e) {
+      /* This handler owns the FEED's pull-to-refresh, but it listens on
+         the whole document, and its old scroller checks lied in workspace
+         mode: #cmFeedView.hidden is false there (the HIDDEN one is its
+         ancestor #cmMain) and its scrollTop is 0, so every touch in the
+         workspace chat engaged and the touchmove branch preventDefaulted
+         every downward swipe - the chat scrolled down but never up.
+         The mode is the honest gate. */
+      if (!document.body.classList.contains("community-mode")) return;
       var box = feedScroller();
       if (refreshing || !box || box.hidden || box.scrollTop > 0) return;
       var t = e.target;

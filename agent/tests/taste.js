@@ -282,6 +282,21 @@ test("bar-level chrome is not scoped to a root it is outside of", function () {
     "the bell must match the avatar's 34px square so the cluster reads level");
 });
 
+test("pull-to-refresh never arms outside the community mode", function () {
+  /* The feed scroller reports hidden: false whenever only its ANCESTOR
+     (#cmMain) is hidden, and scrollTop stays 0, so a touchstart guard
+     that checks box.hidden alone armed in WORKSPACE mode too - and the
+     touchmove branch then preventDefaulted every downward swipe. The
+     workspace chat scrolled down but never up until the handlers were
+     gated on the mode. */
+  var js = read("community.js");
+  var i = js.indexOf('addEventListener("touchstart"');
+  ok(i > -1, "the pull-to-refresh touchstart listener is gone");
+  var guard = js.slice(i, js.indexOf("{ passive: true", i));
+  ok(guard.indexOf('contains("community-mode")') > -1,
+    "the touchstart guard no longer gates on community mode (see the workspace scroll-up swallow)");
+});
+
 test("profile names have one contract: capped length, no emoji, some letters", function () {
   /* The header truncation keeps the layout but cannot make an emoji name
      sayable or searchable. The rule lives once in BotoUI.validProfileName,
