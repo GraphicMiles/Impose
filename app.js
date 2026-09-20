@@ -6277,7 +6277,20 @@
   if (cmAv) cmAv.addEventListener("click", function () { openAccount(cmAv, "bottom", "end"); });
 
   $("acctName").addEventListener("change", function () {
-    var v = $("acctName").value.trim().slice(0, 24);
+    var v = $("acctName").value.trim().slice(0, 40);
+    /* One name contract everywhere (see BotoUI.validProfileName): editing
+       to an invalid name is refused with its reason and the field snaps
+       back to the name that was there, rather than saving something the
+       public profile write path would then reject. */
+    if (v && window.BotoUI && BotoUI.validProfileName) {
+      var check = BotoUI.validProfileName(v);
+      if (!check.ok) {
+        toast(check.message, null, null, 4000, "warn");
+        $("acctName").value = displayName();
+        return;
+      }
+      v = check.value;
+    }
     state.settings.displayName = v || "You";
     save();
     syncAvatars();
@@ -6476,6 +6489,18 @@
       var dName = nameInput ? nameInput.value.trim() : "";
       var handle = handleInput ? handleInput.value.trim() : "";
       var bio = bioInput ? bioInput.value.trim() : "";
+
+      /* Same contract as the workspace identity field (BotoUI.validProfileName).
+         An empty name means keep the current one, so it is not validated;
+         a supplied name that breaks the rule is refused before the RPC. */
+      if (dName && window.BotoUI && BotoUI.validProfileName) {
+        var nameCheck = BotoUI.validProfileName(dName);
+        if (!nameCheck.ok) {
+          toast(nameCheck.message, null, null, 4000, "warn");
+          return;
+        }
+        dName = nameCheck.value;
+      }
 
       customSave.disabled = true;
       /* Apply the selected General avatar to this tab immediately. The

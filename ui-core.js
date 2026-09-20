@@ -54,11 +54,41 @@
     catch (e) { return ""; }
   }
 
+  /* ---------- profile display-name contract ---------- */
+
+  /* One rule for every place a display name can be entered (profile modal,
+     workspace identity), mirroring the server's word on it: length comes
+     from customize_profile (2-40, at least one letter or digit), and since
+     migration 0027 display names carry no emoji. Card and thread headers
+     truncate long names instead of wrapping, so the length cap is also the
+     readability budget. */
+  var PROFILE_NAME_MIN = 2;
+  var PROFILE_NAME_MAX = 40;
+  var PROFILE_NAME_EMOJI = /[\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u20E3]/u;
+
+  /* Returns { ok, value } on success or { ok: false, reason, message }
+     with the exact words to show. Empty input is a separate answer from
+     an invalid one: some editors treat it as "keep the current name". */
+  function validProfileName(value) {
+    var v = String(value || "").trim();
+    if (!v) return { ok: false, reason: "empty", message: "Enter a display name." };
+    if (v.length > PROFILE_NAME_MAX) return { ok: false, reason: "long", message: "Names are " + PROFILE_NAME_MAX + " characters at most." };
+    if (v.length < PROFILE_NAME_MIN) return { ok: false, reason: "short", message: "Names need at least 2 characters." };
+    if (PROFILE_NAME_EMOJI.test(v)) return { ok: false, reason: "emoji", message: "Emojis can't be used as names." };
+    /* The database asks for an ASCII letter or digit (customize_profile),
+       so the client asks for the same thing: a name the client accepts
+       must never come back refused by the server. */
+    if (!/[A-Za-z0-9]/.test(v)) return { ok: false, reason: "plain", message: "Add at least one letter or number." };
+    return { ok: true, value: v };
+  }
+
   window.BotoUI = {
     autogrow: autogrow,
     escapeHtml: escapeHtml,
     syncSend: syncSend,
     refreshIcons: refreshIcons,
-    relativeTime: relativeTime
+    relativeTime: relativeTime,
+    validProfileName: validProfileName,
+    PROFILE_NAME_MAX: PROFILE_NAME_MAX
   };
 })();

@@ -475,13 +475,26 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .gen-head { display: flex; align-items: center; gap: 10px; }
 
-.cm-scope .gen-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex-wrap: wrap; }
+/* One header line, always: the identity cluster never wraps, because a
+   wrapped second line pushes the post body down and moves every card
+   under it. Space pressure goes to the name first, then the handle;
+   time and badges sit on flex:none islands so they are never squeezed
+   onto a line of their own. */
+.cm-scope .gen-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }
 
-.cm-scope .gen-name { font-weight: 600; font-size: 14px; color: var(--text); }
+.cm-scope .gen-name {
+  font-weight: 600; font-size: 14px; color: var(--text);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
 
-.cm-scope .gen-handle { color: var(--text-3); font-size: 13px; }
+.cm-scope .gen-handle {
+  color: var(--text-3); font-size: 13px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
 
-.cm-scope .gen-time { color: var(--text-3); font-size: 13px; }
+.cm-scope .gen-time { color: var(--text-3); font-size: 13px; flex: none; white-space: nowrap; }
 
 .cm-scope .gen-time::before { content: "·"; margin-right: 6px; }
 
@@ -494,6 +507,8 @@ body:not(.community-mode) .modebar { display: none; }
   border: 1px solid var(--border-soft);
   border-radius: var(--r-pill);
   padding: 2px 8px;
+  flex: none; /* islands on the header line: badges never squeeze or wrap */
+  white-space: nowrap;
 }
 
 .cm-scope .gen-badge .lucide, .cm-scope .gen-badge i[data-lucide] { width: 12px; height: 12px; }
@@ -626,7 +641,10 @@ body:not(.community-mode) .modebar { display: none; }
   align-items: center;
   gap: 4px;
   margin-top: 8px;
-  margin-left: -8px;
+  /* Every control owns the same slice of the row: the three counts no
+     longer hug the left with lock and kebab exiled to the far right, and
+     the thumbs stop moving between cards that have different actions. */
+  justify-content: space-evenly;
 }
 
 /* Counters tick; tabular figures stop the digits dancing. */
@@ -674,7 +692,9 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .gen-act.on { color: var(--link); }
 
-.cm-scope .gen-act-spacer { flex: 1; }
+/* space-evenly owns the distribution now; the flex spacer that exiled the
+   trailing controls to the right edge would only double-count the gap. */
+.cm-scope .gen-act-spacer { display: none; }
 
 .cm-scope .gen-visibility-note { font-size: 12px; color: var(--text-3); display: inline-flex; align-items: center; gap: 4px; }
 
@@ -732,13 +752,23 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .comment-main { min-width: 0; flex: 1 1 auto; }
 
-.cm-scope .comment-id { display: flex; align-items: baseline; gap: 6px; }
+/* Same one-line rule as the card header (.gen-id): name truncates first,
+   then the handle, time never moves. Thread depth must not change it. */
+.cm-scope .comment-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }
 
-.cm-scope .comment-name { font-weight: 600; font-size: 14px; }
+.cm-scope .comment-name {
+  font-weight: 600; font-size: 14px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
 
-.cm-scope .comment-handle { color: var(--text-3); font-size: 13px; }
+.cm-scope .comment-handle {
+  color: var(--text-3); font-size: 13px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
 
-.cm-scope .comment-time { color: var(--text-3); font-size: 13px; }
+.cm-scope .comment-time { color: var(--text-3); font-size: 13px; flex: none; white-space: nowrap; }
 
 .cm-scope .comment-text {
   margin: 2px 0 0;
@@ -939,7 +969,9 @@ body:not(.community-mode) .modebar { display: none; }
   display: flex;
   gap: 2px;
   margin-top: 6px;
-  margin-left: -8px;
+  /* Threads follow the same row grammar as the feed: equal slices, no
+     controls hugging one edge. */
+  justify-content: space-evenly;
 }
 
 .cm-scope .comment-reply-btn {
@@ -992,7 +1024,9 @@ body:not(.community-mode) .modebar { display: none; }
 
 /* Pushes the kebab to the far edge, away from the actions the user taps to
    read. */
-.cm-scope .comment-ops-end { margin-left: auto; }
+/* space-evenly already positions this cluster; a margin would break the
+   equal slices. */
+.cm-scope .comment-ops-end { display: inline-flex; align-items: center; gap: 6px; }
 
 .cm-scope .comment-kebab {
   display: inline-flex;

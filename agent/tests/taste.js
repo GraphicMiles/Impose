@@ -204,6 +204,83 @@ test("community code and its styles move through the same network-first lane", f
   });
 });
 
+/* ---------- card grammar: one header line, evenly shared action rows ---------- */
+
+function cssBlock(css, selector) {
+  var i = css.indexOf(selector);
+  ok(i > -1, selector + " is missing from the stylesheet");
+  return css.slice(i, css.indexOf("}", i) + 1);
+}
+
+test("post and comment identities live on one line that truncates, never wraps", function () {
+  /* Author details used to wrap: a long display name pushed the handle
+     and time onto a second line, which pushed the post body down and
+     moved every card under it. The identity cluster is a single flex line
+     where the name truncates first, then the handle, and time/badges sit
+     on flex:none islands. Feed cards and thread rows share the rule. */
+  var css = read("community.css");
+  [[".cm-scope .gen-id", ".cm-scope .gen-name", ".cm-scope .gen-handle", ".cm-scope .gen-time"],
+   [".cm-scope .comment-id", ".cm-scope .comment-name", ".cm-scope .comment-handle", ".cm-scope .comment-time"]
+  ].forEach(function (selectors) {
+    var line = cssBlock(css, selectors[0]);
+    ok(line.indexOf("white-space: nowrap") > -1, selectors[0] + " can still wrap to a second line");
+    ok(line.indexOf("flex-wrap") === -1, selectors[0] + " re-introduced wrapping");
+    [selectors[1], selectors[2]].forEach(function (sel) {
+      var block = cssBlock(css, sel);
+      ok(block.indexOf("text-overflow: ellipsis") > -1 && block.indexOf("overflow: hidden") > -1 && block.indexOf("min-width: 0") > -1,
+        sel + " lost its truncation (min-width, hidden overflow, ellipsis)");
+    });
+    ok(cssBlock(css, selectors[3]).indexOf("flex: none") > -1, selectors[3] + " can be squeezed off the line");
+  });
+  ok(cssBlock(css, ".cm-scope .gen-badge").indexOf("flex: none") > -1,
+    "a badge can be squeezed off the header line");
+});
+
+test("feed and thread action rows share the row in even slices", function () {
+  /* Three count buttons hugged the left while lock and kebab were exiled
+     to the right edge by a flex spacer, so the same row read two ways.
+     Both rows now distribute with space-evenly and the spacer is inert. */
+  var css = read("community.css");
+  ok(cssBlock(css, ".cm-scope .gen-actions").indexOf("justify-content: space-evenly") > -1,
+    "the feed action row lost its even distribution");
+  ok(cssBlock(css, ".cm-scope .comment-ops").indexOf("justify-content: space-evenly") > -1,
+    "the thread action row lost its even distribution");
+  ok(cssBlock(css, ".cm-scope .gen-act-spacer").indexOf("display: none") > -1,
+    "the spacer still fights space-evenly for the row's free space");
+  ok(cssBlock(css, ".cm-scope .comment-ops-end").indexOf("margin-left: auto") === -1,
+    "the comment ops end-cluster still pulls to the right edge");
+});
+
+test("profile names have one contract: capped length, no emoji, some letters", function () {
+  /* The header truncation keeps the layout but cannot make an emoji name
+     sayable or searchable. The rule lives once in BotoUI.validProfileName,
+     is used by both edit points, matches what customize_profile enforces
+     (2-40, ASCII letter or digit, emoji stripped since migration 0027),
+     and the database column carries a NOT VALID pin for new writes. */
+  ok(read("ui-core.js").indexOf("validProfileName") > -1, "the shared name validator is gone from ui-core.js");
+  ok(read("ui-core.js").indexOf("\\u{1F000}") > -1, "the emoji class fell out of the validator");
+  var app = read("app.js");
+  ok((app.match(/BotoUI\.validProfileName/g) || []).length >= 2,
+    "one of the two name edit points (identity field, profile modal) stopped validating");
+  ok(read("community-data.js").indexOf("no emoji") > -1,
+    "the server's name refusal no longer tells the user about the emoji rule");
+  var sql = read("supabase/migrations/0027_display_names_no_emoji.sql");
+  ok(sql.indexOf("sanitize_display_name") > -1 && sql.indexOf("1F000") > -1,
+    "0027 no longer strips emoji in the one function every name write runs through");
+  ok(/not valid/i.test(sql),
+    "the column pin must be NOT VALID: existing rows are reclassified deliberately, never rewritten by a migration");
+});
+
+test("the profile-scoped post alias resolves end to end", function () {
+  /* /u/@handle/post/<id> was promised as an alias for /g/<id> by route()
+     but failed at both doorways: the server 404'd it and routeHash() only
+     parsed a single /u/ segment. Both now resolve and normalize. */
+  ok(read("server.js").indexOf("'/u/:handle/post/:id'") > -1,
+    "the server no longer serves the app to /u/:handle/post/:id");
+  ok(read("community.js").indexOf("/^\\/u\\/[^/]+\\/post\\/") > -1,
+    "routeHash() stopped normalizing the alias to /g/<id>");
+});
+
 /* ---------- redesign-skill: navigation state ---------- */
 
 test("the table of contents marks the section in view without a scroll listener", function () {

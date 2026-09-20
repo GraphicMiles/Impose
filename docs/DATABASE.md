@@ -2,7 +2,7 @@
 
 Single source of truth for the database. Generated from the live catalog
 (Supabase project `xgqcvuzkeaferjsnpjjw`, eu-west-2, free tier) on
-2026-09-19 after migration 0001–0026. Migrations live in
+2026-09-20 after migration 0001–0027. Migrations live in
 `supabase/migrations/`; the live objects ARE the migrations applied in
 order — verified byte-identical bodies against the last-defining file.
 
@@ -26,10 +26,12 @@ Golden rules proved the hard way (in prod):
 ### `profiles`
 one row per auth.users row; handle + identity. Written only through RPCs. Writers: handle_new_user trigger (auth) clones user metadata in; customize_profile validates+writes.
 
+Display-name contract (0027): 2-40 characters, at least one ASCII letter or digit, control/bidi marks stripped, NO emoji (sanitize_display_name strips the pictographic blocks 1F000-1FAFF / 2600-27BF / 2B00-2BFF plus variation selector FE0F and keycap combiner 20E3; emoji-only names fail name_too_short / name_needs_letter_or_digit). The client mirrors the rule in `BotoUI.validProfileName` (ui-core.js) so a name the UI accepts is never refused here.
+
 Columns:  
 `id uuid not null, handle text, display_name text not null, created_at timestamp with time zone not null, bio text, avatar text, username_changes_count integer not null, username_quota_exhausted_at timestamp with time zone`
 
-Constraints: `profiles_id_fkey (None)`; `PK: id`; `UQ: handle`
+Constraints: `profiles_id_fkey (None)`; `PK: id`; `UQ: handle`; `CK: profiles_display_name_bounds (len 1-40)`; `CK: profiles_display_name_no_emoji (0027, NOT VALID — enforces new writes, existing rows reclassified deliberately)`
 
 RLS policies:
 - `own profile update` [UPDATE] → using((auth.uid() = id))  check((auth.uid() = id))

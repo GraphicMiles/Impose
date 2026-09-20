@@ -180,6 +180,13 @@ server-fed display cache never written to disk. Every render path follows
   replaceCard slot painters (header/counts/prompt/response/chips/lock),
   only genuinely new ids build a node. The card entrance animation
   (ctx-in) is admission-only, gated on the absence of [data-entered].
+- Card grammar (post and comment headers share it): one identity line
+  that never wraps — the display name truncates first, the handle second,
+  time + badges sit on flex:none islands. Action rows (`.gen-actions`,
+  `.comment-ops`) distribute with space-evenly; no spacer or margin pulls
+  controls to an edge. Display names follow one contract everywhere
+  (BotoUI.validProfileName, mirrored by migration 0027): 2-40 chars, at
+  least one ASCII letter/digit, no emoji.
 - Optimistic rows carry the caller's real profile (myProfileNow cache),
   never a blank "You" placeholder; adoptServerRow renames the DOM node's
   data-id across the local->server id swap so optimistic card and canonical
@@ -312,7 +319,9 @@ profile/posts/comments/grants/caps; audit row survives via SET NULL).
     (`community.js` + `community-data.js` + `community.css` travel together);
     only vendored/stable assets may be stale-while-revalidate.
   - Render serves `index.html` for `/`, `/workspace`, `/g/:id`, `/u/:handle`,
-    `/admin` (server.js); everything unmatched gets the styled `404.html`.
+    `/u/:handle/post/:id` (alias; routeHash normalizes it to the canonical
+    `/g/<id>` detail), `/admin` (server.js); everything unmatched gets the
+    styled `404.html`.
 - Deploy relay: Render web service impose-relay (environment vars in Render
   dashboard; see relay files for names: CONTROL_KEY, SUPABASE_*,
   SENDLIB_* and the model gateway keys).

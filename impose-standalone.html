@@ -3270,13 +3270,26 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .gen-head { display: flex; align-items: center; gap: 10px; }
 
-.cm-scope .gen-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex-wrap: wrap; }
+/* One header line, always: the identity cluster never wraps, because a
+   wrapped second line pushes the post body down and moves every card
+   under it. Space pressure goes to the name first, then the handle;
+   time and badges sit on flex:none islands so they are never squeezed
+   onto a line of their own. */
+.cm-scope .gen-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }
 
-.cm-scope .gen-name { font-weight: 600; font-size: 14px; color: var(--text); }
+.cm-scope .gen-name {
+  font-weight: 600; font-size: 14px; color: var(--text);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
 
-.cm-scope .gen-handle { color: var(--text-3); font-size: 13px; }
+.cm-scope .gen-handle {
+  color: var(--text-3); font-size: 13px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
 
-.cm-scope .gen-time { color: var(--text-3); font-size: 13px; }
+.cm-scope .gen-time { color: var(--text-3); font-size: 13px; flex: none; white-space: nowrap; }
 
 .cm-scope .gen-time::before { content: "·"; margin-right: 6px; }
 
@@ -3289,6 +3302,8 @@ body:not(.community-mode) .modebar { display: none; }
   border: 1px solid var(--border-soft);
   border-radius: var(--r-pill);
   padding: 2px 8px;
+  flex: none; /* islands on the header line: badges never squeeze or wrap */
+  white-space: nowrap;
 }
 
 .cm-scope .gen-badge .lucide, .cm-scope .gen-badge i[data-lucide] { width: 12px; height: 12px; }
@@ -3421,7 +3436,10 @@ body:not(.community-mode) .modebar { display: none; }
   align-items: center;
   gap: 4px;
   margin-top: 8px;
-  margin-left: -8px;
+  /* Every control owns the same slice of the row: the three counts no
+     longer hug the left with lock and kebab exiled to the far right, and
+     the thumbs stop moving between cards that have different actions. */
+  justify-content: space-evenly;
 }
 
 /* Counters tick; tabular figures stop the digits dancing. */
@@ -3469,7 +3487,9 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .gen-act.on { color: var(--link); }
 
-.cm-scope .gen-act-spacer { flex: 1; }
+/* space-evenly owns the distribution now; the flex spacer that exiled the
+   trailing controls to the right edge would only double-count the gap. */
+.cm-scope .gen-act-spacer { display: none; }
 
 .cm-scope .gen-visibility-note { font-size: 12px; color: var(--text-3); display: inline-flex; align-items: center; gap: 4px; }
 
@@ -3527,13 +3547,23 @@ body:not(.community-mode) .modebar { display: none; }
 
 .cm-scope .comment-main { min-width: 0; flex: 1 1 auto; }
 
-.cm-scope .comment-id { display: flex; align-items: baseline; gap: 6px; }
+/* Same one-line rule as the card header (.gen-id): name truncates first,
+   then the handle, time never moves. Thread depth must not change it. */
+.cm-scope .comment-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }
 
-.cm-scope .comment-name { font-weight: 600; font-size: 14px; }
+.cm-scope .comment-name {
+  font-weight: 600; font-size: 14px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
 
-.cm-scope .comment-handle { color: var(--text-3); font-size: 13px; }
+.cm-scope .comment-handle {
+  color: var(--text-3); font-size: 13px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
 
-.cm-scope .comment-time { color: var(--text-3); font-size: 13px; }
+.cm-scope .comment-time { color: var(--text-3); font-size: 13px; flex: none; white-space: nowrap; }
 
 .cm-scope .comment-text {
   margin: 2px 0 0;
@@ -3734,7 +3764,9 @@ body:not(.community-mode) .modebar { display: none; }
   display: flex;
   gap: 2px;
   margin-top: 6px;
-  margin-left: -8px;
+  /* Threads follow the same row grammar as the feed: equal slices, no
+     controls hugging one edge. */
+  justify-content: space-evenly;
 }
 
 .cm-scope .comment-reply-btn {
@@ -3787,7 +3819,9 @@ body:not(.community-mode) .modebar { display: none; }
 
 /* Pushes the kebab to the far edge, away from the actions the user taps to
    read. */
-.cm-scope .comment-ops-end { margin-left: auto; }
+/* space-evenly already positions this cluster; a margin would break the
+   equal slices. */
+.cm-scope .comment-ops-end { display: inline-flex; align-items: center; gap: 6px; }
 
 .cm-scope .comment-kebab {
   display: inline-flex;
@@ -5277,7 +5311,7 @@ try {
   <div class="acct-head">
     <span class="avatar" id="acctAvatar">Y</span>
     <div class="acct-id">
-      <input id="acctName" class="acct-name" maxlength="24" autocomplete="off" aria-label="Display name" value="You">
+      <input id="acctName" class="acct-name" maxlength="40" autocomplete="off" aria-label="Display name" value="You">
       <span class="acct-sub" id="acctSub">Local profile</span>
     </div>
   </div>
@@ -9489,12 +9523,42 @@ window.BotoConfig = {
     catch (e) { return ""; }
   }
 
+  /* ---------- profile display-name contract ---------- */
+
+  /* One rule for every place a display name can be entered (profile modal,
+     workspace identity), mirroring the server's word on it: length comes
+     from customize_profile (2-40, at least one letter or digit), and since
+     migration 0027 display names carry no emoji. Card and thread headers
+     truncate long names instead of wrapping, so the length cap is also the
+     readability budget. */
+  var PROFILE_NAME_MIN = 2;
+  var PROFILE_NAME_MAX = 40;
+  var PROFILE_NAME_EMOJI = /[\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u20E3]/u;
+
+  /* Returns { ok, value } on success or { ok: false, reason, message }
+     with the exact words to show. Empty input is a separate answer from
+     an invalid one: some editors treat it as "keep the current name". */
+  function validProfileName(value) {
+    var v = String(value || "").trim();
+    if (!v) return { ok: false, reason: "empty", message: "Enter a display name." };
+    if (v.length > PROFILE_NAME_MAX) return { ok: false, reason: "long", message: "Names are " + PROFILE_NAME_MAX + " characters at most." };
+    if (v.length < PROFILE_NAME_MIN) return { ok: false, reason: "short", message: "Names need at least 2 characters." };
+    if (PROFILE_NAME_EMOJI.test(v)) return { ok: false, reason: "emoji", message: "Emojis can't be used as names." };
+    /* The database asks for an ASCII letter or digit (customize_profile),
+       so the client asks for the same thing: a name the client accepts
+       must never come back refused by the server. */
+    if (!/[A-Za-z0-9]/.test(v)) return { ok: false, reason: "plain", message: "Add at least one letter or number." };
+    return { ok: true, value: v };
+  }
+
   window.BotoUI = {
     autogrow: autogrow,
     escapeHtml: escapeHtml,
     syncSend: syncSend,
     refreshIcons: refreshIcons,
-    relativeTime: relativeTime
+    relativeTime: relativeTime,
+    validProfileName: validProfileName,
+    PROFILE_NAME_MAX: PROFILE_NAME_MAX
   };
 })();
 
@@ -16653,7 +16717,20 @@ window.BotoConfig = {
   if (cmAv) cmAv.addEventListener("click", function () { openAccount(cmAv, "bottom", "end"); });
 
   $("acctName").addEventListener("change", function () {
-    var v = $("acctName").value.trim().slice(0, 24);
+    var v = $("acctName").value.trim().slice(0, 40);
+    /* One name contract everywhere (see BotoUI.validProfileName): editing
+       to an invalid name is refused with its reason and the field snaps
+       back to the name that was there, rather than saving something the
+       public profile write path would then reject. */
+    if (v && window.BotoUI && BotoUI.validProfileName) {
+      var check = BotoUI.validProfileName(v);
+      if (!check.ok) {
+        toast(check.message, null, null, 4000, "warn");
+        $("acctName").value = displayName();
+        return;
+      }
+      v = check.value;
+    }
     state.settings.displayName = v || "You";
     save();
     syncAvatars();
@@ -16852,6 +16929,18 @@ window.BotoConfig = {
       var dName = nameInput ? nameInput.value.trim() : "";
       var handle = handleInput ? handleInput.value.trim() : "";
       var bio = bioInput ? bioInput.value.trim() : "";
+
+      /* Same contract as the workspace identity field (BotoUI.validProfileName).
+         An empty name means keep the current one, so it is not validated;
+         a supplied name that breaks the rule is refused before the RPC. */
+      if (dName && window.BotoUI && BotoUI.validProfileName) {
+        var nameCheck = BotoUI.validProfileName(dName);
+        if (!nameCheck.ok) {
+          toast(nameCheck.message, null, null, 4000, "warn");
+          return;
+        }
+        dName = nameCheck.value;
+      }
 
       customSave.disabled = true;
       /* Apply the selected General avatar to this tab immediately. The
@@ -20473,7 +20562,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
        here. They cannot collide with the messages above because raised
        codes are bare identifiers, never prose. */
     if (/name_too_short|name_too_long|name_needs_letter_or_digit|name_not_acceptable|name_has_control/i.test(text)) {
-      return { message: "That name does not look right. Use 2-40 characters with at least one letter or number.",
+      return { message: "That name does not look right. Use 2-40 characters with at least one letter or number, and no emoji.",
                retryable: false, code: "bad_name" };
     }
     if (/bio_too_long|bio_has_control/i.test(text)) {
@@ -21727,6 +21816,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (path === "/workspace") return "/workspace";
     var match = path.match(/^\/g\/([^/]+)$/);
     if (match) return "/g/" + decodeURIComponent(match[1]);
+    /* Profile-scoped post alias: /u/<handle>/post/<id> normalizes to the
+       canonical detail route. The handle segment is decorative; the post
+       id is authoritative, so the short form stays canonical everywhere
+       the app generates links and the long form resolves to it. */
+    match = path.match(/^\/u\/[^/]+\/post\/([^/]+)$/);
+    if (match) return "/g/" + decodeURIComponent(match[1]);
     match = path.match(/^\/u\/([^/]+)$/);
     if (match) return "/u/" + decodeURIComponent(match[1]);
     return "/";
@@ -22600,7 +22695,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     /* Shareable alias: /u/@handle/post/<id> names the same post detail as
        /g/<id>. The handle segment is descriptive; the post id is
        authoritative, so the short form stays canonical everywhere the
-       app generates links and the long form is simply accepted. */
+       app generates links and the long form resolves to it. Cold loads
+       arrive already normalized by routeHash(); this keeps the override
+       channel (nav/__imposeRouteHash) honest too. */
     var postAt = hash.indexOf("/post/");
     if (hash.indexOf("/u/") === 0 && postAt > -1) {
       hash = "/g/" + decodeURIComponent(hash.slice(postAt + 6));

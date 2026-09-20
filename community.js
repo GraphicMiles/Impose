@@ -88,6 +88,12 @@
     if (path === "/workspace") return "/workspace";
     var match = path.match(/^\/g\/([^/]+)$/);
     if (match) return "/g/" + decodeURIComponent(match[1]);
+    /* Profile-scoped post alias: /u/<handle>/post/<id> normalizes to the
+       canonical detail route. The handle segment is decorative; the post
+       id is authoritative, so the short form stays canonical everywhere
+       the app generates links and the long form resolves to it. */
+    match = path.match(/^\/u\/[^/]+\/post\/([^/]+)$/);
+    if (match) return "/g/" + decodeURIComponent(match[1]);
     match = path.match(/^\/u\/([^/]+)$/);
     if (match) return "/u/" + decodeURIComponent(match[1]);
     return "/";
@@ -961,7 +967,9 @@
     /* Shareable alias: /u/@handle/post/<id> names the same post detail as
        /g/<id>. The handle segment is descriptive; the post id is
        authoritative, so the short form stays canonical everywhere the
-       app generates links and the long form is simply accepted. */
+       app generates links and the long form resolves to it. Cold loads
+       arrive already normalized by routeHash(); this keeps the override
+       channel (nav/__imposeRouteHash) honest too. */
     var postAt = hash.indexOf("/post/");
     if (hash.indexOf("/u/") === 0 && postAt > -1) {
       hash = "/g/" + decodeURIComponent(hash.slice(postAt + 6));

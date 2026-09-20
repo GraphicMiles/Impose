@@ -112,7 +112,7 @@
        here. They cannot collide with the messages above because raised
        codes are bare identifiers, never prose. */
     if (/name_too_short|name_too_long|name_needs_letter_or_digit|name_not_acceptable|name_has_control/i.test(text)) {
-      return { message: "That name does not look right. Use 2-40 characters with at least one letter or number.",
+      return { message: "That name does not look right. Use 2-40 characters with at least one letter or number, and no emoji.",
                retryable: false, code: "bad_name" };
     }
     if (/bio_too_long|bio_has_control/i.test(text)) {
