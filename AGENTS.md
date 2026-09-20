@@ -398,6 +398,18 @@ already own - do not relearn them.
     verify gestures with synthetic cancellable touch events in a live
     runtime, not by reading the handler.
 
+22. **Fixed-position chrome + static scroll padding, and measuring a
+    layoutless subtree (2026-09-20, fixed in 31a9e78).** Two expressions
+    of one class: (a) a `position:fixed` dock whose height changes
+    (autogrow, previews, wrapped text) can never be dodged by a constant
+    `padding-bottom` on the scroller - measure the dock (ResizeObserver),
+    ship the height as a CSS var, pad by that; (b) anything positioned
+    from `getBoundingClientRect` against a subtree that is `display:none`
+    in another product mode must read `rect.height === 0` as "no layout",
+    refuse, and re-place on the real mode switch - never freeze a
+    garbage offset. Both verified in a live signed-in runtime, not from
+    source reading.
+
 ## 8. Failure modes that are BY DESIGN (never "fix" these)
 
 - Waitlist constant-shape responses (anti-probe); handle-quota errors
