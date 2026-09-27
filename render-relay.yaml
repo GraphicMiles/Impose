@@ -1,0 +1,88 @@
+# Standalone Render Blueprint: the relay backend ONLY, for provisioning a
+# fresh copy of backend/relay on a brand-new Render account (e.g. because
+# the original account ran out of free-tier quota).
+#
+# This is deliberately a SEPARATE file from render.yaml at the repo root:
+# render.yaml is the existing production blueprint (web + relay together)
+# and must stay untouched so the account already using it is never affected
+# by this file changing. Point a new Blueprint Instance at THIS file's path
+# instead of the default.
+#
+# How to use, on the new Render account:
+#   1. Dashboard -> Blueprints -> New Blueprint Instance
+#   2. Connect the GraphicMiles/Impose repo
+#   3. Under "Advanced", set Blueprint file path to: render-relay.yaml
+#      (branch: main, or whichever branch you want to deploy from)
+#   4. Render parses this file and shows one service: impose-relay
+#   5. You'll be prompted to fill in the "sync: false" secrets below -
+#      that's the only manual step. Everything else (service creation,
+#      build/start commands, random secrets, non-secret config, and even
+#      this relay's own SENDLIB_ORIGIN via RENDER_EXTERNAL_URL at runtime)
+#      is automatic.
+#   6. Click Apply. Render creates and deploys the service.
+#   7. Once live, add the new service's onrender.com URL to Sendlib's
+#      origin allowlist (that's on Sendlib's side, not Render's, so it
+#      can't be automated from here), and update config.js's RELAY_URL
+#      in this repo to point the site at the new relay.
+#
+# The onrender.com hostname Render assigns isn't known ahead of time (if
+# "impose-relay" is taken, Render appends a random suffix) - that's fine,
+# nothing here depends on guessing it.
+
+services:
+  - type: web
+    name: impose-relay
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt -r relay/requirements.txt
+    startCommand: uvicorn relay.server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Random secrets Render generates itself - nothing to paste.
+      - key: CONTROL_KEY
+        generateValue: true
+      - key: OTP_PEPPER
+        generateValue: true
+
+      # Public identifier, not a secret (gated by Supabase RLS) - same
+      # value regardless of which Render account hosts the relay, so it's
+      # safe to commit and needs no manual entry.
+      - key: SUPABASE_URL
+        value: https://xgqcvuzkeaferjsnpjjw.supabase.co
+
+      # Real secrets tied to external accounts (Supabase, Sendlib), not to
+      # Render - these cannot be generated or inferred, they must be
+      # copied in by hand from the old Render service's env tab (or their
+      # source dashboards) when the Blueprint prompts for them.
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SENDLIB_API_KEY
+        sync: false
+      - key: SENDLIB_FROM
+        sync: false
+      # Optional support reply-to address. Leave blank in the prompt if
+      # you weren't using one.
+      - key: SENDLIB_REPLY_TO
+        sync: false
+
+      # SENDLIB_ORIGIN is intentionally omitted: backend/relay/mailer.py
+      # falls back to Render's own RENDER_EXTERNAL_URL when it's unset, so
+      # this relay reports the right origin automatically no matter what
+      # hostname Render assigns it.
+
+      # The site that's allowed to call this relay. Unchanged regardless
+      # of which account hosts the relay, since impose-web isn't moving.
+      - key: ALLOWED_ORIGINS
+        value: "https://impose-web.onrender.com"
+
+      # Static defaults, unchanged from the production blueprint.
+      - key: WAKE_STUDIO
+        value: "0"
+      - key: WAKE_ON_CHAT
+        value: "0"
+      - key: IDLE_MONITOR
+        value: "0"
+      - key: IDLE_STOP_MINUTES
+        value: "5"
+      - key: IDLE_CHECK_MINUTES
+        value: "5"
