@@ -43,9 +43,17 @@ def _origin() -> str:
     the key; the request simply had no identity to match.
 
     Sending one explicitly gives the dashboard something to allow.
-    SENDLIB_ORIGIN overrides it for a different deployment.
+    SENDLIB_ORIGIN overrides it for a different deployment. Absent that,
+    fall back to RENDER_EXTERNAL_URL, which Render injects into every web
+    service with that service's own onrender.com URL — this is what lets a
+    freshly Blueprint-provisioned relay (whose hostname isn't known until
+    Render assigns it) report a correct origin with zero manual config.
     """
-    return os.environ.get("SENDLIB_ORIGIN", "").strip() or "https://impose-relay.onrender.com"
+    return (
+        os.environ.get("SENDLIB_ORIGIN", "").strip()
+        or os.environ.get("RENDER_EXTERNAL_URL", "").strip()
+        or "https://impose-relay.onrender.com"
+    )
 
 
 def _auth_headers() -> dict:
