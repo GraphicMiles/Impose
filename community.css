@@ -547,7 +547,26 @@ body:not(.community-mode) .modebar { display: none; }
   white-space: nowrap;
 }
 
-.cm-scope .gen-badge .lucide, .cm-scope .gen-badge i[data-lucide] { width: 12px; height: 12px; }
+/* The badge's box model is already exact: flexbox centers the icon's 12x12
+   box and the label's line box on the same line, measured to within a
+   fraction of a pixel, and there is no padding/margin/height anywhere in
+   this rule set that pushes either one off that shared centre. What is
+   still visible on some renderers is a level below the box: a Lucide glyph
+   fills its own square close to edge to edge, while a font's rendered
+   letters do not fill their line box the same way (a font's ascent/descent
+   metrics leave more room below the cap line than above it, even for a
+   word with no descenders). Two boxes centred on each other does not mean
+   their INK is centred on each other when one box is "a square icon" and
+   the other is "a line of text" - and how far off is a property of the
+   specific font's metrics, so it is not the same everywhere: it reads as a
+   larger gap under Android Chrome's font hinting than it does here. This
+   nudge is a measured optical correction for that mismatch, not a spacing
+   hack - it moves pixels the box model was never asked to hold. */
+.cm-scope .gen-badge .lucide, .cm-scope .gen-badge i[data-lucide] {
+  width: 12px;
+  height: 12px;
+  transform: translateY(-1px);
+}
 
 .cm-scope .gen-badge.locked { color: var(--warn); border-color: rgba(224, 166, 63, 0.35); }
 
