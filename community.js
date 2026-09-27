@@ -3845,6 +3845,18 @@
     var act = btn.dataset.act;
     if (btn.disabled) return;
     e.stopPropagation();
+    /* Lock in particular is patched in place (see patchLock/replaceCard),
+       so the same button node a tap focused survives the toggle instead of
+       being recreated. Left focused, some mobile browsers draw their own
+       native focus/accessibility highlight around it that page CSS cannot
+       reach (outline and box-shadow are already both nulled out above this
+       for every state) - it can be left looking stuck "on" long after the
+       tap ended. Blurring after the action fires clears that without
+       touching keyboard use: this scope already suppresses the visible
+       focus ring everywhere (:focus, :focus-visible { outline: none }), so
+       no visual affordance is lost, only the one a device may be drawing
+       outside CSS's reach. */
+    if (document.activeElement === btn) btn.blur();
 
     if (act === "menu") {
       var items = gen.own

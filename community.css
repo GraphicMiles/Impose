@@ -672,15 +672,19 @@ body:not(.community-mode) .modebar { display: none; }
 
 /* action row */
 
+/* The row is the single source of truth for size: it holds the width (the
+   full card) and the height (one shared band every control sits in). No
+   child below sets its own height, min-height, or fixed width - flexbox
+   centers whatever each button's own content and padding add up to, so a
+   three-character count button and an icon-only button land on the exact
+   same centre line without a special case for either shape. */
 .cm-scope .gen-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 8px;
-  /* Every control owns the same slice of the row: the three counts no
-     longer hug the left with lock and kebab exiled to the far right, and
-     the thumbs stop moving between cards that have different actions. */
   justify-content: space-evenly;
+  width: 100%;
+  height: 32px;
+  margin-top: 8px;
 }
 
 /* Counters tick; tabular figures stop the digits dancing. */
@@ -691,24 +695,19 @@ body:not(.community-mode) .modebar { display: none; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  /* One height for every control in the row. Buttons carrying a count were
-     32px because their text set the line box, while the icon-only lock and
-     kebab collapsed to 28px: the row read as two different sizes sitting on
-     one line. Fixing the height rather than the padding keeps them on a
-     shared centre line whatever they contain. */
-  min-height: 32px;
-  padding: 0 8px;
+  /* Padding on every side, not just left/right: a 16px icon plus 8px of
+     padding all around is a 32px-tall control, matching the row's own
+     height exactly, with nothing declared about height anywhere. The same
+     rule gives an icon-only button (lock, kebab) and a count button
+     (icon + digit) equal height for free, because both start from the
+     same 16px icon and the same padding. */
+  padding: 8px;
   border-radius: var(--r-3);
   font-size: 13px;
   line-height: 1;
   color: var(--text-3);
   transition: background-color 140ms ease, color 140ms ease;
 }
-
-/* Icon-only controls are square at that same height, so the row's right end
-   reads as a pair of equal targets rather than two odd rectangles. An
-   explicit class, not :has(), which is not safe to depend on here. */
-.cm-scope .gen-act--icon { width: 32px; padding: 0; }
 
 .cm-scope .gen-act .lucide, .cm-scope .gen-act i[data-lucide] { width: 16px; height: 16px; }
 
