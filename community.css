@@ -509,7 +509,14 @@ body:not(.community-mode) .modebar { display: none; }
    under it. Space pressure goes to the name first, then the handle;
    time and badges sit on flex:none islands so they are never squeezed
    onto a line of their own. */
-.cm-scope .gen-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }
+/* align-items: center, not baseline - the locked/private badge is a pill
+   (icon + text in its own inline-flex box), and a synthesized baseline for
+   that box does not line up with the plain-text baseline of the name,
+   handle and timestamp next to it. Baseline alignment left the badge
+   sitting a couple of pixels above the rest of the row; centering keeps
+   every item's vertical middle on one shared line regardless of what it
+   contains. */
+.cm-scope .gen-id { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
 
 .cm-scope .gen-name {
   font-weight: 600; font-size: 14px; color: var(--text);
@@ -709,7 +716,11 @@ body:not(.community-mode) .modebar { display: none; }
 .cm-scope .gen-act:hover { background: var(--hover); color: var(--text); }
 }
 
-.cm-scope .gen-act:active { background: var(--press); }
+/* No press background: on touch, :active can stick around after the finger
+   lifts (no hover state to fall back to), leaving a highlighted box sitting
+   behind the icon well after the tap ended. Tap feedback here is just the
+   icon/label color already handled elsewhere; the row stays visually quiet
+   when tapped, same as it does when clicked with a mouse. */
 
 .cm-scope .gen-act:disabled { color: var(--text-3); opacity: 0.5; cursor: default; }
 
