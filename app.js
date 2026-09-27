@@ -708,6 +708,11 @@
     ];
   }
 
+  /* Every relay URL that has ever been the default. A relay migration
+     retires an entry here so previously-saved settings can be told apart
+     from a URL someone actually typed in on purpose. */
+  var OLD_RELAY_DEFAULTS = ["https://impose-relay.onrender.com"];
+
   function defaultSettings() {
     /* The public relay ships as the default: visitors get keyless search
        and images out of the box, rate limited per person. Owners add their
@@ -726,6 +731,16 @@
           /* Dark is the only supported appearance. Migrate old light or warm
              preferences so every surface uses one predictable token set. */
           parsed.settings.theme = "dark";
+          /* The relay moved to a new Render account (the old one ran out of
+             quota). Object.assign above only fills in MISSING keys, so any
+             browser that already had a settings blob kept relayUrl fossilized
+             at the old default forever - a code change alone never reaches
+             it. Migrate it forward exactly once, the same way theme is
+             above, and only when it still matches the old default: a
+             relay URL someone typed in on purpose is never touched. */
+          if (OLD_RELAY_DEFAULTS.indexOf(parsed.settings.relayUrl) !== -1) {
+            parsed.settings.relayUrl = defaultSettings().relayUrl;
+          }
           parsed.providers = Array.isArray(parsed.providers) ? parsed.providers : [];
           parsed.providers.forEach(function (pr) {
             if (!pr.model && pr.models) pr.model = pr.models[pr.activeSlot || 0] || pr.models[0] || "";
@@ -9592,6 +9607,9 @@
             state.library = Array.isArray(legacy.library) ? legacy.library : [];
             state.memories = Array.isArray(legacy.memories) ? legacy.memories : [];
             state.settings = Object.assign(defaultSettings(), legacy.settings || {});
+            if (OLD_RELAY_DEFAULTS.indexOf(state.settings.relayUrl) !== -1) {
+              state.settings.relayUrl = defaultSettings().relayUrl;
+            }
             activeId = state.settings.activeChatId || null;
             renderList();
             renderModelMenu();
