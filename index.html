@@ -2,6 +2,15 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
+<!-- Pins every relative URL (stylesheets, scripts, in-page links, and
+     window.location.href = "./x" redirects) to the site root regardless of
+     the current path depth. Without this, loading a deep link such as
+     /u/:handle, /g/:id, or /u/:handle/post/:id resolves "./styles.css" to
+     "/u/styles.css" etc., which the Express SPA fallback routes wrongly
+     treat as a handle/id and answer with index.html instead of the real
+     asset - breaking all CSS and JS on a cold load or refresh of those
+     pages. Must stay before any tag with a relative href/src. -->
+<base href="/">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Impose</title>
 <meta name="description" content="Impose. In bots we trust.">
