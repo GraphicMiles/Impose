@@ -10,7 +10,7 @@ window.BotoConfig = {
      because the mail credential must never reach a browser. Empty means
      the app falls back to the relay address in Workspace settings, which
      is what local development uses. */
-  RELAY_URL: "https://impose-relay.onrender.com",
+  RELAY_URL: "https://impose-relay-5pde.onrender.com",
 
   /* "open": Community and Workspace both available (development/demo).
      "enforce": Community open to everyone, Workspace behind the

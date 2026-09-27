@@ -712,7 +712,7 @@
     /* The public relay ships as the default: visitors get keyless search
        and images out of the box, rate limited per person. Owners add their
        control key for the wake, the proxy, and the reader. */
-    return { theme: "dark", enterToSend: true, activeProviderId: null, relayUrl: "https://impose-relay.onrender.com", relayKey: "", searchMode: false, displayName: "You",
+    return { theme: "dark", enterToSend: true, activeProviderId: null, relayUrl: "https://impose-relay-5pde.onrender.com", relayKey: "", searchMode: false, displayName: "You",
       redactPII: false, followupsSmart: true, imageTools: true, autoName: true, retentionDays: 0, failover: true };
   }
 
