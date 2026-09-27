@@ -30,6 +30,17 @@ app.get(['/u/:handle', '/u/:handle/'], (_req, res) => res.sendFile(path.join(roo
 app.get(['/u/:handle/post/:id', '/u/:handle/post/:id/'], (_req, res) => res.sendFile(path.join(root, 'index.html')));
 app.get(['/admin', '/admin/'], (_req, res) => res.sendFile(path.join(root, 'index.html')));
 
+/* Auth deep links. auth.html's own boot script reads location.pathname to
+   pick the view (sign-in, sign-up, ...), the service worker's offline
+   fallback already maps these exact paths to auth.html, and render.yaml
+   already declares cache headers for them - only Express was missing the
+   route, so a cold load, bookmark, or hard refresh of any of these 404'd
+   instead of reaching the form. */
+app.get(['/sign-in', '/sign-in/', '/sign-up', '/sign-up/',
+  '/forgot-password', '/forgot-password/', '/otp', '/otp/',
+  '/reset-password', '/reset-password/'],
+  (_req, res) => res.sendFile(path.join(root, 'auth.html')));
+
 app.use((_req, res) => res.status(404).sendFile(path.join(root, '404.html')));
 
 app.listen(port, '0.0.0.0', () => {

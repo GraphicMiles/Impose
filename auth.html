@@ -2,6 +2,9 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
+<!-- Same fix as index.html: pins relative asset/link URLs to the site root
+     so this page stays correct if it is ever reached from a nested path. -->
+<base href="/">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sign in · Impose</title>
 <meta name="description" content="Sign in to Impose or create your account.">
