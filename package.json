@@ -1,16 +1,17 @@
 {
   "name": "impose-web",
   "private": true,
-  "version": "1.0.0",
-  "description": "Impose web client and clean deep-link server",
+  "version": "1.1.0",
+  "description": "Impose agent interface served as a single shell",
   "main": "server.js",
+  "engines": {
+    "node": ">=20 <23"
+  },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "healthz": "node -e \"require('http').get('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz',r=>{console.log(r.statusCode);process.exit(r.statusCode===200?0:1)})\""
   },
   "dependencies": {
     "express": "^4.21.2"
-  },
-  "devDependencies": {
-    "playwright": "^1.63.0"
   }
 }

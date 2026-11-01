@@ -1,107 +1,16 @@
 # Render Blueprint: the file Render looks for at the repository ROOT.
-# Deploys the chat UI as a static site plus the optional relay (backend/relay/).
+# Two services: the interface (Express, this repo's root) and the optional
+# relay (backend/relay/). A Blueprint is validated as a whole, so every key
+# here must be one Render knows for that service type: a web service has no
+# `headers` field, and production headers are set in server.js instead.
 services:
   - type: web
     name: impose-web
     runtime: node
+    plan: free
     buildCommand: npm install
-    startCommand: node server.js
-    # Render ignores Netlify-style _headers files. Declare production headers
-    # in the Blueprint so they are actually present on the deployed site.
-    headers:
-      - path: /*
-        name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self' 'sha256-0veUJDTsBMiTL9D+bxTQUQaWGGcKCSOgssmNQiYop6s=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; frame-src https://www.youtube-nocookie.com https://player.twitch.tv https://clips.twitch.tv; object-src 'none'; base-uri 'self'; form-action 'self'"
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-
-      # Caching. Every asset revalidated on every load because nothing set
-      # this, so a returning visitor paid a round trip per file to be told
-      # nothing had changed.
-      #
-      # HTML is never cached: it is the document that names which script
-      # versions to load, and a stale copy pins a browser to an old build
-      # for as long as the cache lives. The service worker already handles
-      # offline; this only stops needless revalidation.
-      - path: /*.html
-        name: Cache-Control
-        value: "no-cache"
-      - path: /
-        name: Cache-Control
-        value: "no-cache"
-      # sw.js must never be cached either, or a new worker cannot install
-      # and the version bump that ships a fix never reaches anyone.
-      - path: /sw.js
-        name: Cache-Control
-        value: "no-cache"
-      # The rewritten routes serve HTML too, but the /*.html rule does not
-      # match an extensionless path, so they fell through to the default
-      # edge caching and pinned exactly the pages that change with auth
-      # and capabilities for five minutes. Name them.
-      - path: /admin
-        name: Cache-Control
-        value: "no-cache"
-      - path: /sign-in
-        name: Cache-Control
-        value: "no-cache"
-      - path: /sign-up
-        name: Cache-Control
-        value: "no-cache"
-      - path: /forgot-password
-        name: Cache-Control
-        value: "no-cache"
-      - path: /otp
-        name: Cache-Control
-        value: "no-cache"
-      - path: /reset-password
-        name: Cache-Control
-        value: "no-cache"
-      - path: /about
-        name: Cache-Control
-        value: "no-cache"
-      - path: /privacy
-        name: Cache-Control
-        value: "no-cache"
-      - path: /terms
-        name: Cache-Control
-        value: "no-cache"
-      - path: /data-security
-        name: Cache-Control
-        value: "no-cache"
-      - path: /contact
-        name: Cache-Control
-        value: "no-cache"
-      - path: /acceptable-use
-        name: Cache-Control
-        value: "no-cache"
-      # Code and styles are revalidated rather than trusted blindly: the
-      # filenames are not content-hashed, so a long max-age would serve a
-      # stale app.js after a deploy. must-revalidate with a short window
-      # keeps the conditional request cheap and the answer current.
-      - path: /*.js
-        name: Cache-Control
-        value: "public, max-age=0, must-revalidate"
-      - path: /*.css
-        name: Cache-Control
-        value: "public, max-age=0, must-revalidate"
-      # Immutable by nature: these change name when they change content, or
-      # never change at all.
-      - path: /*.png
-        name: Cache-Control
-        value: "public, max-age=604800"
-      - path: /*.jpg
-        name: Cache-Control
-        value: "public, max-age=604800"
-      - path: /fonts.css
-        name: Cache-Control
-        value: "public, max-age=604800"
-      - path: /*
-        name: Referrer-Policy
-        value: strict-origin-when-cross-origin
-      - path: /*
-        name: Permissions-Policy
-        value: "camera=(), microphone=(self), geolocation=()"
+    startCommand: npm start
+    healthCheckPath: /healthz
   - type: web
     name: impose-relay
     runtime: python

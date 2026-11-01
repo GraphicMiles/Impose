@@ -6,7 +6,7 @@
 # Render does not read this Netlify-style file; the same rules live in
 # render.yaml for the deployed site. Keep the two in step.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-0veUJDTsBMiTL9D+bxTQUQaWGGcKCSOgssmNQiYop6s=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; frame-src https://www.youtube-nocookie.com https://player.twitch.tv https://clips.twitch.tv; object-src 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-0veUJDTsBMiTL9D+bxTQUQaWGGcKCSOgssmNQiYop6s=' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: http: localhost http://127.0.0.1 ws: wss:; frame-src https://www.youtube-nocookie.com https://player.twitch.tv https://clips.twitch.tv; object-src 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(self), geolocation=()
