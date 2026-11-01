@@ -1,16 +1,29 @@
 {
   "name": "Impose",
   "short_name": "Impose",
-  "description": "AI chat workspace with bring-your-own-key providers",
+  "description": "Agent workspace: ask for work and the run explains itself as it happens.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#171717",
-  "theme_color": "#171717",
+  "background_color": "#0F0F0F",
+  "theme_color": "#0F0F0F",
   "icons": [
-    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "./icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "./icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

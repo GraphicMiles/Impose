@@ -1,208 +1,73 @@
 /* Impose app shell cache.
-   Strategy: navigations and the core code files are NETWORK FIRST with a
-   cache fallback, so a deploy always reaches users on their next load and
-   old JS never runs against new HTML. Everything else (vendored libraries,
-   icons, images) is STALE WHILE REVALIDATE: instant from cache, refreshed
-   behind the cache's back for next time. */
+   Navigations are network first with a cache fallback, so a deploy reaches
+   users on their next load. The shell is one self-contained document plus
+   icons, so the precache is short and cannot drift: every entry here exists
+   in the repo. Bump CACHE whenever index.html ships. */
 
-/* Bump on every shipped asset change. A stale entry here is not a cosmetic
-   problem: serving an old community.css beside a new index.html left the
-   composer highlight layer unstyled, so it rendered as a second visible copy
-   of the text above the input. Version, precache list and asset list must
-   move together. */
-/* BUMP THIS ON EVERY SHIPPED CHANGE TO A PRECACHED FILE.
-   The worker serves the precache first, so an unchanged version string
-   means returning visitors keep the old app.js and styles.css no matter
-   what is deployed. The debug panel fix shipped correct and invisible for
-   exactly this reason: the origin served the new files and the worker
-   never asked for them. build_inline.py --check now fails when a
-   precached file is newer than this line. */
-/* precache-fingerprint: 854c1ed3edef
-   A hash of the cached sources, checked by agent/tests/taste.js. If it
-   disagrees, a cached file changed without a version bump and returning
-   visitors would keep the old build. */
-var CACHE = "impose-shell-v76";
-var AUTH_ROUTE = /^\/(?:sign-in|sign-up|forgot-password|otp|reset-password)\/?$/;
-var PUBLIC_ROUTE = {
-  /* The admin console is index.html in admin mode. It is a real path
-     route (not a hash) so it needs the same offline treatment as the
-     other page-rewritten paths. */
-  "/admin": "./index.html",
-  "/about": "./about.html",
-  "/privacy": "./privacy.html",
-  "/terms": "./terms.html",
-  "/data-security": "./data-security.html",
-  "/contact": "./contact.html",
-  "/acceptable-use": "./acceptable-use.html"
-};
-var CORE = [
-  "./",
-  "./index.html",
-  "./config.js",
-  "./ui-core.js",
-  "./access.js",
-  "./workspace-sync.js",
-  "./debug-bus.js",
-  "./app.js",
-  "./avatars.js",
-  "./styles.css",
-  "./auth.html",
-  "./auth.js",
-  "./auth-client.js",
-  "./supabase.min.js",
-  "./auth.css",
-  "./about.html",
-  "./privacy.html",
-  "./terms.html",
-  "./data-security.html",
-  "./contact.html",
-  "./acceptable-use.html",
-  "./public.css",
-  "./public.js",
-  "./agent/trace.js",
-  "./agent/orchestrator.js",
-  "./agent/harness.js",
-  "./agent/features.js",
-  "./community.js",
-  /* community.js is network-first but its stylesheet and data layer were
-     not, so one load after every deploy could run the new router against a
-     stale community.css/community-data.js. Version-coupled pairs must
-     share the strategy. */
-  "./community-data.js",
-  "./community.css"
-];
-
-/* The full precache list: core files plus the assets that rarely change. */
+var CACHE = "impose-shell-v77";
+var SHELL = "./index.html";
 var PRECACHE = [
   "./",
   "./index.html",
-  "./debug-bus.js",
-  "./workspace-sync.js",
-  "./app.js",
-  "./avatars.js",
-  "./styles.css",
-  "./auth.html",
-  "./auth.js",
-  "./auth-client.js",
-  "./supabase.min.js",
-  "./auth.css",
-  "./about.html",
-  "./privacy.html",
-  "./terms.html",
-  "./data-security.html",
-  "./contact.html",
-  "./acceptable-use.html",
-  "./public.css",
-  "./public.js",
-  "./agent/trace.js",
-  "./agent/orchestrator.js",
-  "./agent/harness.js",
-  "./agent/features.js",
-  "./community.js",
-  "./community-data.js",
-  "./agent/trace.css",
-  "./community.css",
-  "./lucide.min.js",
-  "./anime.min.js",
-  "./og-image.jpg",
   "./manifest.json",
   "./icon-192.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./icon-maskable.png",
+  "./icon-apple.png"
 ];
 
-self.addEventListener("install", function (e) {
-  e.waitUntil(caches.open(CACHE).then(function (c) {
-    /* Precache one at a time; a single 404 (an icon not yet deployed, say)
-       must not abort the whole install. */
-    return Promise.all(PRECACHE.map(function (url) {
-      return c.add(new Request(url, { cache: "reload" })).catch(function () { /* skip */ });
-    }));
-  }).then(function () {
-    return self.skipWaiting();
-  }));
+self.addEventListener("install", function (event) {
+  event.waitUntil(
+    caches.open(CACHE).then(function (cache) {
+      return cache.addAll(PRECACHE);
+    }).then(function () { return self.skipWaiting(); })
+  );
 });
 
-self.addEventListener("activate", function (e) {
-  e.waitUntil(caches.keys().then(function (keys) {
-    return Promise.all(keys.filter(function (k) {
-      return k !== CACHE;
-    }).map(function (k) {
-      return caches.delete(k);
-    }));
-  }).then(function () {
-    return self.clients.claim();
-  }));
+self.addEventListener("activate", function (event) {
+  event.waitUntil(
+    caches.keys().then(function (keys) {
+      return Promise.all(keys.map(function (key) {
+        return key === CACHE ? null : caches.delete(key);
+      }));
+    }).then(function () { return self.clients.claim(); })
+  );
 });
 
-/* The page can ask the new worker to take over immediately after an update:
-   postMessage("impose-skip-waiting") from the client, or just reload. */
-self.addEventListener("message", function (e) {
-  if (e.data === "impose-skip-waiting" && self.skipWaiting) self.skipWaiting();
-});
+self.addEventListener("fetch", function (event) {
+  var request = event.request;
+  if (request.method !== "GET") return;
 
-self.addEventListener("fetch", function (e) {
-  var url = new URL(e.request.url);
-  if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
+  var url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
 
-  /* Navigations: network first, cached shell when offline. */
-  if (e.request.mode === "navigate") {
-    e.respondWith(fetch(e.request).then(function (res) {
-      if (!res || !res.ok) throw new Error("Navigation returned " + (res ? res.status : "no response"));
-      var copy = res.clone();
-      caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
-      return res;
-    }).catch(function () {
-      return caches.match(e.request).then(function (hit) {
-        if (hit) return hit;
-        if (AUTH_ROUTE.test(url.pathname)) return caches.match("./auth.html");
-        var publicPath = url.pathname.replace(/\/$/, "") || "/";
-        if (PUBLIC_ROUTE[publicPath]) return caches.match(PUBLIC_ROUTE[publicPath]);
-        return caches.match("./index.html");
-      });
-    }));
-    return;
-  }
-
-  /* Keep subdirectories when comparing with CORE. Reducing every URL to its
-     basename turned agent/features.js into ./features.js, so agent updates
-     were accidentally served stale for one load after every deploy. */
-  var scopePath = new URL(self.registration.scope).pathname;
-  var relative = url.pathname.indexOf(scopePath) === 0
-    ? url.pathname.slice(scopePath.length) : url.pathname.replace(/^\/+/, "");
-  var path = "./" + relative;
-  var isCore = CORE.indexOf(path) !== -1;
-
-  if (isCore) {
-    /* Core code: try the network so deploys land, fall back to cache when
-       offline. */
-    e.respondWith(fetch(e.request).then(function (res) {
-      if (res && res.ok) {
-        var copy = res.clone();
-        caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
-      }
-      return res;
-    }).catch(function () {
-      return caches.match(e.request).then(function (hit) {
-        /* Never answer a JavaScript or CSS request with index.html. With
-           nosniff that fails anyway, and without it it is dangerous. */
-        return hit || new Response("Core asset unavailable while offline.", {
-          status: 503,
-          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+  // Navigations: always try the network, fall back to the cached shell.
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request).then(function (response) {
+        var copy = response.clone();
+        caches.open(CACHE).then(function (cache) { cache.put(SHELL, copy); });
+        return response;
+      }).catch(function () {
+        return caches.match(SHELL).then(function (hit) {
+          return hit || caches.match("./index.html");
         });
-      });
-    }));
+      })
+    );
     return;
   }
 
-  /* Everything else: serve from cache now, refresh quietly for next time. */
-  e.respondWith(caches.match(e.request).then(function (hit) {
-    var net = fetch(e.request).then(function (res) {
-      if (res && res.ok) {
-        var copy = res.clone();
-        caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
-      }
-      return res;
-    }).catch(function () { return hit; });
-    return hit || net;
-  }));
+  // Static shell assets: cache first, refreshed in the background.
+  event.respondWith(
+    caches.match(request).then(function (hit) {
+      if (hit) return hit;
+      return fetch(request).then(function (response) {
+        if (response && response.ok) {
+          var copy = response.clone();
+          caches.open(CACHE).then(function (cache) { cache.put(request, copy); });
+        }
+        return response;
+      });
+    })
+  );
 });
