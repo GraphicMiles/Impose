@@ -1,60 +1,46 @@
 # Impose
 
-An agent workspace where a request runs as something you can watch: the plan,
-the tools it picks, the approvals it asks for, and a trace of what happened.
+An agent workspace where a request runs as something you can watch: the plan it
+makes, the tools it picks, the approvals it asks you for, and a trace of what
+actually happened.
 
-The interface is a single HTML shell. The thinking happens in a Python backend
-that talks to a llama.cpp server on a GPU box, plus web search, files, media and
-email helpers.
+The interface is a single HTML shell. The work happens in a Python backend that
+relays to a llama.cpp server on a GPU box, alongside helpers for web search,
+files, images, media and email.
 
-## Layout
+## Why it exists
 
-```
-index.html              the whole web interface (one page, owns its own state)
-server.js               Express server: serves the shell, sets CSP and headers
-manifest.json           installable web app manifest
-agent/                  orchestration: plan → resolve tools → execute → verify
-  orchestrator.js       intent-driven capability orchestration, task states
-  harness.js            execution harness
-  features.js           capability registry
-  trace.js, trace.css   the run trace the interface renders
-  tests/                orchestrator and feature tests
-backend/
-  relay/                always-on layer in front of the GPU box
-    server.py           OpenAI-compatible surface, wake-on-chat, idle stop
-    routers/            auth, admin, media
-    capabilities.py     tool capability definitions
-    files.py, images.py, media_core.py, media_providers.py
-    mailer.py, otp_store.py, reports_store.py, search.py
-    source_intelligence.py, supabase_admin.py
-    provider_catalog.json
-  lightning/            GPU box gateway
-    server.py           auth-gated proxy in front of llama.cpp, plus search
-  common/websearch.py   provider chain used by both
-supabase/
-  migrations/           schema and auth migrations, numbered
-  apply.sh
-render.yaml             production blueprint (web + relay)
-render-relay.yaml       standalone blueprint for the relay only
-_headers                static host headers
-```
+Most agent products show a spinner and then an answer. When the answer is wrong,
+there is nothing to inspect. Impose is built the other way round: the run is the
+product, and the answer is what the run produces. Every step is a visible object
+with its own state, so a failure points at the step that failed instead of at the
+whole request.
 
-## Running the web shell
+## What you can do
 
-```sh
+- **Send a request** and watch it turn into a plan with named steps.
+- **See the tools it chooses**, including the arguments, before they run.
+- **Approve or refuse** the steps that need a human, such as sending mail or
+  writing files.
+- **Read the trace** afterwards: what ran, in what order, what came back.
+- **Pick capabilities** from the workspace registry rather than from a fixed
+  prompt.
+
+## Running it
+
+Web shell:
+
+```bash
 npm ci
 PORT=3000 npm start
 ```
 
-`server.js` serves `index.html` on every non-file path and applies the CSP from
-the top of the file. The interface embeds its typeface as a data URI, which is
-why `font-src` includes `data:`.
+`server.js` serves `index.html` for every non-file path and applies the content
+security policy defined at the top of the file.
 
-## Running the backend
+Backend relay, which expects a reachable GPU gateway:
 
-The relay expects a reachable GPU gateway:
-
-```sh
+```bash
 cd backend/relay
 pip install -r requirements.txt
 CONTROL_KEY=local-dev-key \
@@ -63,25 +49,53 @@ LLM_GATEWAY_KEY=local-dev-key \
 python server.py
 ```
 
-Environment variables are listed at the top of `backend/relay/server.py` and in
-`backend/.env.example`. The gateway in `backend/lightning/server.py` needs its
-own `CONTROL_KEY`; llama-server stays bound to `127.0.0.1` and is only reached
-through the gateway.
+Every variable the relay reads is listed at the top of `backend/relay/server.py`
+and in `backend/.env.example`. `backend/lightning/server.py` is the authenticated
+gateway in front of llama-server, which stays bound to localhost.
 
-## Agent tests
+## What is not here
 
-```sh
+- The shell runs on its own, but a real request needs the relay and a GPU
+  gateway. Without them the interface shows the failure state.
+- There is no hosted public instance in this repository. `render.yaml` is the
+  blueprint used for deployment.
+- The capability set is the one committed here. Adding tools means editing
+  `agent/features.js`.
+
+## How it is built
+
+```
+index.html              the whole web interface, owns its own state
+server.js               Express server: shell, CSP, headers
+manifest.json           installable web app manifest
+agent/                  orchestration: plan, resolve tools, execute, verify
+  orchestrator.js       intent-driven capability orchestration
+  harness.js            execution harness
+  features.js           capability registry
+  trace.js, trace.css   the run trace the interface renders
+  tests/                orchestrator and feature tests
+backend/
+  relay/                always-on layer in front of the GPU box
+  lightning/            authenticated gateway in front of llama.cpp
+  common/websearch.py   provider chain shared by both
+supabase/migrations     ordered schema history, applied by supabase/apply.sh
+```
+
+Media helpers live in `backend/relay/` next to the capabilities that call them:
+`files.py`, `images.py`, `media_core.py`, `media_providers.py`, `mailer.py`,
+`otp_store.py`, `reports_store.py`, `search.py`, `source_intelligence.py`.
+
+### Tests
+
+```bash
 node agent/tests/run.js
 ```
 
-## Database
+Two GitHub workflows handle the database side: `supabase-migrate.yml` applies
+migrations and `db-backup.yml` takes the backup.
 
-`supabase/migrations` is the ordered schema history; `supabase/apply.sh` applies
-it. The two GitHub workflows in `.github/workflows/` handle migrations and
-database backups.
+### Deploy
 
-## Deploy
-
-`render.yaml` at the repository root provisions the web service and the relay
-together. `render-relay.yaml` provisions the relay alone, for a fresh Render
-account; point a new Blueprint instance at that file instead of the default.
+`render.yaml` provisions the web service and the relay together.
+`render-relay.yaml` provisions the relay alone, which is the file to point a
+fresh Render blueprint at.
